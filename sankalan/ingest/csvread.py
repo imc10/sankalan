@@ -37,12 +37,15 @@ class ReadCounts:
     rows: int = 0
     blank_rows: int = 0
     hidden_rows: int = 0
+    limited: bool = False       # stopped at the row limit: more rows follow
 
 
 def read_csv(fh, encoding: str, delimiter: str, header_row: int, width: int, out_path, *,
-             report: Callable[[int], None] | None = None, stop: Callable[[], bool] | None = None) -> ReadCounts:
+             report: Callable[[int], None] | None = None, stop: Callable[[], bool] | None = None,
+             limit: int | None = None) -> ReadCounts:
     """Write the raw staged text: records after ``header_row`` (1-based record number), first ``width`` fields,
-    blank records dropped and counted (T14). ``fh`` is the open binary source file."""
+    blank records dropped and counted (T14). ``fh`` is the open binary source file. ``limit`` stops after that many
+    data rows (the New template wizard's sample, TPL-3), so the rest of the file is never read."""
     fh.seek(0)
     text = io.TextIOWrapper(fh, encoding=detect.read_codec(encoding), errors="replace", newline="")
     counts = ReadCounts()
@@ -58,6 +61,9 @@ def read_csv(fh, encoding: str, delimiter: str, header_row: int, width: int, out
                 else:
                     w.write(recno, vals)
                     counts.rows += 1
+                    if limit is not None and counts.rows >= limit:
+                        counts.limited = True
+                        break
                 pending += 1
                 if pending >= PROGRESS_EVERY:
                     if report is not None:

@@ -14,7 +14,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 5 | 5 — Run pipeline end-to-end (headless) | Done | `v2` (Phase 5 commit) | TPL-A R-0001…R-0007 (+ discarded runs), TPL-C and TPL-D pass headless (`run/pipeline.py`) |
 | 6 | 6 — UI shell and design system | Done | `v2` (Phase 6 commit) | Window, rail, theme, shared widgets, App settings; Clients/Analysis are placeholders until Phases 7/10 |
 | 7 | 7 — Clients, Client, Template screens | Done | `v2` (Phase 7 commit) | C1, C2, C4 with all four tabs; New template / New run / Run / Export open placeholders until Phases 8–10 |
-| 8 | 8 — New template wizard | Not started | | |
+| 8 | 8 — New template wizard | Done | `v2` (Phase 8 commit) | 2.1–2.6; Save and start first run opens the `new_run` route (Phase 9 placeholder) |
 | 9 | 9 — New run wizard and Run detail | Not started | | Largest UI phase; split wizard / Run detail if needed |
 | 10 | 10 — Analysis and export dialogs | Not started | | |
 | 11 | 11 — Packaging, signing, install/uninstall | Not started | | Signing needs the RSA OV certificate (R1) |
@@ -57,10 +57,73 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 - The UI mockups don't yet show: the Decimals field (2.3; built on 3.3 in Phase 7), the Input = Loaded + Left out
   totals table (4.5), and "Export left-out rows" (5.1; built on 3.1 in Phase 7). Build them from the Tech Spec.
 - Certificate (R1) not yet bought: develop with Smart App Control off; the SAC check waits for a signed build.
+- (Phase 8) Test-process crash (access violation) in some test orders, also on the Phase 7 commit
+  (`pytest tests/engine tests/gui`): a closed DuckDB connection left in a reference cycle by an earlier test was
+  finalised by a garbage collection on the main thread while a Job thread was inside DuckDB on another connection.
+  `tests/conftest.py::collect_garbage` now collects after every test (suite ~95 s). In the app only the data-folder
+  move closes one connection and opens another: Phase 12 should check the old connection object is released at
+  once (no cycle) or collect right after the move, before the next Job.
 
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 8: New template wizard
+- **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11).
+- **Readers:** `csvread.read_csv` and `excel.read_sheet` take `limit` (stop after that many data rows; `limited`
+  set), so the sample never reads past 100,000 rows (C3-03).
+- **`ingest/sample.py`** (no DuckDB): `refusal` (folders, .xls, other types, lock files, missing), `inspect` (read-only
+  open; password/old-xls/locked messages; sheets visible/hidden, header row by the run's detection, rows from the
+  dimension record, first rows for the preview with dates as DD-MM-YYYY via calamine's row iterator; CSV encoding
+  from the first 4 MB and delimiter from the first 64 KB, both overridable), `read_part` worker task.
+- **`query/sample.py`:** one scan over the raw sample text per column: filled, Number-rule readable, leading zeros,
+  ISO / DD-MM-YYYY / DD/MM/YYYY shapes, readable dates per format, first two distinct values.
+- **`newtemplate.py`** (Job work): `inspect`, `check_name`, `default_source`, `sheets_to_read`, `sheets_problem`,
+  `stage` (new staging folder per read, previous one removed; sheets in order, 100,000 rows in total; headers in
+  several sheets lined up by MAP-2), `detect` + `percent` (% note), `draft_columns`, `columns_problem`,
+  `convert_sample` (same convert SQL as a run, cached per column signature), `dry_run` (VR-8 counts + first 20),
+  `preview` (DO-8), `build_template` (included columns renumbered c001… in the order shown; rules, Unique keys and
+  output definitions re-pointed), `save` (`create_template`, version 1; nothing under `t\`).
+- **Screens:** `screens/new_template.py` `NewTemplateScreen` (StepBar, Cancel · Back · footer text · Next / Save
+  template + Save and start first run, ProgressPanel with Cancel for reads): 2.1 name + file (Choose…, drag and drop,
+  `FILE_FILTER`, "Read 1,000 rows for previews"), 2.2 sheets (three options, sheet list with hidden sheets greyed
+  "Hidden, skipped", preview with the header row tinted and "Header found in row 3"; CSV: encoding and delimiter
+  combos with what was detected), 2.3 columns grid (Include, header, name, type, Decimals 0–6 on Number only, Date
+  format only for text dates — Excel dates show a disabled "Excel dates", Detected % note amber below 100%, sample
+  values formatted, ↑↓), 2.6 review (summary lines as the canvas plus a Column · Type · Rules table).
+  `screens/new_template_rules.py`: 2.4 `RulesStep` (column list, "Number · Becomes fixed after the first run",
+  rule menu per type, `RuleDialog`, Error/Warning, "0 of 1,000 fail" counts as buttons opening `ShowDialog` with the
+  first 20 rows: Row · Value · Message), 2.5 `OutputsStep` = `OutputsTab` without its save bar, previewing "On the
+  sample · …" (`OutputsTab.preview_work` hook added). Route `new_template` registered; ClientScreen passes the name.
+- **Tests:** 369 passing, full suite run twice (27 new: `tests/engine/test_template_sample.py` 9 (C3-03 on a generated 150,000-row
+  CSV, limit on Excel and with a real worker, sheets/hidden, 1252 CSV, refusals and password, type detection on F17 =
+  TPL-C, dry-run counts on F04 = C3-16, build/renumber/save), `tests/gui/test_new_template.py` 18 (C3-01…C3-22, every
+  step fits 1280×640)). C3-18 previews match the sheet exactly (DO1 per state and grand total; DO2 Aug-2026 rates
+  and subtotal 1,507,375.00).
+- **Interpretations** (change if wrong):
+  - Sheets step starts on "By name" with the first visible sheet ticked (canvas 2.2; C3-20 expects "By name: Sales").
+  - Type detection: Date when ≥ 80% of filled values are shaped like a date (the format whose shapes cover most,
+    Excel/ISO dates preferred on a tie), else Number when ≥ 80% read as numbers and none has a leading zero (codes
+    such as 00123 stay Text, MAP-9), else Text. The note gives the share that actually reads ("90.9% numbers",
+    "84.61% dates · DD-MM-YYYY", "100% dates · Excel dates", "100% text"), or "N% blank" when half or more are blank;
+    shares are floored, never shown as 100% unless exact. Decimals default 2 (C3-10).
+  - Detected CSV encoding and delimiter are not stored (runs detect per file); a value the user changes is stored as
+    the template's override. "UTF-8 with BOM" is not offered separately (UTF-8 reads both).
+  - 100,000 rows means in total across the sheets read, in sheet order. "Read N rows for previews" shows the rows
+    actually read (1,000 for F01, 100,000 for P01).
+  - Re-reading happens only when the file (path, size, modified time), the sheets read, the encoding or delimiter
+    change; entries for headers still present are kept, new headers go last.
+  - Dry run runs on entering step 4 and after every rule change, one at a time (a change during a run queues one
+    more); counts are on the app connection over the staged sample, not a separate in-memory database (Phase 3 note).
+  - Save → the client's screen with "<name> saved."; Cancel / leaving asks "Discard this template?" (Keep editing /
+    Discard, "Your entries will be lost. Nothing has been saved."). Saving and discarding remove the staging folder.
+  - The step 2 preview comes from calamine and includes hidden rows; header detection (like a run) skips them.
+- **Harness fix:** see Known issues (garbage collected after every test; the crash predates this phase).
+- **Not verified:** the screens by eye at 1366×768 / 125% / 150%; the real file dialog and a real drag and drop
+  (tests call `pick`); C3-03 with the real P01 (a generated 150,000-row CSV stands in); the preview speed of
+  calamine's row iterator on a 1M-row sheet.
+- **Next:** Phase 9 (New run wizard and Run detail): replace the `new_run` route (`template_id`, `name`); reuse
+  `ProgressPanel`, `StepBar`, `ShowDialog`-style lists and `RuleDialog`.
 
 ### 17-11-2026 — Phase 7: Clients, Client and Template screens
 - **Decisions confirmed by the user:** C1-04 names unique ignoring case; low-disk threshold 10 GB (see Decisions).

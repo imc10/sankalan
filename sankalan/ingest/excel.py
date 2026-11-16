@@ -298,12 +298,15 @@ class ReadCounts:
     rows: int = 0               # data rows written (not blank, not hidden)
     blank_rows: int = 0         # IN-8, T14
     hidden_rows: int = 0        # IN-13, below the header
+    limited: bool = False       # stopped at the row limit: more rows follow
 
 
 def read_sheet(path: str, fh, sheet: str, header_row: int, width: int, out_path, *,
-               report: Callable[[int], None] | None = None, stop: Callable[[], bool] | None = None) -> ReadCounts:
+               report: Callable[[int], None] | None = None, stop: Callable[[], bool] | None = None,
+               limit: int | None = None) -> ReadCounts:
     """Write the raw staged text of one sheet: rows below ``header_row``, columns 0..width-1, hidden and blank
-    rows dropped and counted. ``fh`` is the open source file (for the XML scan); calamine opens ``path`` itself."""
+    rows dropped and counted. ``fh`` is the open source file (for the XML scan); calamine opens ``path`` itself.
+    ``limit`` stops after that many data rows (the New template wizard's sample, TPL-3)."""
     import python_calamine as pc
 
     scan = Book(fh).scan(sheet, stop=stop)
@@ -342,6 +345,9 @@ def read_sheet(path: str, fh, sheet: str, header_row: int, width: int, out_path,
             else:
                 w.write(rnum, vals)
                 counts.rows += 1
+                if limit is not None and counts.rows >= limit:
+                    counts.limited = True
+                    break
             pending += 1
             if pending >= PROGRESS_EVERY:
                 if report is not None:
@@ -350,7 +356,9 @@ def read_sheet(path: str, fh, sheet: str, header_row: int, width: int, out_path,
                 if stop is not None and stop():
                     return counts
         # hidden rows listed past the last row calamine returns (an empty hidden row at the end)
-        counts.hidden_rows += sum(1 for r in scan.hidden_rows if r > header_row and r > max(len_rows(sh), 0))
+        if not counts.limited:
+            counts.hidden_rows += sum(1 for r in scan.hidden_rows
+                                      if r > header_row and r > max(len_rows(sh), 0))
     if report is not None and pending:
         report(pending)
     return counts

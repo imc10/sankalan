@@ -334,7 +334,7 @@ class OutputsTab(TemplateTab):
             self.show_error(str(e))
             return
         self.show_error("")
-        columns, data = self.template.columns, self.latest.data
+        work = self.preview_work(definition)
         self.progress.show()
 
         def done(p: manage.Preview):
@@ -346,12 +346,17 @@ class OutputsTab(TemplateTab):
             from sankalan.ui.screens.common import error_text
             self.show_error(error_text(e))
 
-        job = self.screen.start("Preview output", lambda ctx: manage.output_preview(ctx, definition, columns, data),
-                                done, failed, cancellable=True, on_cancelled=lambda: self.progress.hide())
+        job = self.screen.start("Preview output", work, done, failed, cancellable=True,
+                                on_cancelled=lambda: self.progress.hide())
         if job is not None:
             self.progress.bind(job)
         else:
             self.progress.hide()
+
+    def preview_work(self, definition: Definition):
+        """The Job work for a preview: on the latest run here; the New template wizard previews on its sample."""
+        columns, data = self.template.columns, self.latest.data
+        return lambda ctx: manage.output_preview(ctx, definition, columns, data)
 
     def show_preview(self, p: manage.Preview) -> None:
         self.preview_result = p

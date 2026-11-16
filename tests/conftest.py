@@ -35,6 +35,17 @@ def pytest_sessionfinish(session, exitstatus):
         Path(path).write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
 
 
+@pytest.fixture(autouse=True)
+def collect_garbage():
+    """Collect after every test, while no Job runs. A closed DuckDB connection left in a reference cycle by an
+    earlier test (storage ↔ runner ↔ Jobs) could otherwise be finalised by a collection on the main thread while a
+    later test's Job thread was inside DuckDB on another connection: the process crashed (access violation) in
+    some test orders, e.g. tests/engine + tests/gui (seen on the Phase 7 commit too)."""
+    yield
+    import gc
+    gc.collect()
+
+
 @pytest.fixture(scope="session")
 def fixtures_dir(tmp_path_factory):
     """The fixture pack F01-F21, generated once per test session and verified against the Fixtures tab."""

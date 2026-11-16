@@ -144,7 +144,7 @@ class ClientScreen(DataScreen):
             self.window_.go("template", template_id=row[ID], name=row[0])
 
     def new_template(self) -> None:
-        self.window_.go("new_template", client_id=self.client_id)
+        self.window_.go("new_template", client_id=self.client_id, name=self.client_name)
 
     def new_run(self, r: int) -> bool:
         """C2-04: a confirmation first; Cancel stays here."""

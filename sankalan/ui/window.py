@@ -47,13 +47,18 @@ def default_screens() -> dict[str, ScreenFactory]:
 
 
 def _later(title: str, phase: int):
-    """A screen a later phase builds (New template: 8, New run and Run: 9)."""
+    """A screen a later phase builds (New run and Run: 9)."""
     return lambda w, **_kw: w.open_screen(PlaceholderScreen("clients", title, f"Arrives in Phase {phase}.", w))
 
 
-def _open_client(w: "MainWindow", client_id: str, name: str = "", **_kw) -> bool:
+def _open_client(w: "MainWindow", client_id: str, name: str = "", banner=None, **_kw) -> bool:
     from sankalan.ui.screens.client import ClientScreen
-    return w.open_screen(ClientScreen(client_id, name, w))
+    return w.open_screen(ClientScreen(client_id, name, w), banner=banner)
+
+
+def _open_new_template(w: "MainWindow", client_id: str, name: str = "", **_kw) -> bool:
+    from sankalan.ui.screens.new_template import NewTemplateScreen
+    return w.open_screen(NewTemplateScreen(client_id, name, w))
 
 
 def _open_template(w: "MainWindow", template_id: str, name: str = "", tab: int = 0, banner=None, **_kw) -> bool:
@@ -70,7 +75,7 @@ def _export_later(w: "MainWindow", request=None, **_kw) -> bool:
 
 def default_routes() -> dict[str, Callable[..., bool]]:
     """Where navigation goes (``MainWindow.go``). Later phases replace the placeholders."""
-    return {"client": _open_client, "template": _open_template, "new_template": _later("New template", 8),
+    return {"client": _open_client, "template": _open_template, "new_template": _open_new_template,
             "new_run": _later("New run", 9), "run": _later("Run", 9), "export": _export_later}
 
 
