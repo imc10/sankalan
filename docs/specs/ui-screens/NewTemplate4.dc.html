@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sankalan · New template · Rules</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&amp;family=IBM+Plex+Sans+Devanagari:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0E6B6B}a:hover{color:#0A4F4F}
+</style>
+</helmet>
+<div style="width: 1366px; height: 768px; display: flex; flex-direction: column; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #1C2128; background: #FFFFFF; overflow: hidden">
+
+<div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #F6F7F8; border-bottom: 1px solid #E6E8EB">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="width: 18px; height: 18px; border-radius: 4px; background: #0E6B6B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Sans Devanagari', sans-serif; font-size: 11px; font-weight: 500">सं</div>
+<span style="font-size: 12px; color: #1C2128">Sankalan</span>
+</div>
+<div style="display: flex; height: 32px">
+<button aria-label="Minimise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+<button aria-label="Maximise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="#1C2128" stroke-width="1"></rect></svg></button>
+<button aria-label="Close" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; min-height: 0">
+
+<nav aria-label="Main" style="width: 64px; flex-shrink: 0; background: #F6F7F8; border-right: 1px solid #E6E8EB; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px">
+<a href="Main.dc.html" aria-current="page" style="width: 52px; height: 52px; border-radius: 8px; background: #E3F1F0; color: #0A4F4F; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-6h6v6"></path><path d="M9 10h.01M15 10h.01"></path></svg>
+<span style="font-size: 11px; font-weight: 500">Clients</span>
+</a>
+<a href="Analyses.dc.html" style="width: 52px; height: 52px; border-radius: 8px; color: #5B636E; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"></path><path d="M7 16V10"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+<span style="font-size: 11px">Analysis</span>
+</a>
+<div style="flex: 1"></div>
+<button aria-label="App settings" style="width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+</button>
+</nav>
+
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 32px 0">
+
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5B636E; margin-bottom: 12px">
+<a href="Main.dc.html" style="color: #0E6B6B; text-decoration: none">Clients</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<a href="Client.dc.html" style="color: #0E6B6B; text-decoration: none">Shree Ganesh Enterprises</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<span aria-current="page">New template</span>
+</nav>
+
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 500; color: #1C2128">New template</h1>
+<ol aria-label="Steps" style="list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="5">
+<li aria-current="{{s.current}}" style="display: flex; align-items: center; gap: 8px">
+<span style="width: 24px; height: 24px; border-radius: 12px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; background: {{s.dotBg}}; color: {{s.dotFg}}; border: 1px solid {{s.dotBorder}}">{{s.n}}</span>
+<span style="font-size: 13px; font-weight: {{s.weight}}; color: {{s.fg}}">{{s.label}}</span>
+<sc-if value="{{s.notLast}}" hint-placeholder-val="{{true}}"><span aria-hidden="true" style="width: 16px; height: 1px; background: #D9DCE1; margin-left: 2px"></span></sc-if>
+</li>
+</sc-for>
+</ol>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex; gap: 16px">
+
+<section aria-label="Columns" style="width: 420px; flex-shrink: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden">
+<div style="flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 70px 46px 56px 52px; column-gap: 8px; align-items: center; height: 40px; padding: 0 8px 0 14px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 12px; font-weight: 500; color: #5B636E">
+<span>Column</span><span>Type</span><span style="text-align: right">Rules</span><span style="text-align: right"></span><span></span>
+</div>
+<div style="flex: 1; min-height: 0; overflow-y: auto">
+<sc-for list="{{columns}}" as="c" hint-placeholder-count="9">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 46px 56px 52px; column-gap: 8px; align-items: center; height: 40px; padding: 0 8px 0 14px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums; background: {{c.bg}}">
+<span style="font-weight: {{c.weight}}; color: {{c.fg}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.name}}</span>
+<span style="color: #444B55">{{c.type}}</span>
+<span style="text-align: right">{{c.rules}}</span>
+<span></span>
+<span style="display: flex; justify-content: flex-end">
+<button aria-label="Move {{c.name}} up" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button>
+<button aria-label="Move {{c.name}} down" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+</span>
+</div>
+</sc-for>
+</div>
+<div style="flex-shrink: 0; height: 44px; display: none; align-items: center; padding: 0 8px; border-top: 1px solid #E6E8EB">
+<button style="height: 32px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+Add column
+</button>
+</div>
+</section>
+
+<section aria-label="Taxable Value details" style="flex: 1; min-width: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden">
+<div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px">
+<label style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 500; color: #5B636E">Column name</span>
+<input type="text" value="Taxable Value" style="height: 36px; box-sizing: border-box; padding: 0 12px; border: 1px solid #D9DCE1; border-radius: 6px; font-family: inherit; font-size: 14px; color: #1C2128">
+</label>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 500; color: #5B636E">Type</span>
+<div style="height: 36px; box-sizing: border-box; padding: 0 12px; border: 1px solid #D9DCE1; border-radius: 6px; background: #FFFFFF; display: flex; align-items: center; gap: 8px; font-size: 14px; color: #1C2128">
+<span style="flex: 1">Number</span>
+<span style="font-size: 12px; color: #6B737D">Becomes fixed after the first run</span>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-size: 12px; font-weight: 500; color: #5B636E">Rules</span>
+<button style="height: 24px; padding: 0 4px; border: 0; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500">+ Add rule</button>
+</div>
+<div style="border: 1px solid #E6E8EB; border-radius: 8px; overflow: hidden">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 156px 150px 36px; column-gap: 12px; align-items: center; height: 40px; padding: 0 8px 0 14px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 12px; font-weight: 500; color: #5B636E">
+<span>Rule</span><span>Setting</span><span>If it fails</span><span style="text-align: right">On sample rows</span><span></span>
+</div>
+<sc-for list="{{rules}}" as="r" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 156px 150px 36px; column-gap: 12px; align-items: center; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums">
+<span style="display: flex; align-items: center; gap: 6px">{{r.name}}
+<sc-if value="{{r.locked}}" hint-placeholder-val="{{false}}"><span title="Added automatically for Number columns. Can be set to Warning, not removed." style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #EEF0F2; color: #444B55">Auto</span></sc-if>
+</span>
+<span style="color: #444B55">{{r.setting}}</span>
+<span role="radiogroup" aria-label="Severity for {{r.name}}" style="display: flex; height: 28px; border: 1px solid #D9DCE1; border-radius: 6px; overflow: hidden; width: fit-content">
+<button role="radio" aria-checked="{{r.isError}}" style="height: 26px; padding: 0 10px; border: 0; background: {{r.errBg}}; color: {{r.errFg}}; font-family: inherit; font-size: 12px; font-weight: 500">Error</button>
+<button role="radio" aria-checked="{{r.isWarning}}" style="height: 26px; padding: 0 10px; border: 0; border-left: 1px solid #D9DCE1; background: {{r.warnBg}}; color: {{r.warnFg}}; font-family: inherit; font-size: 12px; font-weight: 500">Warning</button>
+</span>
+<span style="text-align: right; color: {{r.testFg}}">{{r.test}}</span>
+<span style="display: flex; justify-content: flex-end">
+<sc-if value="{{r.removable}}" hint-placeholder-val="{{true}}"><button aria-label="Remove rule {{r.name}}" style="width: 28px; height: 28px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"></path></svg></button></sc-if>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+<div style="flex-shrink: 0; padding: 12px 20px; border-top: 1px solid #E6E8EB; font-size: 12px; color: #6B737D">Counts are on the first 100,000 rows of SGE_Sales_Oct-2026.xlsx. Click a count to see the first 20 failing rows.</div>
+</section>
+
+</div>
+
+
+<div style="flex-shrink: 0; height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px -32px 0; padding: 0 32px; border-top: 1px solid #E6E8EB">
+<div style="display: flex; align-items: center; gap: 8px">
+<a href="Client.dc.html" style="height: 36px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; border-radius: 6px; color: #444B55; text-decoration: none; font-size: 14px">Cancel</a>
+<a href="NewTemplate3.dc.html" style="height: 36px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; gap: 6px; border: 1px solid #D9DCE1; border-radius: 6px; color: #1C2128; text-decoration: none; font-size: 14px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1C2128" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Back</a>
+</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="font-size: 13px; color: #5B636E"></span>
+<a href="NewTemplate5.dc.html" style="height: 36px; box-sizing: border-box; padding: 0 18px; display: flex; align-items: center; gap: 6px; border-radius: 6px; background: #0E6B6B; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 500">Next: Default outputs
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+</div>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+renderVals() {
+const labels = ['Sample file', 'Sheets', 'Columns', 'Rules', 'Default outputs', 'Review'];
+const cur = 3;
+const steps = labels.map(function (l, i) {
+const done = i < cur, now = i === cur;
+return {
+n: done ? '✓' : String(i + 1), label: l, current: now ? 'step' : 'false', notLast: i < labels.length - 1,
+dotBg: now ? '#0E6B6B' : (done ? '#E3F1F0' : '#FFFFFF'), dotFg: now ? '#FFFFFF' : (done ? '#0A4F4F' : '#6B737D'),
+dotBorder: now ? '#0E6B6B' : (done ? '#E3F1F0' : '#D9DCE1'),
+weight: now ? '500' : '400', fg: now ? '#1C2128' : '#6B737D'
+};
+});
+const cols = [
+['Invoice No', 'Text', 3, 1],
+['Invoice Date', 'Date', 2, 1],
+['Customer Name', 'Text', 1, 0],
+['GSTIN', 'Text', 2, 0],
+['Place of Supply', 'Text', 2, 1],
+['Invoice Type', 'Text', 1, 0],
+['Taxable Value', 'Number', 3, 2],
+['Tax Amount', 'Number', 2, 0],
+['Invoice Value', 'Number', 3, 1]
+];
+const rules = [
+['Is a number', 'Plain numbers, 1,234.50 and (1,234)', 'error', '0 of 100,000 fail', true],
+['Not blank', '', 'error', '0 of 100,000 fail', false],
+['Number range', 'Not negative', 'warning', '212 of 100,000 fail', false]
+];
+return {
+steps: steps,
+columns: cols.map(function (c) {
+const sel = c[0] === 'Taxable Value';
+return { name: c[0], type: c[1], rules: String(c[2]), aliases: String(c[3]), bg: sel ? '#E3F1F0' : '#FFFFFF', fg: sel ? '#0A4F4F' : '#1C2128', weight: sel ? '500' : '400' };
+}),
+rules: rules.map(function (r) {
+const err = r[2] === 'error';
+const fails = r[3] !== '0 of 100,000 fail';
+return {
+name: r[0], setting: r[1] || 'No setting', test: r[3], locked: r[4], removable: !r[4],
+isError: err ? 'true' : 'false', isWarning: err ? 'false' : 'true',
+errBg: err ? '#FDECEA' : '#FFFFFF', errFg: err ? '#B42318' : '#6B737D',
+warnBg: err ? '#FFFFFF' : '#FEF0E1', warnFg: err ? '#6B737D' : '#93370D',
+testFg: fails ? (err ? '#B42318' : '#93370D') : '#6B737D'
+};
+})
+};
+}
+}
+</script>
+</body>
+</html>

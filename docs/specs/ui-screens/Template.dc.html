@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sankalan · Monthly Sales Register · Runs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&amp;family=IBM+Plex+Sans+Devanagari:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0E6B6B}a:hover{color:#0A4F4F}
+</style>
+</helmet>
+<div style="width: 1366px; height: 768px; display: flex; flex-direction: column; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #1C2128; background: #FFFFFF; overflow: hidden">
+
+<div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #F6F7F8; border-bottom: 1px solid #E6E8EB">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="width: 18px; height: 18px; border-radius: 4px; background: #0E6B6B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Sans Devanagari', sans-serif; font-size: 11px; font-weight: 500">सं</div>
+<span style="font-size: 12px; color: #1C2128">Sankalan</span>
+</div>
+<div style="display: flex; height: 32px">
+<button aria-label="Minimise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+<button aria-label="Maximise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="#1C2128" stroke-width="1"></rect></svg></button>
+<button aria-label="Close" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; min-height: 0">
+
+<nav aria-label="Main" style="width: 64px; flex-shrink: 0; background: #F6F7F8; border-right: 1px solid #E6E8EB; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px">
+<a href="Main.dc.html" aria-current="page" style="width: 52px; height: 52px; border-radius: 8px; background: #E3F1F0; color: #0A4F4F; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-6h6v6"></path><path d="M9 10h.01M15 10h.01"></path></svg>
+<span style="font-size: 11px; font-weight: 500">Clients</span>
+</a>
+<a href="Analyses.dc.html" style="width: 52px; height: 52px; border-radius: 8px; color: #5B636E; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"></path><path d="M7 16V10"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+<span style="font-size: 11px">Analysis</span>
+</a>
+<div style="flex: 1"></div>
+<button aria-label="App settings" style="width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+</button>
+</nav>
+
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 32px 20px">
+
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5B636E; margin-bottom: 12px">
+<a href="Main.dc.html" style="color: #0E6B6B; text-decoration: none">Clients</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<a href="Client.dc.html" style="color: #0E6B6B; text-decoration: none">Acme Traders</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<span aria-current="page">Monthly Sales Register</span>
+</nav>
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 500; color: #1C2128">Monthly Sales Register</h1>
+<p style="margin: 0; font-size: 13px; color: #5B636E; font-variant-numeric: tabular-nums">12 runs · 117,612,330 rows · 9.8 GB · last loaded 16-11-2026 14:32</p>
+</div>
+<a href="RunFiles.dc.html" style="height: 36px; box-sizing: border-box; padding: 0 16px; border-radius: 6px; background: #0E6B6B; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"></path></svg>
+New run
+</a>
+</div>
+
+<div role="tablist" aria-label="Template sections" style="display: flex; gap: 28px; height: 40px; border-bottom: 1px solid #E6E8EB; margin-bottom: 16px">
+<button role="tab" aria-selected="true" style="height: 40px; padding: 0; border: 0; border-bottom: 2px solid #0E6B6B; background: transparent; font-family: inherit; font-size: 14px; font-weight: 500; color: #0A4F4F">Runs</button>
+<a href="TemplateOutputs.dc.html" role="tab" aria-selected="false" style="height: 40px; box-sizing: border-box; border-bottom: 2px solid transparent; font-size: 14px; color: #5B636E; text-decoration: none; display: flex; align-items: center; gap: 6px">Default outputs <span style="font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #EEF0F2; color: #444B55">3</span></a>
+<a href="TemplateColumns.dc.html" role="tab" aria-selected="false" style="height: 40px; box-sizing: border-box; display: flex; align-items: center; border-bottom: 2px solid transparent; font-size: 14px; color: #5B636E; text-decoration: none">Columns and rules</a>
+<a href="TemplateSettings.dc.html" role="tab" aria-selected="false" style="height: 40px; box-sizing: border-box; display: flex; align-items: center; border-bottom: 2px solid transparent; font-size: 14px; color: #5B636E; text-decoration: none">Settings</a>
+</div>
+
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px">
+<label style="display: flex; align-items: center; gap: 8px; width: 340px; height: 36px; box-sizing: border-box; padding: 0 12px; border: 1px solid #D9DCE1; border-radius: 6px; background: #FFFFFF">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search runs</span>
+<input type="text" placeholder="Search comments and file names" style="border: 0; outline: none; flex: 1; min-width: 0; font-family: inherit; font-size: 14px; color: #1C2128; background: transparent">
+</label>
+<span style="font-size: 13px; color: #5B636E">Newest first</span>
+</div>
+
+<div style="flex: 1; min-height: 0; border: 1px solid #E6E8EB; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column">
+<div style="flex-shrink: 0; display: grid; grid-template-columns: 88px 150px 84px 120px 168px 196px minmax(0, 1fr) 44px; column-gap: 16px; align-items: center; height: 40px; padding: 0 8px 0 16px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 12px; font-weight: 500; color: #5B636E">
+<span>Run ID</span>
+<span style="display: flex; align-items: center; gap: 4px">Loaded on <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M6 13l6 6 6-6"></path></svg></span>
+<span style="text-align: right">Files</span>
+<span style="text-align: right">Rows</span>
+<span>Issues</span>
+<span>Status</span>
+<span>Comment</span>
+<span></span>
+</div>
+<div style="flex: 1; min-height: 0; overflow-y: auto">
+<sc-for list="{{runs}}" as="r" hint-placeholder-count="12">
+<div style="display: grid; grid-template-columns: 88px 150px 84px 120px 168px 196px minmax(0, 1fr) 44px; column-gap: 16px; align-items: center; height: 40px; padding: 0 8px 0 16px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums">
+<a href="Run.dc.html" style="color: #0E6B6B; text-decoration: none; font-weight: 500">{{r.id}}</a>
+<span style="color: #444B55">{{r.loaded}}</span>
+<span title="{{r.fileNames}}" style="text-align: right; color: #444B55; text-decoration: underline dotted #A3AAB2; text-underline-offset: 3px">{{r.files}}</span>
+<span style="text-align: right">{{r.rows}}</span>
+<span style="display: flex; gap: 6px; white-space: nowrap">
+<sc-if value="{{r.hasErrors}}" hint-placeholder-val="{{false}}"><span style="color: #B42318; font-weight: 500">{{r.errors}}</span></sc-if>
+<sc-if value="{{r.noErrors}}" hint-placeholder-val="{{true}}"><span style="color: #6B737D">{{r.errors}}</span></sc-if>
+<span style="color: #A3AAB2">·</span>
+<span style="color: #6B737D">{{r.warnings}}</span>
+</span>
+<span>
+<sc-if value="{{r.override}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; padding: 3px 10px; border-radius: 12px; background: #FEF0E1; color: #93370D; white-space: nowrap">Committed with override</span></sc-if>
+<sc-if value="{{r.normal}}" hint-placeholder-val="{{true}}"><span style="font-size: 12px; padding: 3px 10px; border-radius: 12px; background: #E3F1F0; color: #0A4F4F">Committed</span></sc-if>
+</span>
+<span title="{{r.comment}}" style="color: #444B55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.comment}}</span>
+<span style="display: flex; justify-content: flex-end">
+<button aria-label="More actions for {{r.id}}" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="#5B636E"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>
+</button>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+renderVals() {
+const raw = [
+['R-0012', '16-11-2026 14:32', 4, '9,812,345', 0, 14, false, 'Oct-2026 sales'],
+['R-0011', '15-10-2026 11:08', 4, '9,640,118', 0, 6, false, 'Sep-2026 sales'],
+['R-0010', '14-09-2026 16:45', 4, '9,903,270', 2, 31, true, 'Aug-2026 sales. Two invoice dates blank in the source file; client confirmed the values by email'],
+['R-0009', '12-08-2026 10:20', 3, '9,511,804', 0, 0, false, 'Jul-2026 sales'],
+['R-0008', '16-07-2026 15:02', 4, '9,788,615', 0, 9, false, 'Jun-2026 sales'],
+['R-0007', '13-06-2026 12:41', 4, '9,702,233', 0, 3, false, 'May-2026 sales'],
+['R-0006', '15-05-2026 09:55', 4, '9,688,410', 0, 12, false, 'Apr-2026 sales'],
+['R-0005', '14-04-2026 17:30', 5, '10,104,962', 0, 0, false, 'Mar-2026 sales, including year-end adjustment file'],
+['R-0004', '13-03-2026 11:15', 4, '9,630,027', 0, 4, false, 'Feb-2026 sales'],
+['R-0003', '16-02-2026 14:00', 4, '9,822,591', 0, 8, false, 'Jan-2026 sales'],
+['R-0002', '15-01-2026 10:47', 4, '9,755,140', 0, 2, false, 'Dec-2025 sales'],
+['R-0001', '12-12-2025 16:22', 4, '10,252,815', 0, 17, false, 'Nov-2025 sales. First run']
+];
+const regions = ['North', 'South', 'East', 'West', 'Adjustments'];
+return {
+runs: raw.map(function (x) {
+const month = x[7].slice(0, 8);
+return {
+id: x[0], loaded: x[1], files: x[2] + ' files', rows: x[3],
+fileNames: regions.slice(0, x[2]).map(function (g) { return 'Sales_' + month + '_' + g + '.xlsx'; }).join(', '),
+errors: x[4] + (x[4] === 1 ? ' error' : ' errors'), hasErrors: x[4] > 0, noErrors: x[4] === 0,
+warnings: x[5] + (x[5] === 1 ? ' warning' : ' warnings'),
+override: x[6], normal: !x[6], comment: x[7]
+};
+})
+};
+}
+}
+</script>
+</body>
+</html>
