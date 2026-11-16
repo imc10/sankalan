@@ -42,6 +42,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
 | Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
 | Export path under S1 (spike S2) | DuckDB writes `<name>.part` in an allowed folder; Python streams it to the chosen folder (adding the BOM), then renames | Proposed | Phase 4 |
+| Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -81,7 +82,7 @@ Newest first. One entry per session: date, phase, what was done, deviations from
   errors 0, nothing written). RUNV-01 (F02), RUNV-02 (F03), RUNV-08 (F08, null State skipped), RUNV-06 (F12:
   15,000 warnings, grid 10,000, row 10,001 message). Rule edge cases on hand-written rows.
 - **Interpretations** (change if wrong):
-  - Problem wording (after "file, sheet, row N, Column: "): "value is blank", "value is not a number", "value is
+  - Problem wording (confirmed by the user 17-11-2026; after "file, sheet, row N, Column: "): "value is blank", "value is not a number", "value is
     not a date", "value is negative", "value is not between 10 and 20" / "less than" / "more than", "date is not
     between 01-04-2026 and 31-03-2027" / "before" / "after", "value is not one of the allowed values", "value has
     14 characters; expected exactly 15", "value doesn't match the pattern AAA-99999". Unique: the first row "same
