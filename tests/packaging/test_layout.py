@@ -15,7 +15,7 @@ def test_v2_layout_exists():
 
 
 def test_entry_point_runs():
-    out = subprocess.run([sys.executable, "-m", "sankalan"], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    out = subprocess.run([sys.executable, "-m", "sankalan", "--version"], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert out.stdout.startswith("Sankalan 2.")
 

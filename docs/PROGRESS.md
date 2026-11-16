@@ -12,7 +12,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 4 | 3 — Validation and issues | Done | `v2` (Phase 3 commit) | Phase 4 (query layer and export) split into its own session |
 | 4b | 4 — Query layer, compiler and export | Done | `v2` (Phase 4 commit) | Split of left-out rows written as `query/split.py` for Phase 5 to wrap in a Job |
 | 5 | 5 — Run pipeline end-to-end (headless) | Done | `v2` (Phase 5 commit) | TPL-A R-0001…R-0007 (+ discarded runs), TPL-C and TPL-D pass headless (`run/pipeline.py`) |
-| 6 | 6 — UI shell and design system | Not started | | Can run in parallel with sessions 4–5 (own worktree, `sankalan/ui/` only) once Phase 1's Job interface is fixed |
+| 6 | 6 — UI shell and design system | Done | `v2` (Phase 6 commit) | Window, rail, theme, shared widgets, App settings; Clients/Analysis are placeholders until Phases 7/10 |
 | 7 | 7 — Clients, Client, Template screens | Not started | | |
 | 8 | 8 — New template wizard | Not started | | |
 | 9 | 9 — New run wizard and Run detail | Not started | | Largest UI phase; split wizard / Run detail if needed |
@@ -32,7 +32,10 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | C1-04 client-name uniqueness | Unique ignoring case ("acme traders" refused when "Acme Traders" exists) | Proposed | Phase 7 |
 | RUNF-06 message wording | "<file> is open in another program. Close it, then Re-check." (Tech spec) | Confirmed 17-11-2026 | Phase 2 |
 | RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Confirmed 17-11-2026 | Phase 3 |
-| SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running" | Proposed | Phase 6 |
+| SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running"; the running Job shows on the rail (click opens the screen that started it) | Confirmed 17-11-2026 | Phase 6 |
+| FIT-04 minimum window size | 1366×768 including the frame, **capped to the screen's work area** (1920×1080 at 150% is 1280×720 logical; a 1366×768 laptop minus the taskbar is smaller too). Layouts must fit down to 1280×640 (`theme.MIN_LAYOUT`) | Confirmed 17-11-2026 | Phase 6 |
+| Title bar (canvas draws a custom 32 px bar) | Native Windows frame titled "Sankalan" with the सं icon; Qt colour scheme forced Light so it stays light in dark mode | Confirmed 17-11-2026 | Phase 6 |
+| Fonts | IBM Plex Sans Regular + Medium and Plex Sans Devanagari Medium TTFs from IBM's official release (`@ibm/plex-sans@1.1.0`, `v6.4.0`), OFL licence alongside, in `sankalan/ui/fonts/` | Confirmed 17-11-2026 | Phase 6 |
 | C2-08 duplicate-contents check scope | Within the same template only | Confirmed 17-11-2026 | Phase 2 |
 | RUNC-10 totals mismatch test | `SANKALAN_FAULT_TOTALS=<column id>:<amount>[,…]` adds the amount to Loaded; read only when running from source (`sys.frozen` false), so the packaged exe ignores it. Automated tests pass the fault as an argument | Confirmed 17-11-2026 | Phase 5 |
 | Commit free-space check (Tech spec, Commit) | Commit needs at least 100 MB free on the data folder's drive (`COMMIT_FREE_BYTES`); revisit after PERF-08 | Confirmed 17-11-2026 | Phase 5 |
@@ -57,6 +60,62 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 6: UI shell and design system
+- **Decisions confirmed by the user:** SH-02 (as proposed), FIT-04 minimum size capped to the work area, native
+  title bar forced light, downloading the IBM Plex fonts (see Decisions). No other Proposed decision used.
+- **`ui/theme.py`:** canvas colour and size tokens, bundled fonts (`ui/fonts/`, OFL), `font()` with tabular figures
+  (`tnum`), the "सं" monogram drawn with QPainter (window icon), Fusion + light palette + one style sheet keyed on
+  the `kind` property (buttons primary / secondary / plain / destructive; labels h1 / h2 / subtitle / body / small /
+  error / warning), `apply()` forces `Qt.ColorScheme.Light`.
+- **`ui/jobs.py` `JobBridge`:** the window's side of the Job interface. Polls every 250 ms on the UI thread and
+  delivers `on_done` / `on_failed` / `on_cancelled` there. Long Jobs vs **quiet Jobs** (grid pages, counts): a quiet
+  Job disables nothing; a long Job cancels a running quiet Job first (waits ≤ 2 s). `guard(widget)` /
+  `set_allowed()` implement SH-02. `origin` callback per Job for the rail indicator.
+- **Widgets:** `Rail` (Clients, Analysis, running-Job item, gear), `Breadcrumb` (`Crumb(label, open)`), `Banner`
+  (success / warning / error / info, actions such as Open folder → `explorer /select,`; success without actions
+  hides after 8 s), `StepBar` (done / current / pending / **skipped**: dashed dot with "–"; ✓ drawn as an icon,
+  Plex has no ✓ glyph), `ProgressPanel` (stage, bar or busy indicator, "1,000 of 4,000 rows", "0:42 elapsed",
+  Cancel hidden for non-cancellable Jobs), `PagedGrid` + `PagedModel` (`PageSource.count/page` run as quiet Jobs,
+  200-row pages fetched on demand, header-click sort per `GridColumn.sortable`, values via `formats`, 40 px rows and
+  header), `icons.py` (canvas SVG paths rendered with QtSvg).
+- **Dialogs:** `base.Dialog` / `Choice` / `ask()` (500 px, 24 px padding; tests answer through `answer_hook`),
+  `DeleteConfirm` (list + "I understand this can't be undone"; red button off until ticked), `AppSettingsDialog`
+  (data folder read-only + Change…, version only; refusal message inline, OneDrive warning "Use a synced folder?",
+  move Job with its ProgressPanel; Close/Esc held during the move). `Storage.move_work(dest)` added so the window
+  starts the move through the bridge.
+- **Screens and window:** `screens/base.Screen` (breadcrumbs, banner slot, h1 + subtitle, actions, content;
+  `crumbs()`, `leave_guard()`, `shown()`, `closing()`), `LeaveGuard.unsaved` / `.discard_run` (7.6 copy) /
+  `.unsaved_analysis` (7.7 copy), `PlaceholderScreen` for Clients and Analysis. `MainWindow`: one screen at a time
+  in a stack (old one deleted), leave guards asked before switching, `factories` per area for Phases 7/10 to
+  replace, minimum size (FIT-04 rule), closing: cancellable Job → "Cancel <operation> and close?" (No keeps
+  working; Yes cancels and closes when stopped), non-cancellable → "Finishing commit… Sankalan closes when it's
+  done", then closes. Quiet Jobs are cancelled on close.
+- **`app.py`:** `SankalanApp`: single instance (`ui/single_instance.py`: `QSharedMemory` holding the window handle,
+  not QLocalServer, which is QtNetwork and banned by SEC-1; second copy restores and fronts the first via user32),
+  window shown with "Opening your data…" while `Storage.open()` runs on a **background thread** (no DuckDB on the UI
+  thread), failure → "Sankalan can't open its data folder…" and exit 1. `python -m sankalan` opens the window;
+  `--version` prints the version (used by the layout test). PyInstaller spec now ships `ui/fonts`.
+- **Tests:** 304 passing (30 new in `tests/gui/test_shell.py`; GUI fixtures `app`, `answers`, `runner`, `gate` in
+  `tests/conftest.py`), full suite run 3 times. GEN-01 rail, GEN-02 (palette, painted button colours, and on the real
+  Windows platform Dark → Light after `apply`), GEN-03 fonts/monogram/tnum, GEN-04 under a German Qt and Python
+  locale, GEN-05 40 px rows/header and font sizes, GEN-06 breadcrumbs at four levels, leave guards, FIT-04 size
+  rule at 100/125/150% and laptop work areas, shell fits 1280×640 with no window scroll area, SH-02, SH-03, SH-04,
+  rail Job item, ProgressPanel, PagedGrid paging/format/sort, DeleteConfirm, StepBar, banners, DEP-05 single
+  instance, DEP-06/07/08/09 App settings (real move), start-up off the UI thread and its failure path. The
+  compiled-add-ons guard now opens the real `MainWindow` (QtSvg is part of PySide6).
+- **Interpretations** (change if wrong):
+  - Closing after "Yes" (or after a commit) does not also ask the screen's leave guard; the user already chose to
+    close. Without a Job, closing asks the leave guard like any navigation.
+  - The window opens maximised. Rail click opens the area's top screen (C1 / A0), not the last screen visited.
+  - The move's progress counts bytes ("… of … bytes"); Phase 10 may reword it.
+  - The quiet Job name is "Fetch rows" ("Load rows" trips the extension-LOAD guard regex).
+- **Not verified:** real 125% / 150% scaling and a 1366×768 laptop (FIT-01…03 are manual; the offscreen screen is
+  800×800); DEP-05 window activation across two real processes (tested in one process: handle published and read);
+  Windows dark mode by eye (GEN-02 checked through the colour-scheme API); Open folder launching Explorer.
+- **Next:** Phase 7 (Clients, Client, Template screens): register real screens in `MainWindow.factories`, build
+  grids on `PagedGrid` with `PageSource`s over the query layer, use `DeleteConfirm`, `LeaveGuard.unsaved`,
+  `bridge.guard()` for every control that starts a long Job. C1-04 (client-name case) is still Proposed: ask first.
 
 ### 17-11-2026 — Phase 5: run pipeline end to end (headless)
 - **Decisions confirmed by the user:** RUNC-10 fault hook (env var, source runs only), commit free space 100 MB, C4-06

@@ -152,3 +152,67 @@ def tpl_a_rules():
             Rule("r7", "c005", ALLOWED_VALUES, {"values": ["Maharashtra", "Gujarat", "Karnataka", "Delhi"]}, WARNING),
             Rule("r8", "c006", NUMBER_RANGE, {"not_negative": True}),
             Rule("r9", "c007", ALLOWED_VALUES, {"values": ["0", "5", "12", "18", "28"]})]
+
+
+# ---------------------------------------------------------------------------------------------- GUI (Phase 6)
+import threading  # noqa: E402
+
+
+@pytest.fixture
+def app(qapp):
+    from sankalan.ui import theme
+    theme.apply(qapp)
+    return qapp
+
+
+@pytest.fixture
+def answers():
+    """Answer ``ask()`` prompts without showing them: push keys onto the list; each prompt pops the first and
+    is recorded in ``answers.asked`` as (title, text, [option keys])."""
+    from sankalan.ui.dialogs import base
+
+    class Answers(list):
+        asked = []
+
+    a = Answers()
+
+    def hook(dlg):
+        a.asked.append((dlg.windowTitle(), [b.text() for b in dlg.buttons.values()]))
+        return a.pop(0) if a else None
+
+    base.answer_hook = hook
+    yield a
+    base.answer_hook = None
+
+
+@pytest.fixture
+def runner():
+    from sankalan.jobs import JobRunner
+    r = JobRunner(None)
+    yield r
+    r.wait(10)
+
+
+class Gate:
+    """Job work that runs until released (or cancelled)."""
+
+    def __init__(self, cancellable_check: bool = True):
+        self.release = threading.Event()
+        self.started = threading.Event()
+        self.check = cancellable_check
+
+    def __call__(self, ctx):
+        self.started.set()
+        ctx.set_stage("Working", rows_total=4000)
+        ctx.set_rows(1000)
+        while not self.release.wait(0.01):
+            if self.check:
+                ctx.check_cancelled()
+        return "done"
+
+
+@pytest.fixture
+def gate():
+    g = Gate()
+    yield g
+    g.release.set()

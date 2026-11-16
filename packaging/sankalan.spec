@@ -22,7 +22,7 @@ a = Analysis(
     [str(ROOT / "sankalan" / "__main__.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[],                                    # V2 fonts and icon are added in Phases 6 and 11
+    datas=[(str(ROOT / "sankalan" / "ui" / "fonts"), "sankalan/ui/fonts")],   # IBM Plex (OFL); icon in Phase 11
     hiddenimports=[],
     excludes=EXCLUDES,
     noarchive=False,

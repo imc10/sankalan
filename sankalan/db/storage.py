@@ -80,8 +80,12 @@ class Storage:
     def move_to(self, dest: Path) -> Job:
         """Start the move Job: copy everything, check it, switch settings.json, delete the old folder.
         Cancel works until the copy is checked; after that the move finishes."""
+        return self.runner.start("Move data folder", self.move_work(dest))
+
+    def move_work(self, dest: Path):
+        """The move as Job work, for the window to start through its Job bridge."""
         dest = Path(os.path.abspath(dest))
-        return self.runner.start("Move data folder", lambda ctx: self._move(ctx, dest))
+        return lambda ctx: self._move(ctx, dest)
 
     def _move(self, ctx: JobContext, dest: Path) -> Path:
         old = self.folder

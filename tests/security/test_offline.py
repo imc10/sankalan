@@ -97,8 +97,9 @@ for m in pkgutil.walk_packages(sankalan.__path__, "sankalan."):
 import duckdb, python_calamine
 con = duckdb.connect(); con.execute("SELECT sum(i) FROM range(1000) t(i)").fetchone(); con.close()
 python_calamine.CalamineWorkbook.from_path(%r).get_sheet_by_name("S").to_python()
-from PySide6.QtWidgets import QApplication, QLabel
-app = QApplication([]); w = QLabel("Sankalan"); w.show(); app.processEvents()
+from sankalan.app import make_application
+from sankalan.ui.window import MainWindow
+app = make_application([]); w = MainWindow(); w.open_area("clients"); w.show(); app.processEvents()
 mods = sorted({n.split(".")[0] for n, mo in list(sys.modules.items())
                if (getattr(mo, "__file__", "") or "").lower().endswith((".pyd", ".so"))
                and "site-packages" in (getattr(mo, "__file__", "") or "")})
