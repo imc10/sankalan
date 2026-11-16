@@ -121,3 +121,34 @@ def run_job(runner, work):
     if job.error is not None:
         raise job.error
     return job.result
+
+
+def load_files(storage, fx, names, settings, columns, workers=0, mappings=None):
+    """Probe and load fixture files into a new staging folder: (staging, LoadResult, probe rows).
+    ``mappings``: optional {file name: {column ID: source position}} overriding the automatic match."""
+    from sankalan import mapping
+    from sankalan.ingest import stage
+    rows = run_job(storage.runner, lambda ctx: stage.probe(ctx, [str(fx / n) for n in names], settings=settings,
+                                                           columns=columns))
+    assert all(r.readable for r in rows), [(r.file_name, r.message) for r in rows]
+    parts = []
+    for i, r in enumerate(rows):
+        m = (mappings or {}).get(r.file_name) or mapping.auto_map(columns, r.headers)
+        parts.append(stage.LoadPart.from_probe(i, r, m))
+    st = storage.folder.new_staging()
+    res = run_job(storage.runner, lambda ctx: stage.load(ctx, storage.folder, st, parts, columns, workers=workers))
+    return st, res, rows
+
+
+# ---------------------------------------------------------------------------------------------- validation (Phase 3)
+def tpl_a_rules():
+    """TPL-A rule set (Test Cases, Read me): the user's rules; the automatic type rules are added by the scan."""
+    from sankalan.model.rule import (ALLOWED_VALUES, DATE_RANGE, NOT_BLANK, NUMBER_RANGE, PATTERN, TEXT_LENGTH,
+                                     UNIQUE, WARNING, Rule)
+    return [Rule("r1", "c001", NOT_BLANK), Rule("r2", "c001", PATTERN, {"pattern": "AAA-99999"}),
+            Rule("r3", "c001", UNIQUE),
+            Rule("r4", "c002", DATE_RANGE, {"from": "2026-04-01", "to": "2027-03-31"}, WARNING),
+            Rule("r5", "c003", NOT_BLANK, severity=WARNING), Rule("r6", "c004", TEXT_LENGTH, {"exact": 15}),
+            Rule("r7", "c005", ALLOWED_VALUES, {"values": ["Maharashtra", "Gujarat", "Karnataka", "Delhi"]}, WARNING),
+            Rule("r8", "c006", NUMBER_RANGE, {"not_negative": True}),
+            Rule("r9", "c007", ALLOWED_VALUES, {"values": ["0", "5", "12", "18", "28"]})]

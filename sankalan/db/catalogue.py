@@ -55,6 +55,7 @@ _V1 = [
         PRIMARY KEY (template_id, id))""",
     """CREATE TABLE rule (
         template_id VARCHAR NOT NULL,
+        id VARCHAR NOT NULL,                -- stable within the template: r1, r2, ... or <column-id>.type (VR-7)
         column_id VARCHAR NOT NULL,
         rule_type VARCHAR NOT NULL,         -- VAL-1 ... VAL-9
         settings VARCHAR NOT NULL,          -- JSON

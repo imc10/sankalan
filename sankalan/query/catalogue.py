@@ -10,6 +10,7 @@ import json
 import uuid
 from datetime import datetime
 
+from sankalan.model.rule import Rule
 from sankalan.model.run import NewRun, RunRow
 
 
@@ -62,6 +63,45 @@ def template_ids(con, client_id: str | None = None) -> list[str]:
         return [r[0] for r in con.execute("SELECT id FROM template ORDER BY id").fetchall()]
     return [r[0] for r in con.execute("SELECT id FROM template WHERE client_id = ? ORDER BY id",
                                       [client_id]).fetchall()]
+
+
+def template_version(con, template_id: str) -> int:
+    return int(con.execute("SELECT version FROM template WHERE id = ?", [template_id]).fetchone()[0])
+
+
+def template_snapshot(con, template_id: str, version: int | None = None) -> dict:
+    """The saved snapshot of a template version (TPL-7); the current version when ``version`` is None."""
+    if version is None:
+        version = template_version(con, template_id)
+    row = con.execute("SELECT snapshot FROM template_version WHERE template_id = ? AND version = ?",
+                      [template_id, version]).fetchone()
+    return json.loads(row[0]) if row else {}
+
+
+def load_rules(con, template_id: str) -> list[Rule]:
+    rows = con.execute("SELECT id, column_id, rule_type, settings, severity FROM rule WHERE template_id = ? "
+                       "ORDER BY position", [template_id]).fetchall()
+    return [Rule(r[0], r[1], r[2], json.loads(r[3]), r[4]) for r in rows]
+
+
+def save_rules(con, template_id: str, rules: list[Rule]) -> int:
+    """Replace the template's rules and save a new template version with them (VR-5 "Save to template", TPL-7).
+    Opens its own transaction. Returns the new version number."""
+    with Transaction(con):
+        version = template_version(con, template_id) + 1
+        snapshot = template_snapshot(con, template_id)
+        snapshot["rules"] = [r.to_dict() for r in rules]
+        now = _now()
+        con.execute("DELETE FROM rule WHERE template_id = ?", [template_id])
+        for pos, r in enumerate(rules):
+            con.execute("INSERT INTO rule (template_id, id, column_id, rule_type, settings, severity, position) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [template_id, r.id, r.column_id, r.type, json.dumps(r.settings, ensure_ascii=False),
+                         r.severity, pos])
+        con.execute("UPDATE template SET version = ?, modified_on = ? WHERE id = ?", [version, now, template_id])
+        con.execute("INSERT INTO template_version VALUES (?, ?, ?, ?)",
+                    [template_id, version, now, json.dumps(snapshot, ensure_ascii=False)])
+    return version
 
 
 def client_ids(con) -> list[str]:

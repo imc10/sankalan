@@ -9,7 +9,8 @@ The hand-over file between build sessions. Read it at the start of every session
 | 1 | 0 — Branch, toolchain, spikes, fixtures | Done | `v2` (Phase 0 commit) | Spike findings S1–S6 change Phases 1, 2, 4: see `tools/spikes/RESULTS.md` |
 | 2 | 1 — Storage, catalogue, Job runner | Done | `v2` (Phase 1 commit) | Job interface fixed (`sankalan/jobs`), so Phase 6 can start |
 | 3 | 2 — Ingestion: probe, read, convert | Done | `v2` (Phase 2 commit) | Conversion failures go to `conversion_failures.parquet` until Phase 3 folds them into `issues.parquet` |
-| 4 | 3 + 4 — Validation and issues; query layer and export | Not started | | Split into two sessions if it runs long |
+| 4 | 3 — Validation and issues | Done | `v2` (Phase 3 commit) | Phase 4 (query layer and export) split into its own session |
+| 4b | 4 — Query layer, compiler and export | Not started | | Export of the issue list builds on `query/validate.py` |
 | 5 | 5 — Run pipeline end-to-end (headless) | Not started | | Gate: TPL-A run sequence R-0001…R-0007 passes with no UI |
 | 6 | 6 — UI shell and design system | Not started | | Can run in parallel with sessions 4–5 (own worktree, `sankalan/ui/` only) once Phase 1's Job interface is fixed |
 | 7 | 7 — Clients, Client, Template screens | Not started | | |
@@ -52,6 +53,56 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 3: validation and issues
+- **No Proposed decision used.** RUNV-02 (confirmed) is honoured: Rows read = data rows + blank rows (F03: 4,010).
+- **`model/rule.py`:** `Rule` (stable ID, owner column, type VAL-1…9, settings JSON, severity Error/Warning).
+  User rules are `r1`, `r2`, …; the automatic Is a number / Is a date rule is `<column-id>.type`.
+  `with_type_rules` adds one per Number/Date column as an Error, keeps a Warning setting, drops it when the column
+  goes (VR-7). `rule_changes(template, run)` lists added/changed/removed rules for RUN-12.
+- **`validation/rules.py`:** which column types each rule fits, `check_rule` (`RuleError` with a plain message),
+  `pattern_regex` (A = letter of either case, 9 = digit, punctuation escaped), problem wording, `describe` (one
+  line for the rule list and run summary). **`validation/issues.py`:** UI-6 `message()` and `Issue` for grid/export.
+- **`query/validate.py`:** one SQL scan → `issues.parquet` (`_src_file, _src_sheet, _src_row, column_id, rule_id,
+  rule_type, severity, value, problem, duplicate_first`), ordered by file, row, rule. Per-row rules are flags on one
+  pass, unnested only for failing rows; Is a number / Is a date come from `conversion_failures.parquet`; each
+  Unique rule is one GROUP BY … HAVING count > 1 joined back. Also `totals`, `rule_counts`, `issue_counts`
+  (per rule, file and sheet, for `run_issue_count`), `left_out_rows` (T18), `grid_count` / `grid_page`
+  (first 10,000 per rule, filter by rule/severity/column, sort), `read_issues`, `dry_run` (counts + first N).
+- **`validation/scan.py`** (Job work): `validate` (writes `issues.parquet.part`, renames; rerun for run-only edits
+  rewrites only the issue list), `dry_run` (wizard, nothing written), `test_rules_on_run` (counts only).
+- **Catalogue:** `rule` table gained an `id` column (schema still v1: no catalogue has shipped). `load_rules`,
+  `save_rules` (new template version with a snapshot that carries the rules), `template_version`,
+  `template_snapshot`.
+- **Tests:** 214 passing (25 new), full suite run 3 times. F04: RUNV-03 66 · 32 and every per-rule count, ISS-1
+  counts, RUNV-04 order/filter/sort and the GEN-07 message, RUNV-05 rows 702–707, RUNV-07 98 issues with values,
+  RUNV-13 63 rows left out, RUNV-09 66 → 60 with the template rule unchanged, RUNV-10 saved as a new version,
+  C3-16 counts + first 20 / all 15 from row 214, C4-12 on a hand-built R-0003 (1,937 rows: State 25, Customer 7,
+  errors 0, nothing written). RUNV-01 (F02), RUNV-02 (F03), RUNV-08 (F08, null State skipped), RUNV-06 (F12:
+  15,000 warnings, grid 10,000, row 10,001 message). Rule edge cases on hand-written rows.
+- **Interpretations** (change if wrong):
+  - Problem wording (after "file, sheet, row N, Column: "): "value is blank", "value is not a number", "value is
+    not a date", "value is negative", "value is not between 10 and 20" / "less than" / "more than", "date is not
+    between 01-04-2026 and 31-03-2027" / "before" / "after", "value is not one of the allowed values", "value has
+    14 characters; expected exactly 15", "value doesn't match the pattern AAA-99999". Unique: the first row "same
+    Invoice No in 2 rows; this is the first"; later rows "same Invoice No as row 704" (or "as <file>, <sheet>, row
+    N" when the first is in another file or sheet). CSV messages leave the sheet out.
+  - Errors / Warnings on the Validate step count failures (issues), not rows; the override dialog uses
+    `left_out` (rows).
+  - Number range and Allowed values compare at the column's decimals, or at the setting's if it has more, so a
+    setting is never rounded (min 10.005 on a 2-decimal column fails 10.00). Settings allow at most 6 decimals.
+  - Allowed values (Text) uses DuckDB `lower()` on both sides; Text length counts characters (code points).
+  - A value that failed conversion is not blank for Not blank and is skipped by Unique (its key is unknown).
+  - Issue `value`: text as typed; a stored number as plain decimal text (`-1234.00`); a stored date DD-MM-YYYY.
+  - A rule column missing from an older `data.parquet` (added later) reads as blank (Test rules on latest run).
+  - The wizard dry run uses the staged sample on the app connection (no separate in-memory database), so the
+    one-connection rule holds; Phase 8 decides how the 100,000-row sample is staged.
+- **Left for later phases:** `conversion_failures.parquet` stays in staging for reruns; Phase 5 should delete it
+  before commit (issues.parquet then holds the original text). Issue-list CSV export (SQL message) is Phase 4.
+  `run_issue_count` rows come from `ScanResult.counts` at commit (Phase 5). Re-check (VR-6 after a fixed source)
+  is load + validate again, wired in Phase 5.
+- **Not verified:** scan speed on 10M rows (PERF) and cancel mid-scan on large data (RUNV-12, needs P01).
+- **Next:** Phase 4 (query layer, compiler and export).
 
 ### 17-11-2026 — Phase 2: ingestion (probe, read, convert)
 - **Decisions confirmed by the user:** RUNF-06 Tech-spec wording, C2-08 duplicate check per template only, S5
