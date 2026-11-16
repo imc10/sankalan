@@ -1,0 +1,17 @@
+# Windows scripts must keep CRLF line endings, or cmd.exe labels/goto can misbehave
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+*.nsi   text eol=crlf
+
+# Everything else: normalise to LF in the repo
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text
+*.spec  text eol=lf
+
+# Binary
+*.ico   binary
+*.png   binary
+*.xlsx  binary
+*.whl   binary
