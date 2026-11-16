@@ -10,7 +10,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 2 | 1 — Storage, catalogue, Job runner | Done | `v2` (Phase 1 commit) | Job interface fixed (`sankalan/jobs`), so Phase 6 can start |
 | 3 | 2 — Ingestion: probe, read, convert | Done | `v2` (Phase 2 commit) | Conversion failures go to `conversion_failures.parquet` until Phase 3 folds them into `issues.parquet` |
 | 4 | 3 — Validation and issues | Done | `v2` (Phase 3 commit) | Phase 4 (query layer and export) split into its own session |
-| 4b | 4 — Query layer, compiler and export | Not started | | Export of the issue list builds on `query/validate.py` |
+| 4b | 4 — Query layer, compiler and export | Done | `v2` (Phase 4 commit) | Split of left-out rows written as `query/split.py` for Phase 5 to wrap in a Job |
 | 5 | 5 — Run pipeline end-to-end (headless) | Not started | | Gate: TPL-A run sequence R-0001…R-0007 passes with no UI |
 | 6 | 6 — UI shell and design system | Not started | | Can run in parallel with sessions 4–5 (own worktree, `sankalan/ui/` only) once Phase 1's Job interface is fixed |
 | 7 | 7 — Clients, Client, Template screens | Not started | | |
@@ -41,7 +41,8 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Confirmed 16-11-2026 | Phase 1 |
 | Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
 | Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
-| Export path under S1 (spike S2) | DuckDB writes `<name>.part` in an allowed folder; Python streams it to the chosen folder (adding the BOM), then renames | Proposed | Phase 4 |
+| Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts | Confirmed 17-11-2026 | Phase 4 |
+| EXP-04 Reason text | "Column: Rule" per Error rule that caused it, in rule order, joined by `; ` (e.g. "Invoice No: Character pattern; Taxable Value: Is a number"). `left_out.parquet` `_reason` holds the rule IDs comma-separated | Confirmed 17-11-2026 | Phase 4 |
 | Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
@@ -54,6 +55,57 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 4: query layer, compiler and export
+- **Decisions confirmed by the user:** S2 export path and the EXP-04 Reason wording (see Decisions). No other
+  Proposed decision used.
+- **`model/definition.py`:** `Definition` (`template_id`, `filters`, `groups`, `measures`, `subtotals`; JSON via
+  `to_dict`/`from_dict`), `Filter`/`Group`/`Measure`, operators per column type, `check()` (`DefinitionError`).
+  Default outputs (`output=True`) allow only latest month/quarter/year plus Blank/Not blank on dates (C3-19);
+  analyses refuse the relative ones. Count with no column = Count of rows (the mockups' "Count of rows").
+- **`query/compiler.py`:** definition → one SELECT over `read_parquet([...], union_by_name = true)`; a column no
+  ticked run has becomes a typed null. `GROUP BY ROLLUP` always; `_depth` = levels grouped by (detail = n,
+  subtotal 1..n-1, grand total 0). Date grain via `date_trunc` cast to DATE. Average is exact: sum in 10^-d integer
+  units, rounded half away from zero, cast back to DECIMAL(38,d) (DuckDB `avg` of a DECIMAL is a DOUBLE).
+  Relative filters use the latest date in the run; none → empty result + note "No dates in this run" (T21).
+- **`query/layer.py`:** `run_definition` (temp table `_result_<uuid>`), `rows` (pages, capped at 100,000; export
+  passes `cap=None`), `count_rows`, `grand_total` (pinned, read on its own), `order_by` (default group order,
+  "(Null)" last, subtotal after its rows; with subtotals on, a sort runs within each parent group by the
+  ancestor's value, T23), `write_output`/`open_output` (`outputs\<n>.parquet`, read with the definition used),
+  `distinct_values` (top 1,000 by count; search = contains, ignoring case, over the whole column), `select_only`
+  (`con.extract_statements`: exactly one SELECT, else `NotASelect`).
+- **`query/split.py`:** `split(con, folder, issues, rule_order)` writes `left_out.parquet` (+ `_reason`) and
+  rewrites `data.parquet` only when rows are left out (T18). Phase 5 wraps it in the Validate → Next Job.
+- **`query/export.py`** (SQL) + **`exporting.py`** (Job work) + **`model/export.py`** (options, names): run data
+  (+ Source File/Sheet/Row, Run ID), left-out rows (+ Reason), issue list (UI-6 message built in SQL), output /
+  analysis result ("(Null)", "Total" on subtotal rows, "Grand total" last). Header written by Python with the
+  same quoting as DuckDB; numbers as `CAST(decimal AS VARCHAR)` (column decimals, no grouping); dates
+  DD-MM-YYYY. `export` refuses an existing file unless `overwrite=True` (`ExportExists`); `export_many` checks
+  every destination first (C6-06). `safe_file_name`, `fill_pattern` (an empty placeholder drops out with its
+  `_`), `csv_file_name`. **`analysis.py`:** Job work for analysis, preview, distinct values, `write_outputs`.
+  **`formats.py`:** UI-7 number/date text and period labels.
+- **Tests:** 248 passing (34 new), full suite run 3 times. A1-03…A1-10 on R-0001/R-0002/R-0003/R-0006 (every
+  figure, incl. Avg 1,507.38, A1-05 sort within state, A1-07 2,005), C3-18 on F01, RUNO-01/C4-05, RUNO-03,
+  RUNO-04, RUNO-05 (stored and preview), DO-3 checks, columns across runs (Branch added in R-0005: (Null) for
+  R-0004; renamed; removed → "Branch (removed)"; in no run → null), select_only, row cap. Exports: EXP-02, EXP-03
+  (BOM bytes, `;` tab `|`), EXP-04 (63 rows, reasons), EXP-05 (98 rows; F12 CSV message without sheet, row
+  10,001 grouped), EXP-06, EXP-07, cancel mid-stream and during the COPY (no file, no `.part`, temp empty),
+  analysis export with subtotals and full rows, C6-06 Export all outputs (2 files by pattern).
+- **Interpretations** (change if wrong):
+  - Period labels: month `Oct-2026` (as the mockups), quarter `Q4-2026`, year `2026`, day `DD-MM-YYYY`; same in
+    CSV. Default measure headers "Sum of Taxable Value", "Count of rows", "Count distinct of Customer".
+  - Export result rows: subtotal row's first rolled-up group cell "Total", grand total "Grand total" in the first
+    group column; the export follows the screen's sort and Show subtotals setting.
+  - Number filters round the typed value to the column's decimals (half away); Is one of is exact (case
+    matters), Contains ignores case. Min/Max allowed on Number and Date columns only.
+  - `{Output}` for non-output exports: "Data", "Left-out rows", "Issues" (`model/export.py`), the analysis name for
+    an analysis; `{RunID}` empty for analyses.
+  - The data export relies on `data.parquet` already being in file/row order (no ORDER BY, so 10M-row exports
+    don't sort).
+- **Not verified:** speed and spilling on P01/P02 (PERF-5, R3, EXP-08 at 10M rows); `Open folder` (UI, Phase 10);
+  Windows-locale independence of `strftime('%b')` beyond this PC.
+- **Next:** Phase 5 (run pipeline end-to-end). Wrap `split` and `write_outputs` in the run Jobs (per-output status,
+  Retry), store `run_output` rows, delete `conversion_failures.parquet` before commit.
 
 ### 17-11-2026 — Phase 3: validation and issues
 - **No Proposed decision used.** RUNV-02 (confirmed) is honoured: Rows read = data rows + blank rows (F03: 4,010).
