@@ -30,7 +30,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | --- | --- | --- | --- |
 | C1-04 client-name uniqueness | Unique ignoring case ("acme traders" refused when "Acme Traders" exists) | Proposed | Phase 7 |
 | RUNF-06 message wording | "<file> is open in another program. Close it, then Re-check." (Tech spec) | Confirmed 17-11-2026 | Phase 2 |
-| RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Proposed | Phase 3 |
+| RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Confirmed 17-11-2026 | Phase 3 |
 | SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running" | Proposed | Phase 6 |
 | C2-08 duplicate-contents check scope | Within the same template only | Confirmed 17-11-2026 | Phase 2 |
 | RUNC-10 totals mismatch test | Fault-injection hook behind an environment variable, test builds only | Proposed | Phase 5 |
@@ -99,7 +99,7 @@ Newest first. One entry per session: date, phase, what was done, deviations from
   (read 3.1 s, convert ~0.8 s). Not measured on the laptop, nor with P01/P02.
 - **Not verified:** RUNF-06 against a real Excel window (tested with a simulated Excel-style handle); F06 and
   F20 still not opened in Excel; performance on the 4-core laptop.
-- **Next:** Phase 3 (validation and issues). Before it, confirm RUNV-02 (Proposed). Phase 6 can still run in
+- **Next:** Phase 3 (validation and issues). RUNV-02 confirmed 17-11-2026: Rows read = data rows + blank rows (F03: 4,010). Phase 6 can still run in
   parallel.
 
 ### 16-11-2026 — Phase 1: storage, catalogue and Job runner
