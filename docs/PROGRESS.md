@@ -8,7 +8,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | --- | --- | --- | --- | --- |
 | 1 | 0 — Branch, toolchain, spikes, fixtures | Done | `v2` (Phase 0 commit) | Spike findings S1–S6 change Phases 1, 2, 4: see `tools/spikes/RESULTS.md` |
 | 2 | 1 — Storage, catalogue, Job runner | Done | `v2` (Phase 1 commit) | Job interface fixed (`sankalan/jobs`), so Phase 6 can start |
-| 3 | 2 — Ingestion: probe, read, convert | Not started | | |
+| 3 | 2 — Ingestion: probe, read, convert | Done | `v2` (Phase 2 commit) | Conversion failures go to `conversion_failures.parquet` until Phase 3 folds them into `issues.parquet` |
 | 4 | 3 + 4 — Validation and issues; query layer and export | Not started | | Split into two sessions if it runs long |
 | 5 | 5 — Run pipeline end-to-end (headless) | Not started | | Gate: TPL-A run sequence R-0001…R-0007 passes with no UI |
 | 6 | 6 — UI shell and design system | Not started | | Can run in parallel with sessions 4–5 (own worktree, `sankalan/ui/` only) once Phase 1's Job interface is fixed |
@@ -29,10 +29,10 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Item | Default | State | Needed by |
 | --- | --- | --- | --- |
 | C1-04 client-name uniqueness | Unique ignoring case ("acme traders" refused when "Acme Traders" exists) | Proposed | Phase 7 |
-| RUNF-06 message wording | "<file> is open in another program. Close it, then Re-check" (Tech spec) | Proposed | Phase 2 |
+| RUNF-06 message wording | "<file> is open in another program. Close it, then Re-check." (Tech spec) | Confirmed 17-11-2026 | Phase 2 |
 | RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Proposed | Phase 3 |
 | SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running" | Proposed | Phase 6 |
-| C2-08 duplicate-contents check scope | Within the same template only | Proposed | Phase 2 |
+| C2-08 duplicate-contents check scope | Within the same template only | Confirmed 17-11-2026 | Phase 2 |
 | RUNC-10 totals mismatch test | Fault-injection hook behind an environment variable, test builds only | Proposed | Phase 5 |
 | Run-from-source route (V1 `packaging/source_install`) | Keep as a dev-only fallback until the certificate arrives, then retire (T3) | Proposed | Phase 11 |
 | O12 unencrypted local data | Customer still to confirm (SEC-3); no code impact | Open (customer) | — |
@@ -41,7 +41,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
 | Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
 | Export path under S1 (spike S2) | DuckDB writes `<name>.part` in an allowed folder; Python streams it to the chosen folder (adding the BOM), then renames | Proposed | Phase 4 |
-| Number text beyond the Tech spec list (spike S5) | `1e3`, `12%`, trailing minus, `Rs.`/`INR`: V1 accepted them; DuckDB `TRY_CAST` accepts `1e3`. Ask the user which the SQL Number rule accepts | Open | Phase 2 |
+| Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
 
@@ -52,6 +52,55 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 2: ingestion (probe, read, convert)
+- **Decisions confirmed by the user:** RUNF-06 Tech-spec wording, C2-08 duplicate check per template only, S5
+  Number forms = Tech spec + `Rs.`/`INR` (see Decisions).
+- **`model/template.py`:** `Column` (id, name, type, decimals 0–6 default 2, `date_format` None = Excel dates or
+  `DD-MM-YYYY` / `DD/MM/YYYY`, aliases, totals tick, removed) and `SourceSettings` (sheets by name / first visible /
+  all visible, CSV encoding and delimiter overrides).
+- **`ingest/`:** `detect.py` (V1 header detection, now returning None = "header not found"; `make_headers`;
+  UTF-8 check over the whole file, else Windows-1252; delimiter sniffing), `source.py` (read-only open; on
+  Windows a deny-write share mode, so a file held open for writing gives the RUNF-06 message; type from content;
+  encrypted OLE = password-protected; SHA-256), `excel.py` (workbook parts and first rows read with the standard
+  library, so the probe never loads a whole sheet; one streaming regex scan of the sheet XML for hidden rows and
+  error cells; full read with calamine, column offset from `sheet.start`), `csvread.py`, `canonical.py` (raw
+  staged text), `probe.py` (`screen_paths` + `probe_file` → `FileSheet` rows: ready / warning / error / skipped /
+  refused, with `problem` code, notes, `headers_match`, `duplicate_of`), `workers.py` (spawn processes,
+  `min(tasks, cores − 1)`, rows progress, stop then kill after 2 s, `TaskFailed`, crashed-worker detection;
+  `workers=0` runs inline), `values.py` (Python oracle for the Number/Date/Text rules), `stage.py` (`probe` and
+  `load` as Job work). `mapping.py`: `known_names`, `auto_map` (name then alias), `headers_match` (TPL-6).
+- **`query/convert.py`:** the SQL rules (the authoritative ones), one SELECT per file-sheet + `UNION ALL` →
+  `data.parquet` (`run_id` = staging ID, `_src_file`, `_src_sheet`, `_src_row`, then column IDs typed
+  `DECIMAL(38,d)` / `DATE` / `VARCHAR`), and `conversion_failures.parquet` (file, sheet, row, column ID, value as
+  typed). Fast paths (plain number → CAST, ISO date → CAST) before the full regex rule made convert ~8× faster.
+  `query/catalogue.runs_with_sha256` for RUN-7.
+- **Tests:** 189 passing (113 new). Oracle vectors for CONV-01/02/03 and S5 forms; SQL = oracle on ~360 number
+  vectors × 5 decimal settings and ~30 date vectors × 3 formats; probe RUNF-01…13 (RUNF-06 with a handle held the
+  way Excel holds it; RUNF-11 against a committed run, and not across templates); load F02, F03 (25 hidden, 10
+  blank), F04 (failures: Taxable rows 214–228 "abc", 4 × "31-02-2026"; Input sums 2,986,623.75 / 381,662.10),
+  F08, F16 (in 2 workers), F17 (CONV-01…03 every case), F18 (Café/Müller/Señor), F19 (CONV-05, raw text checked);
+  cancel (workers gone, staging deleted), failed load, re-check, inline = workers. Ran the full suite 3 times.
+- **Interpretations and deviations** (change if wrong):
+  - Conversion failures are kept in `conversion_failures.parquet`; Phase 3's scan should turn them into Is a
+    number / Is a date issues with the column's severity and fold them into `issues.parquet`.
+  - The Validate counts are reported separately (data rows, blank rows, hidden rows), so the Proposed RUNV-02
+    "Rows read" choice is still open for Phase 3.
+  - A date-time cell is staged as `YYYY-MM-DD HH:MM:SS` (text exactly as Excel holds it); the Date rule drops the
+    time. ISO text dates are read in every Date column; an "Excel dates" column reads only ISO.
+  - CSV `_src_row` is the record number (header record = 1), which is the row Excel shows.
+  - Only columns up to the last filled header cell are read; data in unnamed columns to its right is ignored.
+  - Sheets by name: names are matched ignoring case; a named hidden sheet is an error ("…is hidden, so it isn't
+    read").
+  - The probe counts hidden rows (regex scan) so RUNF-04's "hidden rows" info shows on the Files step; blank rows
+    are only known after Validate, so "Rows ≈" includes them (F03 ≈ 4,010).
+  - Content decides the type: a ZIP named `.csv` is read as a workbook; text named `.xlsx` is an error.
+- **Speed (dev PC, early signal):** a 300,000-row .xlsx probes in 1.2 s and loads in 4.5 s with one worker
+  (read 3.1 s, convert ~0.8 s). Not measured on the laptop, nor with P01/P02.
+- **Not verified:** RUNF-06 against a real Excel window (tested with a simulated Excel-style handle); F06 and
+  F20 still not opened in Excel; performance on the 4-core laptop.
+- **Next:** Phase 3 (validation and issues). Before it, confirm RUNV-02 (Proposed). Phase 6 can still run in
+  parallel.
 
 ### 16-11-2026 — Phase 1: storage, catalogue and Job runner
 - **Decisions confirmed by the user:** S1 hardening, staging lifetime, move destination must be empty (see Decisions).

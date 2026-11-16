@@ -88,3 +88,36 @@ def new_run(template_id: str, rows: int = 10):
                   files=[RunFile(0, "Sales_Oct.xlsx", r"C:\in\Sales_Oct.xlsx", 1234, "Sales", "ab" * 32, rows)],
                   issue_counts=[IssueCount("VAL-1", 0, "Sales", 0, 0)],
                   outputs=[RunOutput(1, "By state", {"group": ["c001"]}, "outputs/1.parquet")])
+
+
+# ---------------------------------------------------------------------------------------------- ingestion (Phase 2)
+def tpl_a_columns():
+    """TPL-A Sales Register (Test Cases, Reference templates)."""
+    from sankalan.model.template import Column
+    return [Column("c001", "Invoice No"), Column("c002", "Invoice Date", "Date"), Column("c003", "Customer"),
+            Column("c004", "GSTIN"), Column("c005", "State"),
+            Column("c006", "Taxable Value", "Number", decimals=2, totals_check=True),
+            Column("c007", "GST Rate", "Number", decimals=0),
+            Column("c008", "Tax Amount", "Number", decimals=2, totals_check=True)]
+
+
+def tpl_c_columns():
+    """TPL-C Conversion check."""
+    from sankalan.model.template import Column
+    return [Column("c001", "Case"), Column("c002", "Amount", "Number", decimals=2),
+            Column("c003", "Amount0", "Number", decimals=0),
+            Column("c004", "Doc Date", "Date", date_format="DD-MM-YYYY"),
+            Column("c005", "Due Date", "Date", date_format="DD/MM/YYYY"), Column("c006", "Code")]
+
+
+def tpl_a_settings():
+    from sankalan.model.template import SourceSettings
+    return SourceSettings(sheets="name", sheet_names=["Sales"])
+
+
+def run_job(runner, work):
+    """Run ``work(ctx)`` as a Job and return its result, re-raising a failure."""
+    job = runner.run("test", work)
+    if job.error is not None:
+        raise job.error
+    return job.result

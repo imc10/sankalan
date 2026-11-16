@@ -180,3 +180,20 @@ def counts(con) -> dict:
 
 def checkpoint(con) -> None:
     con.execute("CHECKPOINT")
+
+
+# ---------------------------------------------------------------------------------------------- duplicate contents (RUN-7)
+def runs_with_sha256(con, template_id: str, shas: list[str]) -> dict[str, tuple[int, datetime]]:
+    """For each SHA-256 already loaded in a committed run of this template: (latest run number, its loaded-on time).
+    The check is per template only (C2-08 scope, decision confirmed 16-11-2026)."""
+    shas = sorted({s for s in shas if s})
+    if not shas:
+        return {}
+    marks = ", ".join("?" for _ in shas)
+    rows = con.execute(
+        f"SELECT f.sha256, r.run_number, r.loaded_on FROM run_file f JOIN run r ON r.id = f.run_id "
+        f"WHERE r.template_id = ? AND f.sha256 IN ({marks}) ORDER BY r.run_number", [template_id, *shas]).fetchall()
+    out: dict[str, tuple[int, datetime]] = {}
+    for sha, number, loaded_on in rows:
+        out[sha] = (number, loaded_on)          # ordered by run number, so the latest run wins
+    return out
