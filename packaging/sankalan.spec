@@ -1,4 +1,4 @@
-# PyInstaller spec for Sankalan (one-folder, windowed). Build: pyinstaller packaging/sankalan.spec
+# PyInstaller spec for Sankalan (one-folder, windowed). V2: fully reworked in Phase 11. Build: pyinstaller packaging/sankalan.spec
 # Works on Windows (Sankalan.exe) and, for testing, on Linux.
 import sys
 from pathlib import Path
@@ -14,15 +14,16 @@ EXCLUDES = [
     "PySide6.QtNfc", "PySide6.QtSerialPort", "PySide6.QtSql", "PySide6.QtPdf", "PySide6.QtCharts",
     "PySide6.QtDataVisualization", "PySide6.QtRemoteObjects", "PySide6.QtHttpServer",
     "pandas", "numpy", "matplotlib", "tkinter", "pytest", "IPython",
-    "lxml", "python_calamine", "openpyxl",       # not used by the app
+    "lxml", "openpyxl", "pyarrow", "xlrd", "xlwt", "xlsxwriter", "msoffcrypto", "cryptography",
+    "legacy",                                     # V1 reference code, never shipped
 ]
 
 a = Analysis(
     [str(ROOT / "sankalan" / "__main__.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[(str(ROOT / "sankalan" / "ui" / "sankalan.ico"), "sankalan/ui")],
-    hiddenimports=["xlrd", "xlwt", "msoffcrypto"],
+    datas=[],                                    # V2 fonts and icon are added in Phases 6 and 11
+    hiddenimports=[],
     excludes=EXCLUDES,
     noarchive=False,
 )

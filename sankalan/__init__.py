@@ -1,4 +1,4 @@
-"""Sankalan - offline consolidation of Excel/CSV files with a common schema."""
+"""Sankalan: offline merge, validation and local dataset of Excel/CSV files."""
 
-__version__ = "1.0.0"
+__version__ = "2.0.0.dev0"
 APP_NAME = "Sankalan"

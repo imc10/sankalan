@@ -23,3 +23,6 @@ demo-data/
 selftest.json
 .DS_Store
 Thumbs.db
+
+# Generated test fixtures (tests/fixtures/generate.py)
+tests/fixtures/_generated/

@@ -1,4 +1,6 @@
+# Development and tests only; never loaded by the app.
 pytest>=8
 pytest-qt>=4.4
 pyinstaller>=6.6
-openpyxl>=3.1
+XlsxWriter>=3.1         # writes the .xlsx fixtures
+msoffcrypto-tool>=5.4   # only to create the encrypted fixture F06
