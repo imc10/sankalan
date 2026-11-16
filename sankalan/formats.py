@@ -67,3 +67,19 @@ def size(num_bytes: int | None) -> str:
             v = num_bytes / scale
             return f"{v:,.1f} {unit}" if v < 100 else f"{v:,.0f} {unit}"
     return f"{num_bytes:,} bytes"
+
+
+def gigabytes(num_bytes: int | None) -> str:
+    """Storage footer and C4 summary (UX-1): ``41.6 GB``, ``112 GB``, ``0 GB`` (1 GB = 1024³ bytes, as Explorer;
+    to 0.1 GB, C1-09)."""
+    if num_bytes is None:
+        return ""
+    v = num_bytes / 1024 ** 3
+    if v < 0.05:
+        return "0 GB"
+    return f"{v:,.1f} GB" if v < 100 else f"{v:,.0f} GB"
+
+
+def count(n: int, one: str, many: str | None = None) -> str:
+    """``1 template``, ``13 templates``, ``241,334,120 rows``."""
+    return f"{number(int(n))} {one if int(n) == 1 else (many or one + 's')}"

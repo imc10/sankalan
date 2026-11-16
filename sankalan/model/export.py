@@ -60,3 +60,60 @@ def csv_file_name(pattern: str, **values: str) -> str:
     """The export file name: pattern filled, illegal characters replaced, ``.csv`` added."""
     name = safe_file_name(fill_pattern(pattern, **values) or "Export")
     return name if name.lower().endswith(".csv") else name + ".csv"
+
+
+# ---------------------------------------------------------------------------------------------- template export defaults
+# Keys of ``Template.export`` (TPL-1, UX-7): folder, pattern, delimiter, encoding ("utf-8-sig" = with BOM, "utf-8").
+ENC_BOM, ENC_PLAIN = "utf-8-sig", "utf-8"
+ENCODINGS = {ENC_BOM: "UTF-8 with BOM (opens cleanly in Excel)", ENC_PLAIN: "UTF-8"}
+
+
+def default_folder() -> str:
+    """Documents, when a template has no export folder yet."""
+    import os
+    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    return os.path.join(home, "Documents")
+
+
+@dataclass(frozen=True)
+class ExportDefaults:
+    folder: str
+    pattern: str = DEFAULT_PATTERN
+    delimiter: str = ","
+    bom: bool = True
+
+    @classmethod
+    def of(cls, export: dict | None) -> "ExportDefaults":
+        e = export or {}
+        delimiter = e.get("delimiter") if e.get("delimiter") in DELIMITERS else ","
+        return cls(e.get("folder") or default_folder(), e.get("pattern") or DEFAULT_PATTERN, delimiter,
+                   e.get("encoding", ENC_BOM) != ENC_PLAIN)
+
+    def to_dict(self) -> dict:
+        return {"folder": self.folder, "pattern": self.pattern, "delimiter": self.delimiter,
+                "encoding": ENC_BOM if self.bom else ENC_PLAIN}
+
+    @property
+    def options(self) -> ExportOptions:
+        return ExportOptions(self.delimiter, self.bom)
+
+
+@dataclass(frozen=True)
+class ExportRequest:
+    """What the Export dialog (7.4, Phase 10) opens with (EXP-4, C4-18): the template's export defaults with the
+    name pattern resolved for this export. ``kind``: data | issues | left_out | output | analysis."""
+    kind: str
+    template_id: str
+    run_id: str | None
+    folder: str
+    file_name: str
+    pattern: str
+    options: ExportOptions
+
+
+def prefill(kind: str, export: dict | None, *, template_id: str, client: str, template: str,
+            run_id: str | None = None, run_label: str = "", output: str = "") -> ExportRequest:
+    d = ExportDefaults.of(export)
+    name = output or {"data": DATA_NAME, "issues": ISSUES_NAME, "left_out": LEFT_OUT_NAME}.get(kind, "")
+    file_name = csv_file_name(d.pattern, Client=client, Template=template, RunID=run_label, Output=name)
+    return ExportRequest(kind, template_id, run_id, d.folder, file_name, d.pattern, d.options)

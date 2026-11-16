@@ -371,3 +371,115 @@ def runs_with_sha256(con, template_id: str, shas: list[str]) -> dict[str, tuple[
     for sha, number, loaded_on in rows:
         out[sha] = (number, loaded_on)          # ordered by run number, so the latest run wins
     return out
+
+
+# ---------------------------------------------------------------------------------------------- screens C1, C2, C4 (Phase 7)
+def client_rows(con) -> list[tuple]:
+    """C1 grid (UX-1): (id, name, templates, runs, rows stored, last loaded on) per client."""
+    return [tuple(r) for r in con.execute("""
+        SELECT c.id, c.name,
+               (SELECT count(*) FROM template t WHERE t.client_id = c.id),
+               (SELECT count(*) FROM run r JOIN template t ON r.template_id = t.id WHERE t.client_id = c.id),
+               (SELECT coalesce(sum(r.rows_loaded), 0) FROM run r JOIN template t ON r.template_id = t.id
+                 WHERE t.client_id = c.id),
+               (SELECT max(r.loaded_on) FROM run r JOIN template t ON r.template_id = t.id WHERE t.client_id = c.id)
+        FROM client c ORDER BY c.name""").fetchall()]
+
+
+def client_names(con) -> dict[str, str]:
+    """id -> name of every client (name checks are made in Python, ignoring case: C1-04)."""
+    return {r[0]: r[1] for r in con.execute("SELECT id, name FROM client").fetchall()}
+
+
+def client_name(con, client_id: str) -> str | None:
+    row = con.execute("SELECT name FROM client WHERE id = ?", [client_id]).fetchone()
+    return row[0] if row else None
+
+
+def rename_client(con, client_id: str, name: str) -> None:
+    con.execute("UPDATE client SET name = ? WHERE id = ?", [name, client_id])
+
+
+def template_names(con, client_id: str) -> dict[str, str]:
+    """id -> name of the client's templates (template names are unique within a client: C2-05)."""
+    return {r[0]: r[1] for r in con.execute("SELECT id, name FROM template WHERE client_id = ?",
+                                            [client_id]).fetchall()}
+
+
+def template_rows(con, client_id: str) -> list[tuple]:
+    """C2 grid (UX-2): (id, name, active columns, default outputs, runs, rows stored, last loaded on, modified)."""
+    return [tuple(r) for r in con.execute("""
+        SELECT t.id, t.name,
+               (SELECT count(*) FROM template_column c WHERE c.template_id = t.id AND NOT c.removed),
+               (SELECT count(*) FROM default_output o WHERE o.template_id = t.id),
+               (SELECT count(*) FROM run r WHERE r.template_id = t.id),
+               (SELECT coalesce(sum(r.rows_loaded), 0) FROM run r WHERE r.template_id = t.id),
+               (SELECT max(r.loaded_on) FROM run r WHERE r.template_id = t.id),
+               t.modified_on
+        FROM template t WHERE t.client_id = ? ORDER BY t.name""", [client_id]).fetchall()]
+
+
+def template_header(con, template_id: str) -> tuple | None:
+    """C4 header (UX-4): (client id, client name, template name, runs, rows stored, last loaded on)."""
+    row = con.execute("""
+        SELECT t.client_id, c.name, t.name,
+               (SELECT count(*) FROM run r WHERE r.template_id = t.id),
+               (SELECT coalesce(sum(r.rows_loaded), 0) FROM run r WHERE r.template_id = t.id),
+               (SELECT max(r.loaded_on) FROM run r WHERE r.template_id = t.id)
+        FROM template t JOIN client c ON c.id = t.client_id WHERE t.id = ?""", [template_id]).fetchone()
+    return tuple(row) if row else None
+
+
+def run_rows(con, template_id: str) -> list[tuple]:
+    """C4 Runs grid (UX-4, RUN-2), newest first: (id, run number, loaded on, file names (list, in file order),
+    rows loaded, errors, warnings, status, comment, damaged)."""
+    rows = con.execute("""
+        SELECT r.id, r.run_number, r.loaded_on, r.rows_loaded, r.errors, r.warnings, r.status, r.comment, r.damaged
+        FROM run r WHERE r.template_id = ? ORDER BY r.run_number DESC""", [template_id]).fetchall()
+    files: dict[str, list[str]] = {}
+    for run_id, name in con.execute("""
+            SELECT f.run_id, f.file_name FROM run_file f JOIN run r ON r.id = f.run_id
+            WHERE r.template_id = ? ORDER BY f.run_id, f.file_index""", [template_id]).fetchall():
+        names = files.setdefault(run_id, [])
+        if name not in names:                       # one row per file and sheet; a file is listed once
+            names.append(name)
+    return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+
+
+def latest_run(con, template_id: str) -> tuple | None:
+    """The latest committed run (DO-8 preview, VR-8 Test rules): (id, run number, rows loaded, loaded on)."""
+    row = con.execute("SELECT id, run_number, rows_loaded, loaded_on FROM run WHERE template_id = ? "
+                      "ORDER BY run_number DESC LIMIT 1", [template_id]).fetchone()
+    return tuple(row) if row else None
+
+
+def overview(con) -> tuple[int, int, int, int]:
+    """(clients, templates, runs, rows stored) for the C1 subtitle and storage footer."""
+    row = con.execute("""SELECT (SELECT count(*) FROM client), (SELECT count(*) FROM template),
+                                (SELECT count(*) FROM run), (SELECT coalesce(sum(rows_loaded), 0) FROM run)""").fetchone()
+    return tuple(int(x) for x in row)
+
+
+def saved_analysis_count(con, *, client_id: str | None = None, template_id: str | None = None) -> int:
+    if template_id is not None:
+        return int(con.execute("SELECT count(*) FROM saved_analysis WHERE template_id = ?",
+                               [template_id]).fetchone()[0])
+    return int(con.execute("SELECT count(*) FROM saved_analysis a JOIN template t ON t.id = a.template_id "
+                           "WHERE t.client_id = ?", [client_id]).fetchone()[0])
+
+
+def run_delete_figures(con, run_id: str) -> tuple | None:
+    """For dialog 7.2: (run number, template name, rows loaded, saved outputs)."""
+    row = con.execute("""SELECT r.run_number, t.name, r.rows_loaded,
+                                (SELECT count(*) FROM run_output o WHERE o.run_id = r.id)
+                         FROM run r JOIN template t ON t.id = r.template_id WHERE r.id = ?""", [run_id]).fetchone()
+    return tuple(row) if row else None
+
+
+def insert_saved_analysis(con, template_id: str, name: str, definition: dict, analysis_id: str | None = None) -> str:
+    """A saved analysis (ANA-1). Phase 10 builds the screens; delete counts (C1-11, C2-08) need the table now."""
+    aid = analysis_id or new_id()
+    now = _now()
+    con.execute("INSERT INTO saved_analysis VALUES (?, ?, ?, ?, ?, ?)",
+                [aid, template_id, name, json.dumps(definition, ensure_ascii=False), now, now])
+    return aid

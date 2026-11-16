@@ -13,7 +13,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 4b | 4 — Query layer, compiler and export | Done | `v2` (Phase 4 commit) | Split of left-out rows written as `query/split.py` for Phase 5 to wrap in a Job |
 | 5 | 5 — Run pipeline end-to-end (headless) | Done | `v2` (Phase 5 commit) | TPL-A R-0001…R-0007 (+ discarded runs), TPL-C and TPL-D pass headless (`run/pipeline.py`) |
 | 6 | 6 — UI shell and design system | Done | `v2` (Phase 6 commit) | Window, rail, theme, shared widgets, App settings; Clients/Analysis are placeholders until Phases 7/10 |
-| 7 | 7 — Clients, Client, Template screens | Not started | | |
+| 7 | 7 — Clients, Client, Template screens | Done | `v2` (Phase 7 commit) | C1, C2, C4 with all four tabs; New template / New run / Run / Export open placeholders until Phases 8–10 |
 | 8 | 8 — New template wizard | Not started | | |
 | 9 | 9 — New run wizard and Run detail | Not started | | Largest UI phase; split wizard / Run detail if needed |
 | 10 | 10 — Analysis and export dialogs | Not started | | |
@@ -29,7 +29,8 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 
 | Item | Default | State | Needed by |
 | --- | --- | --- | --- |
-| C1-04 client-name uniqueness | Unique ignoring case ("acme traders" refused when "Acme Traders" exists) | Proposed | Phase 7 |
+| C1-04 client-name uniqueness | Unique ignoring case and leading/trailing spaces ("acme traders" refused when "Acme Traders" exists); names stored trimmed. Template names follow the same rule within their client (C2-05) | Confirmed 17-11-2026 | Phase 7 |
+| Low-disk threshold (C1-10, RUNF-14) | Amber footer / low-disk warning below **10 GB** free on the data folder's drive (`manage.LOW_DISK_BYTES`); revisit after PERF-08 measures one 10M-row load | Confirmed 17-11-2026 | Phase 7 (Phase 9 reuses it) |
 | RUNF-06 message wording | "<file> is open in another program. Close it, then Re-check." (Tech spec) | Confirmed 17-11-2026 | Phase 2 |
 | RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Confirmed 17-11-2026 | Phase 3 |
 | SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running"; the running Job shows on the rail (click opens the screen that started it) | Confirmed 17-11-2026 | Phase 6 |
@@ -53,13 +54,83 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 
 ## Known issues carried in
 
-- The UI mockups don't yet show: the Decimals field (2.3, 3.3), the Input = Loaded + Left out totals table (4.5),
-  and "Export left-out rows" (3.1, 5.1). Build them from the Tech Spec.
+- The UI mockups don't yet show: the Decimals field (2.3; built on 3.3 in Phase 7), the Input = Loaded + Left out
+  totals table (4.5), and "Export left-out rows" (5.1; built on 3.1 in Phase 7). Build them from the Tech Spec.
 - Certificate (R1) not yet bought: develop with Smart App Control off; the SAC check waits for a signed build.
 
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 7: Clients, Client and Template screens
+- **Decisions confirmed by the user:** C1-04 names unique ignoring case; low-disk threshold 10 GB (see Decisions).
+  No other Proposed decision used.
+- **Query layer (`query/catalogue.py`):** `client_rows`, `client_names`, `client_name`, `rename_client`,
+  `template_names`, `template_rows`, `template_header`, `run_rows` (file names per run, newest first), `latest_run`,
+  `overview`, `saved_analysis_count`, `run_delete_figures`, `insert_saved_analysis` (Phase 10 builds the screens;
+  delete counts need the table now).
+- **`manage.py`** (Job work for the screens, no SQL): name checks (`NameRefused`: "Enter a client name.",
+  "“Acme Traders” is already in use. Choose another name.", ≤ 100 characters), clients overview + storage
+  figures (`StorageFigures.low` below `LOW_DISK_BYTES`), create/rename/delete client, client detail,
+  rename/duplicate/delete template (a rename is a save: version + 1), template detail (runs, size of `t\<id>`,
+  latest run), `save_template`, delete summaries for dialogs 7.2/7.3 and the undrawn delete-template dialog,
+  `output_preview` (DO-8: first 1,000 rows + grand total, temp table dropped), `test_rules` (VR-8).
+- **Formats / export model:** `formats.gigabytes` ("41.6 GB", "112 GB", "0 GB"), `formats.count` ("1 template",
+  "10,937 rows"); `model/export.ExportDefaults` (template `export` dict: folder, pattern, delimiter, encoding
+  `utf-8-sig`/`utf-8`; folder defaults to Documents) and `prefill()` → `ExportRequest` (pattern resolved, C4-18).
+- **Widgets:** `PagedGrid` gained `GridColumn.fmt / tooltip / colour / right`, cell kinds `ACTION` (drawn outline
+  button, "New run"), `MENU` (⋯) and `LINK` (name), `cellClicked`, Enter opens a row, and `ListSource` (in-memory
+  sort and search, blanks last). `controls.py`: SearchBox, icon buttons (↑ ↓ ✕ ⋯ icons added), ChipList (aliases,
+  sheet names), CountTabs, SaveBar ("Unsaved changes · Discard · Save", Save guarded). `builder.py`:
+  `DefinitionBuilder` (AND filters, group levels with grain and ↑↓, measures "Sum of Taxable Value" + "as" name,
+  Show subtotals) shared with Phases 8 and 10; `output=True` offers only latest month/quarter/year + blank/not
+  blank on dates. `dialogs/rule_editor.RuleDialog` (settings per rule type, checked with `check_rule`).
+- **Screens:** `screens/common.DataScreen` (quiet loads retried when the runner frees up, long Jobs through the
+  bridge, `NameDialog`, `confirm_delete`, plain error text; callbacks do nothing once the screen or window is gone).
+  `ClientsScreen` (1.1: grid, A–Z, header sort, search with no-match text, New client, row ⋯ Open/Rename/Delete,
+  empty state, storage footer amber when low), `ClientScreen` (1.2: grid, New run on the row after "Start a new run
+  on …?", ⋯ Rename/Duplicate/Delete only, empty state), `TemplateScreen` (3.1: header summary, New run, tabs with
+  the outputs count; Runs grid newest first, hover file names/comment, search comments + file names, ⋯ Open /
+  Export data / Export issue list / Export left-out rows / Delete). `OutputsTab` (3.2: run order list with ↑↓ ⋯
+  Duplicate/Delete, Add output, builder, Preview on the latest run with progress and Cancel, "Settings changed:
+  Preview again"), `ColumnsTab` (3.3: list with rules/aliases counts and ↑↓, Add column, detail with name, type +
+  "Fixed after the first run", decimals, date format, totals-check tick, aliases, rules with Error/Warning and test
+  counts, Remove column; Test rules on latest run with "Nothing is stored."), `SettingsTab` (3.4). Each editing tab
+  saves only its own part onto the template as last saved (no tab overwrites another's settings); switching tab or
+  leaving with unsaved edits asks Save / Discard / Stay.
+- **Window:** `MainWindow.go(route, …)` with `routes` for client, template, new_template, new_run, run, export.
+  Clients is now the real screen. New template (Phase 8), New run and Run (Phase 9) open placeholder screens; Export
+  shows "The Export dialog arrives in Phase 10." and keeps the `ExportRequest` in `window.last_export`.
+- **Fixes to Phase 6 code:** `PagedModel` connected `jobFinished` with a lambda, so a deleted model was still
+  called; it now uses a bound slot and every Job callback checks the model is still valid (shiboken6.isValid).
+- **Tests:** 342 passing, full suite (38 new: `tests/gui/test_clients.py` 10, `tests/gui/test_template.py` 20,
+  `tests/unit/test_manage.py` 8). C4 runs on TPL-A with R-0001…R-0003 committed through the real pipeline
+  (`conftest.tpl_a_template`, `commit_tpl_a_run`). Covered: C1-01…11 (C1-10 by faking the free space), C2-01…08,
+  C4-01…05 (preview = RUNO-03 figures, since R-0003 is the latest run), C4-06/07 (R-0001's saved DO1 keeps 3
+  measures), C4-08, C4-09…16 (C4-13 parquet mtime unchanged; C4-14 Region Code (Null) 5,000 on R-0001; C4-16
+  GSTIN removed, saved analysis labels "(removed)", Count distinct 5,000), C4-17, C4-18, delete run (7.2), tabs fit
+  1280×640.
+- **Interpretations** (change if wrong):
+  - Duplicate names the copy "<name> (copy)", then "(copy 2)", … (C2-03 searches "copy").
+  - New run from a C2 row asks "Start a new run on <template>?" (Cancel / Start run); New run on the template
+    screen starts without asking.
+  - Export settings offer UTF-8 with BOM and UTF-8 only (EXP-3); the mockup's Windows-1252 export option is
+    dropped. CSV input encoding offers Detect / UTF-8 / Windows-1252. The example file name ends in `.csv`.
+  - Rename and Delete of a client / template, and Delete of a run, are long Jobs (guarded, not cancellable).
+  - A column added on the Columns tab stays editable (type, decimals) until saved; once saved on a template with
+    runs it is locked like the others. Removing a column on a template with runs sets `removed`; with no runs it is
+    deleted. Its rules go, and it is dropped from wider Unique keys.
+  - An alias that matches (MAP-2 normalised) another column's name or alias is refused.
+  - Rules count in the column list includes the automatic type rule (as the mockup's counts).
+  - "Is one of" values in the builder are typed comma-separated until Phase 10 adds the value picker.
+  - Status "Files missing" for a run marked damaged by start-up recovery.
+- **Not verified:** the screens by eye at 1366×768 / 125% / 150% (offscreen only; the tabs' minimum sizes fit
+  1280×640); real Explorer free space vs the footer (C1-09 compares with `shutil.disk_usage`); hover tooltips shown
+  by a real mouse; menus opened by clicking ⋯ (tests call `row_menu` directly).
+- **Known limits:** while a long Job runs (e.g. a data-folder move), screens wait to load their lists until it ends.
+  Delete saved analysis (undrawn) belongs to the Analysis list and is left to Phase 10.
+- **Next:** Phase 8 (New template wizard): replace the `new_template` route, reuse `DefinitionBuilder`
+  (`output=True`) and `RuleDialog`; "Save and start first run" goes to the `new_run` route.
 
 ### 17-11-2026 — Phase 6: UI shell and design system
 - **Decisions confirmed by the user:** SH-02 (as proposed), FIT-04 minimum size capped to the work area, native

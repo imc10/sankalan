@@ -216,3 +216,48 @@ def gate():
     g = Gate()
     yield g
     g.release.set()
+
+
+# ---------------------------------------------------------------------------------------------- template screens (Phase 7)
+OVERRIDE_REASON = "Client confirmed errors; revised file next month"
+
+
+def tpl_a_template(client_id: str):
+    """TPL-A with its two default outputs DO1 and DO2 (Test Cases, Reference templates)."""
+    from sankalan.model import definition as d
+    from sankalan.model.definition import Definition, Filter, Group, Measure
+    from sankalan.model.rule import with_type_rules
+    from sankalan.model.template import DefaultOutput, Template
+    cols = tpl_a_columns()
+    do1 = Definition("", [], [Group("c005")], [Measure("c006", d.SUM, "Taxable"), Measure("c008", d.SUM, "Tax"),
+                                               Measure("c001", d.COUNT, "Invoices")])
+    do2 = Definition("", [Filter("c002", d.LATEST_MONTH)], [Group("c002", "month"), Group("c007")],
+                     [Measure("c006", d.SUM)], subtotals=True)
+    return Template("", client_id, "Sales Register", tpl_a_settings(), cols, with_type_rules(cols, tpl_a_rules()),
+                    [DefaultOutput("State-wise sales", do1.to_dict()),
+                     DefaultOutput("Latest month by GST rate", do2.to_dict())],
+                    {"pattern": "{Client}_{Template}_{RunID}_{Output}", "delimiter": ",", "encoding": "utf-8-sig"})
+
+
+def commit_tpl_a_run(storage, template_id, fx, name, reason=None, comment=""):
+    """One TPL-A run through the real pipeline (validate, split, outputs, totals, commit)."""
+    from sankalan.query import catalogue as q
+    from sankalan.run.pipeline import RunSession
+    sess = RunSession(storage.folder, q.load_template(storage.con, template_id), workers=0)
+    run_job(storage.runner, lambda ctx: sess.add_files(ctx, [fx / name]))
+    plan = sess.files_next()
+    if not plan.skip:                       # extra source columns (e.g. Branch) are left out
+        for kind, sheet, position in sess.mapping.undecided():
+            assert kind == "extra", (kind, sheet, position)
+            sess.mapping.leave_out(sheet, position)
+        sess.mapping_next()
+    run_job(storage.runner, sess.validate)
+    run_job(storage.runner, lambda ctx: sess.leave_validate(ctx, reason))
+    if sess.outputs:
+        run_job(storage.runner, sess.run_outputs)
+    run_job(storage.runner, lambda ctx: sess.check_totals(ctx, fault={}))
+    job = storage.runner.run("commit", lambda ctx: sess.commit(ctx, comment or (reason or ""),
+                                                                free_bytes=10 * 1024 ** 3), cancellable=False)
+    if job.error is not None:
+        raise job.error
+    return job.result

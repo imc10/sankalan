@@ -39,10 +39,39 @@ def close_prompt(operation: str) -> str:
 
 
 def default_screens() -> dict[str, ScreenFactory]:
+    from sankalan.ui.screens.clients import ClientsScreen
     return {
-        "clients": lambda w: PlaceholderScreen("clients", "Clients", "Your clients appear here.", w),
+        "clients": lambda w: ClientsScreen(w),
         "analysis": lambda w: PlaceholderScreen("analysis", "Analysis", "Saved analyses appear here.", w),
     }
+
+
+def _later(title: str, phase: int):
+    """A screen a later phase builds (New template: 8, New run and Run: 9)."""
+    return lambda w, **_kw: w.open_screen(PlaceholderScreen("clients", title, f"Arrives in Phase {phase}.", w))
+
+
+def _open_client(w: "MainWindow", client_id: str, name: str = "", **_kw) -> bool:
+    from sankalan.ui.screens.client import ClientScreen
+    return w.open_screen(ClientScreen(client_id, name, w))
+
+
+def _open_template(w: "MainWindow", template_id: str, name: str = "", tab: int = 0, banner=None, **_kw) -> bool:
+    from sankalan.ui.screens.template import TemplateScreen
+    return w.open_screen(TemplateScreen(template_id, name, w, tab=tab), banner=banner)
+
+
+def _export_later(w: "MainWindow", request=None, **_kw) -> bool:
+    """The Export dialog (7.4) arrives in Phase 10; until then the request is kept for it."""
+    w.last_export = request
+    ask(w, "Export", "The Export dialog arrives in Phase 10.", [("ok", "OK", "primary")])
+    return True
+
+
+def default_routes() -> dict[str, Callable[..., bool]]:
+    """Where navigation goes (``MainWindow.go``). Later phases replace the placeholders."""
+    return {"client": _open_client, "template": _open_template, "new_template": _later("New template", 8),
+            "new_run": _later("New run", 9), "run": _later("Run", 9), "export": _export_later}
 
 
 class MainWindow(QMainWindow):
@@ -57,6 +86,8 @@ class MainWindow(QMainWindow):
         self.storage = storage
         self.factories = dict(default_screens())
         self.factories.update(screens or {})
+        self.routes = default_routes()
+        self.last_export = None
         self._closing = False           # waiting for a Job to stop before closing
         self._may_close = False
 
@@ -146,6 +177,10 @@ class MainWindow(QMainWindow):
         screen.shown()
         self.screenChanged.emit(screen)
         return True
+
+    def go(self, route: str, **kw) -> bool:
+        """Open a screen by route: client, template, new_template, new_run, run, export."""
+        return bool(self.routes[route](self, **kw))
 
     def open_area(self, area: str) -> bool:
         """Open an area's top screen (rail click: Clients → C1, Analysis → A0)."""

@@ -23,6 +23,9 @@ _PATHS = {
     "storage": '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>'
                '<path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     "working": '<path d="M12 3a9 9 0 1 0 9 9"/>',
+    "up": '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    "down": '<path d="M12 5v14M6 13l6 6 6-6"/>',
+    "more": '<circle cx="5" cy="12" r="0.8"/><circle cx="12" cy="12" r="0.8"/><circle cx="19" cy="12" r="0.8"/>',
 }
 
 

@@ -12,11 +12,13 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QStyledItemDelegate, QTableView
+
+import shiboken6
 
 from sankalan import formats
 from sankalan.jobs import JobContext
@@ -25,6 +27,7 @@ from sankalan.ui.jobs import JobBridge
 
 PAGE_SIZE = 200
 TEXT, NUMBER, INTEGER, DATE, DATETIME = "text", "number", "integer", "date", "datetime"
+ACTION, MENU, LINK = "action", "menu", "link"     # a button drawn in the cell ("New run"), the row's menu, a name
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,10 @@ class GridColumn:
     width: int | None = None        # px; None stretches
     sortable: bool = True
     muted: bool = False             # secondary text colour (e.g. dates in the Clients grid)
+    fmt: Callable[[Any], str] | None = None         # display text instead of the kind's format
+    tooltip: int | None = None      # index in the row of the value shown on hover (e.g. a run's file names)
+    colour: Callable[[Any], str | None] | None = None   # text colour from the value (e.g. override status)
+    right: bool | None = None       # alignment; None = numbers and dates right
 
 
 Sort = list[tuple[str, bool]]       # (column key, ascending)
@@ -47,6 +54,8 @@ class PageSource(Protocol):
 
 
 def display(value: Any, column: GridColumn) -> str:
+    if column.fmt is not None:
+        return column.fmt(value)
     if value is None:
         return ""
     if column.kind == NUMBER:
@@ -78,9 +87,12 @@ class PagedModel(QAbstractTableModel):
         self._in_flight: int | None = None   # page number, or -1 for the count
         self._generation = 0
         self._need_count = False
-        bridge.jobFinished.connect(lambda _j: self._pump())
+        bridge.jobFinished.connect(self._job_finished)     # a bound slot: dropped with the model
 
     # ------------------------------------------------------------------------------------------ loading
+    def _job_finished(self, _job) -> None:
+        self._pump()
+
     def set_source(self, source: PageSource | None) -> None:
         self.source = source
         self.refresh()
@@ -131,7 +143,7 @@ class PagedModel(QAbstractTableModel):
             self.loadingChanged.emit(True)
 
     def _counted(self, gen: int, n: int) -> None:
-        if gen != self._generation:
+        if not shiboken6.isValid(self) or gen != self._generation:
             return
         self._in_flight = None
         self._need_count = False
@@ -143,7 +155,7 @@ class PagedModel(QAbstractTableModel):
         self._after_load()
 
     def _paged(self, gen: int, page: int, rows) -> None:
-        if gen != self._generation:
+        if not shiboken6.isValid(self) or gen != self._generation:
             return
         self._in_flight = None
         self._wanted.discard(page)
@@ -155,11 +167,11 @@ class PagedModel(QAbstractTableModel):
         self._after_load()
 
     def _retry(self, gen: int) -> None:
-        if gen == self._generation:
+        if shiboken6.isValid(self) and gen == self._generation:
             self._in_flight = None          # pumped again when the runner is free (jobFinished)
 
     def _failed(self, gen: int, error) -> None:
-        if gen != self._generation:
+        if not shiboken6.isValid(self) or gen != self._generation:
             return
         self._in_flight = None
         self._wanted.clear()
@@ -195,17 +207,30 @@ class PagedModel(QAbstractTableModel):
             return None
         col = self.columns[index.column()]
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            right = col.kind in (NUMBER, INTEGER, DATE, DATETIME)
-            return int((Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
+            return int((Qt.AlignmentFlag.AlignRight if _right(col) else Qt.AlignmentFlag.AlignLeft)
                        | Qt.AlignmentFlag.AlignVCenter)
-        if role == Qt.ItemDataRole.ForegroundRole and col.muted:
-            return QColor(theme.MUTED)
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if col.colour is not None:
+                values = self.row_values(index.row())
+                c = col.colour(values[index.column()]) if values is not None else None
+                if c:
+                    return QColor(c)
+            if col.muted:
+                return QColor(theme.MUTED)
+            return None
+        if role == Qt.ItemDataRole.FontRole and col.kind == LINK:
+            return theme.font(theme.GRID_TEXT_PX, medium=True)
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
             values = self.row_values(index.row())
             if values is None:
                 return "" if role == Qt.ItemDataRole.DisplayRole else None
             text = display(values[index.column()], col)
-            return text if role == Qt.ItemDataRole.DisplayRole else (text or None)
+            if role == Qt.ItemDataRole.ToolTipRole:
+                if col.tooltip is not None:
+                    tip = values[col.tooltip]
+                    return (", ".join(tip) if isinstance(tip, (list, tuple)) else str(tip)) or None
+                return None if col.kind in (ACTION, MENU) else (text or None)
+            return text
         if role == Qt.ItemDataRole.UserRole:
             values = self.row_values(index.row())
             return None if values is None else values[index.column()]
@@ -218,8 +243,7 @@ class PagedModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return col.title
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            right = col.kind in (NUMBER, INTEGER, DATE, DATETIME)
-            return int((Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
+            return int((Qt.AlignmentFlag.AlignRight if _right(col) else Qt.AlignmentFlag.AlignLeft)
                        | Qt.AlignmentFlag.AlignVCenter)
         return None
 
@@ -231,10 +255,92 @@ class PagedModel(QAbstractTableModel):
         self.refresh()
 
 
+def _right(col: GridColumn) -> bool:
+    return col.right if col.right is not None else col.kind in (NUMBER, INTEGER, DATE, DATETIME)
+
+
+class ListSource:
+    """A ``PageSource`` over rows already in memory (clients, templates, runs): sorted and searched in Python.
+    ``search`` keeps the rows for which ``matches(row, text)`` is true. Values sort by type, blanks last."""
+
+    def __init__(self, columns: list[GridColumn], rows: list[Sequence[Any]] | None = None,
+                 default_sort: Sort | None = None, matches: Callable[[Sequence[Any], str], bool] | None = None):
+        self.keys = [c.key for c in columns]
+        self.rows = list(rows or [])
+        self.default_sort = list(default_sort or [])
+        self.matches = matches
+        self.search = ""
+
+    def view(self, sort: Sort) -> list[Sequence[Any]]:
+        rows = self.rows
+        text = self.search.strip()
+        if text and self.matches is not None:
+            rows = [r for r in rows if self.matches(r, text)]
+        for key, ascending in reversed(sort or self.default_sort):
+            i = self.keys.index(key)
+            present = [r for r in rows if r[i] is not None]
+            blank = [r for r in rows if r[i] is None]
+            present.sort(key=lambda r: _sort_key(r[i]), reverse=not ascending)
+            rows = present + blank
+        return rows
+
+    def count(self, ctx, sort: Sort) -> int:
+        return len(self.view(sort))
+
+    def page(self, ctx, offset: int, limit: int, sort: Sort) -> list[Sequence[Any]]:
+        return self.view(sort)[offset:offset + limit]
+
+
+def _sort_key(v):
+    if isinstance(v, str):
+        return v.casefold()
+    if isinstance(v, list):                     # e.g. file names: by how many
+        return len(v)
+    return v
+
+
+class CellDelegate(QStyledItemDelegate):
+    """Draws ACTION cells as a small outline button and MENU cells as three dots (canvas row actions)."""
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        super().paint(painter, option, index)
+        col = index.model().columns[index.column()]
+        if col.kind not in (ACTION, MENU):
+            return
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        if not text and col.kind == ACTION:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = option.rect
+        if col.kind == ACTION:
+            painter.setFont(theme.font(theme.GRID_TEXT_PX, medium=True))
+            w = painter.fontMetrics().horizontalAdvance(text) + 24
+            box = QRect(r.right() - w - 8, r.center().y() - 14, w, 28)
+            painter.setPen(QPen(QColor(theme.TINT_BORDER), 1))
+            painter.setBrush(QColor(theme.WHITE))
+            painter.drawRoundedRect(box, 6, 6)
+            painter.setPen(QColor(theme.TEAL_DARK))
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.MUTED))
+            cx, cy = r.right() - 20, r.center().y()
+            for dx in (-6, 0, 6):
+                painter.drawEllipse(cx + dx - 2, cy - 2, 4, 4)
+        painter.restore()
+
+    def initStyleOption(self, option, index) -> None:
+        super().initStyleOption(option, index)
+        if index.model().columns[index.column()].kind in (ACTION, MENU):
+            option.text = ""
+
+
 class PagedGrid(QTableView):
     """A ``QTableView`` set up as the canvas grid: 40 px rows and header, no row numbers, whole-row selection,
     scrolling inside its own panel (UI-2)."""
     rowActivated = Signal(int)
+    cellClicked = Signal(int, str)      # row, column key (ACTION, MENU and LINK cells)
 
     def __init__(self, model: PagedModel, parent=None):
         super().__init__(parent)
@@ -264,8 +370,29 @@ class PagedGrid(QTableView):
         hh.setSortIndicatorShown(True)
         hh.sectionClicked.connect(self._header_clicked)
         self._sorted: tuple[int, Qt.SortOrder] | None = None
-        self.doubleClicked.connect(lambda idx: self.rowActivated.emit(idx.row()))
+        self.doubleClicked.connect(self._double_clicked)
+        self.clicked.connect(self._clicked)
+        self.setItemDelegate(CellDelegate(self))
         self.apply_widths()
+
+    def _clicked(self, idx) -> None:
+        col = self.model().columns[idx.column()]
+        if col.kind in (ACTION, MENU, LINK) and self.model().row_values(idx.row()) is not None:
+            self.cellClicked.emit(idx.row(), col.key)
+
+    def _double_clicked(self, idx) -> None:
+        if self.model().columns[idx.column()].kind not in (ACTION, MENU):
+            self.rowActivated.emit(idx.row())
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.currentIndex().isValid():
+            self.rowActivated.emit(self.currentIndex().row())
+            return
+        super().keyPressEvent(event)
+
+    def cell_rect(self, row: int, key: str) -> QRect:
+        keys = [c.key for c in self.model().columns]
+        return self.visualRect(self.model().index(row, keys.index(key)))
 
     def apply_widths(self) -> None:
         hh = self.horizontalHeader()
