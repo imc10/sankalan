@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Sankalan
 
 Offline Windows desktop app that merges many Excel/CSV files with the same or similar columns into one
@@ -105,6 +104,3 @@ Log (technical only, no cell values): `%LOCALAPPDATA%\Sankalan\logs\sankalan.log
   Excel's conditional number formats don't reliably show the minus sign.
 - GSTIN checks are offline: they can't confirm a GSTIN is registered or active.
 - Hidden rows are detected in .xlsx/.xlsm/.xls; CSV has no hidden rows.
-=======
-# sankalan
->>>>>>> dfb416cb975f0d28fda9e51f24302e82ef8f4302
