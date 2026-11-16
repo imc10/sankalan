@@ -11,7 +11,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 3 | 2 — Ingestion: probe, read, convert | Done | `v2` (Phase 2 commit) | Conversion failures go to `conversion_failures.parquet` until Phase 3 folds them into `issues.parquet` |
 | 4 | 3 — Validation and issues | Done | `v2` (Phase 3 commit) | Phase 4 (query layer and export) split into its own session |
 | 4b | 4 — Query layer, compiler and export | Done | `v2` (Phase 4 commit) | Split of left-out rows written as `query/split.py` for Phase 5 to wrap in a Job |
-| 5 | 5 — Run pipeline end-to-end (headless) | Not started | | Gate: TPL-A run sequence R-0001…R-0007 passes with no UI |
+| 5 | 5 — Run pipeline end-to-end (headless) | Done | `v2` (Phase 5 commit) | TPL-A R-0001…R-0007 (+ discarded runs), TPL-C and TPL-D pass headless (`run/pipeline.py`) |
 | 6 | 6 — UI shell and design system | Not started | | Can run in parallel with sessions 4–5 (own worktree, `sankalan/ui/` only) once Phase 1's Job interface is fixed |
 | 7 | 7 — Clients, Client, Template screens | Not started | | |
 | 8 | 8 — New template wizard | Not started | | |
@@ -34,7 +34,9 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | RUNV-02 Rows read with blank rows | Rows read includes blank rows (4,010 for F03); blank rows counted under rows left out (RUN-12) | Confirmed 17-11-2026 | Phase 3 |
 | SH-02 second long Job | Controls that start a long Job are disabled with tooltip "Another operation is running" | Proposed | Phase 6 |
 | C2-08 duplicate-contents check scope | Within the same template only | Confirmed 17-11-2026 | Phase 2 |
-| RUNC-10 totals mismatch test | Fault-injection hook behind an environment variable, test builds only | Proposed | Phase 5 |
+| RUNC-10 totals mismatch test | `SANKALAN_FAULT_TOTALS=<column id>:<amount>[,…]` adds the amount to Loaded; read only when running from source (`sys.frozen` false), so the packaged exe ignores it. Automated tests pass the fault as an argument | Confirmed 17-11-2026 | Phase 5 |
+| Commit free-space check (Tech spec, Commit) | Commit needs at least 100 MB free on the data folder's drive (`COMMIT_FREE_BYTES`); revisit after PERF-08 | Confirmed 17-11-2026 | Phase 5 |
+| C4-06 Customers per state on R-0005 | **5** per state, not the sheet's 10: under F00, Customer cycles mod 10 and State mod 4, so each state sees 5 customers. Update the live test sheet | Confirmed 17-11-2026 | Phase 5 |
 | Run-from-source route (V1 `packaging/source_install`) | Keep as a dev-only fallback until the certificate arrives, then retire (T3) | Proposed | Phase 11 |
 | O12 unencrypted local data | Customer still to confirm (SEC-3); no code impact | Open (customer) | — |
 | F20 Sales_Macro.xlsm without a VBA part | Generated as a true macro-enabled workbook (macro content type) with no `vbaProject.bin`; replace with an Excel-saved file if a real module is ever needed | Confirmed 16-11-2026 | — |
@@ -55,6 +57,60 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 5: run pipeline end to end (headless)
+- **Decisions confirmed by the user:** RUNC-10 fault hook (env var, source runs only), commit free space 100 MB, C4-06
+  expected figure 5 Customers per state (test sheet slip; see Decisions). No other Proposed decision used.
+- **`model/template.py`:** `Template` (id, client, name, `SourceSettings`, columns, rules, `DefaultOutput`s, export
+  defaults, version), `snapshot()` for `template_version`, `next_column_id`, `outputs_using`, `check_change`
+  (`TemplateError`): type or decimals changed once the template has a committed run (TPL-9, MAP-12); a removed
+  column still used by a default output, naming it (C4-15); columns can't be deleted outright once data exists.
+- **Catalogue:** `template_column` gained `date_format` (schema still v1, nothing shipped). `create_template`,
+  `save_template` (own transaction) / `save_template_in` (caller's transaction), `load_template`,
+  `duplicate_template` (everything but runs and saved analyses; output definitions re-pointed; version 1),
+  `template_has_runs`, `run_details` (run row + JSON parsed + files + outputs), `run_outputs`, `run_issue_counts`.
+  The older `insert_template` / `save_rules` stay for the earlier tests.
+- **`mapping.py`:** `MappingPlan` over `Sheet`s (one per file-sheet): auto-match by name/alias, `map(...,
+  save_alias=)` (MAP-5), `leave_null` returning the "(Null)" warnings for outputs using the column (MAP-6),
+  `leave_out` / `add_column` for extra headers (MAP-7; the same header in other sheets maps to the new column,
+  sheets without it get null; changing the decision undoes it), `first_undecided` (MAP-13), `skip` (TPL-6),
+  `result()` (mappings, run columns, aliases to save, decisions for RUN-12), `apply_to_template`, `describe`.
+- **`query/totals.py`:** Input from the raw staged text with the Number rule, per value, unreadable = 0; Loaded
+  from `data.parquet`; Left out from `left_out.parquet`; exact equality (T20). **`query/split.py`:**
+  `left_out_breakdown` (a row left out only by Unique rules = later duplicate, else errors).
+- **`db/datafolder.commit`:** new `in_transaction(con)` callback, run inside the commit transaction before the run
+  insert: the pipeline saves learned aliases and added columns there, so they commit with the run (a discarded run
+  changes nothing) and the run records that template version.
+- **`run/pipeline.py`:** `RunSession`, steps as Job work: `add_files` / `remove_file` / `load_anyway` /
+  `files_blockers` / `files_next`; `mapping_next`; `validate` (= `recheck`); `edit_rules(save_to_template=)`
+  (scan only; saving makes a new template version at once and is listed in the run's `rules_saved`);
+  `leave_validate(reason)` (split; a reason is required when there are errors); `run_outputs` (per-output status
+  pending/running/done/failed/cancelled, partial file removed, run again = Retry; `outputs_skipped` with none);
+  `check_totals`; `commit_blockers(comment, free_bytes)`; `commit` (not cancellable; deletes
+  `conversion_failures.parquet` first); `discard`. Going back to a step drops everything after it.
+  `run_changes` JSON = `{mapping, rules_run_only, rules_saved, override_reason}`; `left_out_by_reason` =
+  `{blank, errors, duplicates}`; rows left out include blank rows (RUN-12), rows read = loaded + left out.
+- **Tests:** 274 passing (26 new in `tests/engine/test_run_pipeline.py`), full suite run 3 times. The whole TPL-A
+  sequence in one module fixture: run table (loaded and stored after each run, R-0006 delete → 14,937, R-0007 →
+  16,937, staging empty), RUNF-11/12, RUNV-01/02/03/08/09/10/13, RUNO-01/03/04/05, RUNC-01…08, RUNM-01…07,
+  C2-06/07, C4-06/10/11/15, C6-02/03/04/07/09/10; plus RUNC-10 (env hook) and the frozen check, RUNO-06 cancel
+  and Retry, TPL-C (RUNO-07, 5 warnings, R-0001 per template), TPL-D (North + South, Archive skipped), mapping
+  unit cases.
+- **Interpretations** (change if wrong):
+  - "Types fixed after the first commit" = while the template has at least one committed run; if every run is
+    deleted the types are editable again (no data holds the old type). Date format stays editable (it only affects
+    new reads). Removing a column sets its `removed` flag; deleting it outright is refused once data exists.
+  - Learned aliases and added columns are saved at commit, not when picked (RUNM-03 checks after commit).
+  - A duplicate-contents file (RUN-7) blocks Next on Files until Remove or Load anyway; Load anyway sets it Ready
+    and stores `duplicate_decision = "load_anyway"` in `run_file`.
+  - Override reason ≤ 500 characters (it prefills the comment); "Continue despite errors" with a blank-only reason
+    is refused.
+  - Editing rules after the split re-reads the files (the split rewrote `data.parquet`).
+- **Not verified:** speed on P01/P02 (outputs, totals and split at 10M rows); RUNV-11 Re-check with a really fixed
+  source file (it is `validate` again, which re-reads the files, but probe results are not refreshed); RUNO-06 with
+  a long-running output (tested with a cancel that lands at once).
+- **Next:** Phase 6 (UI shell) or later UI phases. Phase 9 drives `RunSession` from the New run wizard; Phase 7
+  uses `load_template` / `save_template` / `duplicate_template` and `TemplateError` messages.
 
 ### 17-11-2026 — Phase 4: query layer, compiler and export
 - **Decisions confirmed by the user:** S2 export path and the EXP-04 Reason wording (see Decisions). No other

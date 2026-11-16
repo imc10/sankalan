@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime
 
 from sankalan.model.rule import Rule
-from sankalan.model.run import NewRun, RunRow
+from sankalan.model.run import NewRun, RunOutput, RunRow
+from sankalan.model.template import Column, DefaultOutput, Template, check_change, settings_from_dict
 
 
 def new_id() -> str:
@@ -104,6 +105,100 @@ def save_rules(con, template_id: str, rules: list[Rule]) -> int:
     return version
 
 
+# ---------------------------------------------------------------------------------------------- whole templates
+def template_has_runs(con, template_id: str) -> bool:
+    """True once the template has a committed run: column types and decimals are then fixed (TPL-9, MAP-12)."""
+    return bool(con.execute("SELECT count(*) FROM run WHERE template_id = ?", [template_id]).fetchone()[0])
+
+
+def _write_template(con, t: Template, version: int, now: datetime, created: bool) -> None:
+    """Write every table of a template at ``version``. Call inside a transaction."""
+    settings = json.dumps(t.settings_dict(), ensure_ascii=False)
+    if created:
+        con.execute("INSERT INTO template VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [t.id, t.client_id, t.name, version, now, now, settings])
+    else:
+        con.execute("UPDATE template SET name = ?, version = ?, modified_on = ?, settings = ? WHERE id = ?",
+                    [t.name, version, now, settings, t.id])
+    for table in ("template_column", "rule", "default_output"):
+        con.execute(f"DELETE FROM {table} WHERE template_id = ?", [t.id])
+    for pos, c in enumerate(t.columns):
+        con.execute("INSERT INTO template_column VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [t.id, c.id, c.name, c.type, c.decimals, c.date_format, pos,
+                     json.dumps(c.aliases, ensure_ascii=False), c.totals_check, c.removed])
+    for pos, r in enumerate(t.rules):
+        con.execute("INSERT INTO rule (template_id, id, column_id, rule_type, settings, severity, position) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [t.id, r.id, r.column_id, r.type, json.dumps(r.settings, ensure_ascii=False), r.severity, pos])
+    for pos, o in enumerate(t.outputs, 1):
+        con.execute("INSERT INTO default_output VALUES (?, ?, ?, ?)",
+                    [t.id, pos, o.name, json.dumps(o.definition, ensure_ascii=False)])
+    snapshot = t.snapshot()
+    con.execute("INSERT INTO template_version VALUES (?, ?, ?, ?)",
+                [t.id, version, now, json.dumps(snapshot, ensure_ascii=False)])
+    t.version = version
+
+
+def create_template(con, t: Template) -> str:
+    """A new template at version 1 (TPL-3). Opens its own transaction."""
+    if not t.id:
+        t.id = new_id()
+    check_change(None, t, has_runs=False)
+    with Transaction(con):
+        _write_template(con, t, 1, _now(), created=True)
+    return t.id
+
+
+def save_template_in(con, t: Template) -> int:
+    """Save every setting as a new version (TPL-7) inside the caller's transaction (the run commit uses this for
+    aliases learned and columns added in the run). Raises ``TemplateError`` for a change that isn't allowed."""
+    before = load_template(con, t.id)
+    check_change(before, t, has_runs=template_has_runs(con, t.id))
+    version = template_version(con, t.id) + 1
+    _write_template(con, t, version, _now(), created=False)
+    return version
+
+
+def save_template(con, t: Template) -> int:
+    """Save every setting as a new template version (TPL-7). Opens its own transaction. Returns the version."""
+    with Transaction(con):
+        return save_template_in(con, t)
+
+
+def load_template(con, template_id: str) -> Template:
+    """The template as currently saved, with its columns (ordered), rules, default outputs and settings."""
+    row = con.execute("SELECT client_id, name, version, settings FROM template WHERE id = ?",
+                      [template_id]).fetchone()
+    if row is None:
+        raise KeyError(template_id)
+    client_id, name, version, settings_json = row
+    settings = json.loads(settings_json or "{}")
+    cols = [Column(r[0], r[1], r[2], r[3], r[4], json.loads(r[5]), bool(r[6]), bool(r[7]))
+            for r in con.execute("SELECT id, name, type, decimals, date_format, aliases, totals_check, removed "
+                                 "FROM template_column WHERE template_id = ? ORDER BY position",
+                                 [template_id]).fetchall()]
+    outputs = [DefaultOutput(r[0], json.loads(r[1])) for r in con.execute(
+        "SELECT name, definition FROM default_output WHERE template_id = ? ORDER BY position",
+        [template_id]).fetchall()]
+    source = settings.get("source") if isinstance(settings.get("source"), dict) else None
+    return Template(template_id, client_id, name, settings_from_dict(source), cols, load_rules(con, template_id),
+                    outputs, dict(settings.get("export") or {}), int(version))
+
+
+def duplicate_template(con, template_id: str, name: str, client_id: str | None = None) -> str:
+    """A copy with every setting (columns, aliases, types, decimals, rules, default outputs, export defaults) and
+    no runs or saved analyses (TPL-4). The copy starts at version 1 and its types are editable until its own first
+    commit (C2-07)."""
+    t = load_template(con, template_id).copy()
+    t.id = new_id()
+    t.name = name
+    if client_id is not None:
+        t.client_id = client_id
+    for o in t.outputs:
+        o.definition["template_id"] = t.id
+    return create_template(con, t)
+
+
 def client_ids(con) -> list[str]:
     return [r[0] for r in con.execute("SELECT id FROM client ORDER BY id").fetchall()]
 
@@ -121,6 +216,45 @@ def list_runs(con, template_id: str | None = None) -> list[RunRow]:
         rows = con.execute(f"SELECT {_RUN_COLS} FROM run WHERE template_id = ? ORDER BY run_number",
                            [template_id]).fetchall()
     return [RunRow(*r) for r in rows]
+
+
+def run_details(con, run_id: str) -> dict | None:
+    """One committed run for the Run screen (RUN-2, RUN-12, C6): the run row with its JSON fields parsed, its files
+    and its saved outputs. None when no such run."""
+    row = con.execute(f"SELECT {_RUN_COLS}, left_out_by_reason, errors, warnings, run_changes, totals FROM run "
+                      f"WHERE id = ?", [run_id]).fetchone()
+    if row is None:
+        return None
+    keys = [k.strip() for k in _RUN_COLS.split(",")] + ["left_out_by_reason", "errors", "warnings", "run_changes",
+                                                        "totals"]
+    out = dict(zip(keys, row))
+    for k in ("left_out_by_reason", "run_changes", "totals"):
+        out[k] = json.loads(out[k])
+    out["label"] = RunRow(*row[:len(_RUN_COLS.split(","))]).label
+    fcols = ("file_index", "file_name", "path", "size", "modified", "sheet", "sha256", "header_row", "rows_read",
+             "hidden_rows", "sheets_skipped", "duplicate_decision")
+    out["files"] = []
+    for r in con.execute(f"SELECT {', '.join(fcols)} FROM run_file WHERE run_id = ? ORDER BY file_index",
+                         [run_id]).fetchall():
+        f = dict(zip(fcols, r))
+        f["sheets_skipped"] = json.loads(f["sheets_skipped"])
+        out["files"].append(f)
+    out["outputs"] = run_outputs(con, run_id)
+    return out
+
+
+def run_outputs(con, run_id: str) -> list[RunOutput]:
+    """A run's saved default outputs with the definition used for that run (DO-6), in order."""
+    return [RunOutput(r[0], r[1], json.loads(r[2]), r[3]) for r in con.execute(
+        "SELECT position, name, definition, file FROM run_output WHERE run_id = ? ORDER BY position",
+        [run_id]).fetchall()]
+
+
+def run_issue_counts(con, run_id: str) -> list[tuple]:
+    """(rule, file index, sheet, errors, warnings) stored at commit (ISS-1)."""
+    return [tuple(r) for r in con.execute(
+        "SELECT rule, file_index, sheet, errors, warnings FROM run_issue_count WHERE run_id = ? "
+        "ORDER BY file_index, rule", [run_id]).fetchall()]
 
 
 def run_locations(con) -> list[tuple[str, str]]:

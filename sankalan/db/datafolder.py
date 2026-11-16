@@ -118,7 +118,8 @@ def _fsync_tree(folder: Path) -> None:
 
 
 def commit(con, folder: DataFolder, staging: Staging, run: NewRun,
-           on_step: Callable[[str], None] | None = None) -> int:
+           on_step: Callable[[str], None] | None = None,
+           in_transaction: Callable[[object], None] | None = None) -> int:
     """Commit a staged run. Returns the Run ID number issued.
 
     1. Flush every staged file to disk and delete raw\\.
@@ -128,7 +129,9 @@ def commit(con, folder: DataFolder, staging: Staging, run: NewRun,
 
     A crash before step 3 completes leaves no catalogue row, and start-up recovery removes the folder. If step 3
     fails without a crash, the folder is moved back to staging so the run can be committed again.
-    ``on_step(name)`` is called after each step (progress; tests use it to crash at each point)."""
+    ``on_step(name)`` is called after each step (progress; tests use it to crash at each point).
+    ``in_transaction(con)`` runs inside the catalogue transaction before the run is inserted: the run pipeline saves
+    aliases learned and columns added in the run there, so they commit together with the run (RUN-5)."""
     step = on_step or (lambda _name: None)
     for name in REQUIRED_RUN_FILES:
         if not (staging.path / name).is_file():
@@ -145,6 +148,8 @@ def commit(con, folder: DataFolder, staging: Staging, run: NewRun,
 
     try:
         with q.Transaction(con):
+            if in_transaction is not None:
+                in_transaction(con)
             number = q.insert_run(con, staging.id, run)
     except BaseException:
         try:

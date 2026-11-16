@@ -48,6 +48,7 @@ _V1 = [
         name VARCHAR NOT NULL,
         type VARCHAR NOT NULL,              -- Text | Number | Date
         decimals INTEGER,                   -- Number only, 0-6 (T13)
+        date_format VARCHAR,                -- Date only: NULL = Excel dates, else DD-MM-YYYY | DD/MM/YYYY
         position INTEGER NOT NULL,
         aliases VARCHAR NOT NULL,           -- JSON list
         totals_check BOOLEAN NOT NULL,

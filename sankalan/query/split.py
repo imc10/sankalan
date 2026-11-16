@@ -51,3 +51,17 @@ def split(con, folder: Path, issues: Path, rule_order: list[str]) -> tuple[int, 
     if left_n:
         os.replace(data_part, data)
     return total - left_n, left_n
+
+
+def left_out_breakdown(con, folder: Path, unique_rule_ids: list[str]) -> tuple[int, int]:
+    """(rows with errors, later duplicates) among the left-out rows (RUN-12, T18). A row is a later duplicate when
+    every rule that left it out is a Unique within the run rule; any other Error rule counts it under errors."""
+    left = Path(folder) / LEFT_OUT
+    if not left.is_file():
+        return 0, 0
+    uniq = "[" + ", ".join(lit(r) for r in unique_rule_ids) + "]" if unique_rule_ids else "[]::VARCHAR[]"
+    row = con.execute(
+        f"SELECT count(*) FILTER (WHERE NOT dup), count(*) FILTER (WHERE dup) FROM ("
+        f"SELECT list_bool_and(list_transform(string_split(_reason, ','), lambda r: list_contains({uniq}, r))) AS dup "
+        f"FROM read_parquet({_path(left)}))").fetchone()
+    return int(row[0]), int(row[1])
