@@ -120,3 +120,22 @@ def test_runtime_dependencies_are_exactly_the_allowed_set():
     pins = dict(ln.lower().split("==") for ln in lines)
     assert set(pins) == {"pyside6-essentials", "shiboken6", "duckdb", "python-calamine"}
     assert pins["duckdb"].startswith("2.0.")
+
+
+@spec("V3-1")
+def test_sql_only_in_query_and_db():
+    """All SQL lives in sankalan/query/ (plus schema DDL and connection set-up in sankalan/db/). Jobs and screens
+    call those modules; nothing else executes SQL."""
+    pat = re.compile(r"\.(?:execute|executemany|sql|query)\(")
+    allowed = {"query", "db"}
+    found = [p.relative_to(ROOT).as_posix() for p in _sources()
+             if p.relative_to(PKG).parts[0] not in allowed and pat.search(p.read_text(encoding="utf-8"))]
+    assert found == []
+
+
+@spec("SEC-1")
+def test_no_duckdb_cursor_bypasses_the_job_interface():
+    """Only db/ opens DuckDB connections."""
+    found = [p.relative_to(ROOT).as_posix() for p in _sources()
+             if "duckdb.connect(" in p.read_text(encoding="utf-8") and p.relative_to(PKG).parts[0] != "db"]
+    assert found == []

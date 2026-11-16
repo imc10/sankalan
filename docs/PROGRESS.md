@@ -7,7 +7,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | Session | Phase | Status | Branch / commit | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | 0 — Branch, toolchain, spikes, fixtures | Done | `v2` (Phase 0 commit) | Spike findings S1–S6 change Phases 1, 2, 4: see `tools/spikes/RESULTS.md` |
-| 2 | 1 — Storage, catalogue, Job runner | Not started | | |
+| 2 | 1 — Storage, catalogue, Job runner | Done | `v2` (Phase 1 commit) | Job interface fixed (`sankalan/jobs`), so Phase 6 can start |
 | 3 | 2 — Ingestion: probe, read, convert | Not started | | |
 | 4 | 3 + 4 — Validation and issues; query layer and export | Not started | | Split into two sessions if it runs long |
 | 5 | 5 — Run pipeline end-to-end (headless) | Not started | | Gate: TPL-A run sequence R-0001…R-0007 passes with no UI |
@@ -37,7 +37,9 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Run-from-source route (V1 `packaging/source_install`) | Keep as a dev-only fallback until the certificate arrives, then retire (T3) | Proposed | Phase 11 |
 | O12 unencrypted local data | Customer still to confirm (SEC-3); no code impact | Open (customer) | — |
 | F20 Sales_Macro.xlsm without a VBA part | Generated as a true macro-enabled workbook (macro content type) with no `vbaProject.bin`; replace with an Excel-saved file if a real module is ever needed | Confirmed 16-11-2026 | — |
-| DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Proposed | Phase 1 |
+| DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Confirmed 16-11-2026 | Phase 1 |
+| Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
+| Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
 | Export path under S1 (spike S2) | DuckDB writes `<name>.part` in an allowed folder; Python streams it to the chosen folder (adding the BOM), then renames | Proposed | Phase 4 |
 | Number text beyond the Tech spec list (spike S5) | `1e3`, `12%`, trailing minus, `Rs.`/`INR`: V1 accepted them; DuckDB `TRY_CAST` accepts `1e3`. Ask the user which the SQL Number rule accepts | Open | Phase 2 |
 
@@ -50,6 +52,60 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 16-11-2026 — Phase 1: storage, catalogue and Job runner
+- **Decisions confirmed by the user:** S1 hardening, staging lifetime, move destination must be empty (see Decisions).
+- **`paths.py`:** `AppPaths` (`%LOCALAPPDATA%\Sankalan`, `%TEMP%\Sankalan`, read from the environment so tests
+  redirect them), `settings.json` (atomic write; a bad file falls back to the default data folder), `empty_folder`,
+  `is_network_path` (UNC, `\\?\UNC\`, drive letters whose `GetDriveTypeW` is remote), `is_onedrive_path` (under the
+  `OneDrive*` environment folders, or a path part `OneDrive` / `OneDrive - <org>`).
+- **`log.py`:** rotated log (1 MB × 5) in `logs\`; `failed()` records operation + error class only (SEC-5).
+- **`db/connection.py`:** S1 hardening; memory 50% of RAM in **MiB** (DuckDB reads `MB` as 10^6 bytes, which gave
+  47%); threads = logical cores; temp folder; progress bar on with `progress_bar_time = 0`; then locked.
+- **`db/catalogue.py`:** schema v1 (all 13 tables), upgrades by `schema_version` (one transaction per step; a newer
+  catalogue is refused), backup before the connection opens (copies a leftover `.wal` too), last 5 kept.
+- **`query/catalogue.py`:** all catalogue SQL outside the DDL (V3-1): clients and templates (minimal, for tests and
+  later phases), `insert_run` (issues the Run ID inside the commit transaction from `run_id_counter`), list runs,
+  deletes, rows stored, per-table counts, a `Transaction` context manager. `model/run.py`: `NewRun`, `RunFile`,
+  `IssueCount`, `RunOutput`, `RunRow`, `run_label` (R-0001).
+- **`db/datafolder.py`:** layout; staging (its ID becomes the run's internal ID and folder name); **commit protocol**
+  (check `data.parquet`, delete `raw\`, fsync, rename, one transaction; if the transaction fails without a crash
+  the folder is renamed back to staging); **delete protocol** (catalogue first, then folders; the Run ID counter is
+  never lowered); **recovery** (empty staging, delete run and template folders with no catalogue record, mark
+  missing runs damaged and clear the mark if the folder comes back); destination checks; copy with progress and
+  cancel; copy check.
+- **`db/storage.py`:** `Storage.open()` start-up order (settings → folders → temp emptied → log → backup → connect →
+  schema → recovery → JobRunner), `close()`, `check_move()` and the **move Job** (checkpoint, close, copy, check
+  file list + sizes + catalogue row counts on a new connection, switch `settings.json`, delete the old folder; a
+  cancel or failure before the switch removes the copy and reopens the old folder).
+- **`jobs/`:** `Job` (state, stage, rows done/total, fraction, elapsed, `cancel()`, error class), `JobContext`
+  (`set_stage`, `set_rows`, `add_rows`, `check_cancelled`, `on_cancel`, `on_abort`, `set_cancellable`, `cursor`),
+  `JobRunner` (one Job at a time, else `JobBusy`; `on_job_end` empties temp; logs the outcome by class only).
+  `POLL_INTERVAL_MS = 250` for the window's poll.
+- **Tests:** 76 passing (61 new): paths and folder checks; hardened connection (tests never execute `INSTALL`);
+  schema, upgrades, backups; commit, list, query, delete; Run IDs (RUNC-07 and RUNC-08 logic, per template);
+  recovery; **crash during commit** (a subprocess killed with `os._exit` before the commit and after each of its 3
+  steps); Jobs (states, progress, cancel including DuckDB interrupt, one at a time, temp emptied, SEC-5 log
+  checks); move (DEP-07, DEP-08, non-empty refusal, cancel). New guards: SQL calls only in `query/` and `db/`;
+  only `db/` calls `duckdb.connect`. Fake runs come from `tests/conftest.py::stage_fake_run`.
+- **Findings and deviations:**
+  - DuckDB's query progress is a per-connection setting that the locked config refuses on new cursors, so a Job's
+    `ctx.cursor()` returns the **app connection itself** (safe: one Job at a time and nothing else uses it). An
+    `interrupt()` with no query running is lost, so `cancel()` keeps interrupting every 50 ms until the Job ends
+    (under the Job lock, so it can never hit the next Job's query).
+  - Job states are the spec's four plus `cancelled`, the outcome of an honoured cancel.
+  - The spec's `column` table is `template_column` (COLUMN is an SQL keyword). No foreign keys and no UNIQUE on
+    names (DuckDB can't cascade; C1-04 is still Proposed and will be checked in code in Phase 7).
+  - The move check compares file lists, sizes and catalogue row counts, not file hashes (hashing would double the
+    time on large datasets).
+  - The crash tests use a `commit(on_step=...)` callback, not an environment variable, so RUNC-10 (still Proposed)
+    is untouched.
+- **Not verified:** one full-suite run out of about 35 had a single failure that did not recur in 33 further runs;
+  its name wasn't captured. It is most likely a timing-sensitive Job test; watch for it. Network shares, mapped
+  drives and OneDrive folders were checked only with simulated drive types and environment variables. Nothing was
+  run on the 4-core laptop.
+- **Next:** Phase 2 (ingestion). Before it: answer the open S5 question (Number text forms) and confirm the RUNF-06
+  wording and C2-08 scope (both Proposed). Phase 6 can start in parallel now that the Job interface is fixed.
 
 ### 16-11-2026 — Phase 0: branch, toolchain, spikes, fixtures
 - **main:** removed the merge-conflict markers from `README.md` (kept the V1 text), committed, tagged `v1.0.0`
