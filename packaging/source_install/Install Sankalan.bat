@@ -1,9 +1,7 @@
 @echo off
-REM Installs Sankalan to run from source with the (signed) Python 3.13 runtime.
-REM No admin rights needed. Works with Smart App Control on, without a code-signing certificate.
-REM Uses the bundled "wheels" folder, so no internet is needed; without it, packages are downloaded.
-REM Smart App Control blocks double-clicking .bat files that came from the internet: unblock the zip
-REM first (right-click > Properties > Unblock) or start this file from a Command Prompt.
+REM Installs Sankalan to run from source with Python 3.13. DEVELOPMENT AND TEST FALLBACK ONLY: Smart App Control
+REM blocks the unsigned duckdb and python-calamine files, so use it only where Smart App Control is off.
+REM No admin rights needed. Uses the bundled "wheels" folder if present (no internet); otherwise downloads packages.
 setlocal
 title Install Sankalan
 cd /d "%~dp0"
@@ -14,8 +12,11 @@ echo.
 py -3.13 --version >nul 2>&1
 if errorlevel 1 (
   echo Python 3.13 64-bit is needed first.
-  echo Install it from https://www.python.org/downloads/windows/ with "Add python.exe to PATH" ticked,
-  echo then run this installer again.
+  echo Install it from python.org with "Add python.exe to PATH" ticked, then run this installer again.
+  goto :fail
+)
+if exist "%DEST%\Sankalan.exe" (
+  echo Sankalan is already installed here with the signed installer. Uninstall it first.
   goto :fail
 )
 
@@ -50,12 +51,11 @@ echo [5/5] Creating Start menu and desktop shortcuts
 
 echo.
 echo Sankalan is installed. Open it from the Start menu or the desktop shortcut.
-echo Your templates are kept in Documents\Sankalan\Templates.
 pause
 exit /b 0
 
 :fail
 echo.
-echo Installation did not finish. Send a screenshot of this window to whoever set up Sankalan.
+echo Installation did not finish.
 pause
 exit /b 1

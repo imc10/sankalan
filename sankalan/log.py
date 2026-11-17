@@ -39,3 +39,12 @@ def info(operation: str, file_name: str | None = None) -> None:
 def failed(operation: str, error: BaseException, file_name: str | None = None) -> None:
     """Record a failure by its error class only (SEC-5)."""
     log.error("%s failed: %s%s", operation, type(error).__name__, f" [{file_name}]" if file_name else "")
+
+
+def close_handlers_under(folder: Path) -> None:
+    """Close and remove log files inside ``folder`` (the self-test's temporary folder) so it can be deleted."""
+    root = os.path.normcase(os.path.abspath(folder))
+    for h in list(log.handlers):
+        if isinstance(h, RotatingFileHandler) and os.path.normcase(h.baseFilename).startswith(root):
+            log.removeHandler(h)
+            h.close()

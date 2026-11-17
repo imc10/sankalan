@@ -93,3 +93,12 @@ def settings(con: duckdb.DuckDBPyConnection) -> dict:
     """The safety-relevant settings, for the self-test and tests."""
     names = ", ".join(_quote(n) for n in SETTINGS_CHECKED)
     return dict(con.execute(f"SELECT name, value FROM duckdb_settings() WHERE name IN ({names})").fetchall())
+
+
+def configuration_locked(con: duckdb.DuckDBPyConnection) -> bool:
+    """True when the hardened settings can't be changed back (SEC-1): turning external access on is refused."""
+    try:
+        con.execute("SET enable_external_access = true")
+    except duckdb.Error:
+        return True
+    return False

@@ -1,4 +1,6 @@
-"""Build the run-from-source package: Sankalan-1.0.0-Windows.zip
+"""Build the run-from-source package: Sankalan-<version>-Windows.zip. DEVELOPMENT AND TEST FALLBACK ONLY until the
+signed installer is available (decision confirmed 17-11-2026; retire it once the certificate arrives, T3): Smart App
+Control blocks the unsigned duckdb and python-calamine files, so it can't run on customer laptops with SAC on.
 
     python packaging/make_source_package.py --out dist --download     # fetch Windows packages (needs internet)
     python packaging/make_source_package.py --out dist --wheels path  # use already downloaded packages
@@ -18,7 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "packaging" / "source_install"
-VERSION = "1.0.0"
+sys.path.insert(0, str(ROOT / "packaging"))
+from version import version  # noqa: E402
+
+VERSION = version()
 
 
 def crlf(src: Path, dst: Path):
@@ -40,10 +45,13 @@ def build(out: Path, wheels: Path | None = None, download=False, demo=True) -> P
     if stage.exists():
         shutil.rmtree(stage)
     (stage / "app").mkdir(parents=True)
-    for f in ("Install Sankalan.bat", "Uninstall Sankalan.bat", "README.txt"):
+    for f in ("Install Sankalan.bat", "Uninstall Sankalan.bat"):
         crlf(SRC / f, stage / f)
+    readme = (SRC / "README.txt").read_text(encoding="utf-8").replace("{VERSION}", VERSION)
+    (stage / "README.txt").write_bytes(readme.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
     shutil.copy(SRC / "shortcuts.py", stage / "app" / "shortcuts.py")
     shutil.copy(SRC / "Sankalan.pyw", stage / "app" / "Sankalan.pyw")
+    shutil.copy(ROOT / "packaging" / "sankalan.ico", stage / "app" / "sankalan.ico")
     shutil.copy(ROOT / "requirements-lock.txt", stage / "app" / "requirements.txt")
     shutil.copytree(ROOT / "sankalan", stage / "app" / "sankalan",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -53,11 +61,8 @@ def build(out: Path, wheels: Path | None = None, download=False, demo=True) -> P
         shutil.copytree(wheels, stage / "wheels")
     if demo:
         sys.path.insert(0, str(ROOT))
-        from sankalan.demo import make_misc_set, make_sales_set, sales_template
-        from sankalan.core.template import TemplateStore
-        make_sales_set(stage / "demo-data" / "Acme Traders sales FY26-27", rows_per_file=300)
-        make_misc_set(stage / "demo-data" / "other formats")
-        TemplateStore(stage / "demo-data" / "templates").save(sales_template())
+        from sankalan.selftest import write_samples
+        write_samples(stage / "demo-data")
     zpath = out / f"{name}-Windows.zip"
     if zpath.exists():
         zpath.unlink()

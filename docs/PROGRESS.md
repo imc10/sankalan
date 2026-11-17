@@ -17,7 +17,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 8 | 8 — New template wizard | Done | `v2` (Phase 8 commit) | 2.1–2.6; Save and start first run opens the `new_run` route (Phase 9 placeholder) |
 | 9 | 9 — New run wizard and Run detail | Done | `v2` (Phase 9 commit) | 4.1–4.5, 5.1, 7.1, 7.6; export buttons build requests, the Export dialog stays Phase 10's placeholder |
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
-| 11 | 11 — Packaging, signing, install/uninstall | Not started | | Signing needs the RSA OV certificate (R1) |
+| 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
 
 Status values: Not started · In progress · Done · Blocked (say why).
@@ -41,7 +41,9 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | RUNC-10 totals mismatch test | `SANKALAN_FAULT_TOTALS=<column id>:<amount>[,…]` adds the amount to Loaded; read only when running from source (`sys.frozen` false), so the packaged exe ignores it. Automated tests pass the fault as an argument | Confirmed 17-11-2026 | Phase 5 |
 | Commit free-space check (Tech spec, Commit) | Commit needs at least 100 MB free on the data folder's drive (`COMMIT_FREE_BYTES`); revisit after PERF-08 | Confirmed 17-11-2026 | Phase 5 |
 | C4-06 Customers per state on R-0005 | **5** per state, not the sheet's 10: under F00, Customer cycles mod 10 and State mod 4, so each state sees 5 customers. Update the live test sheet | Confirmed 17-11-2026 | Phase 5 |
-| Run-from-source route (V1 `packaging/source_install`) | Keep as a dev-only fallback until the certificate arrives, then retire (T3) | Proposed | Phase 11 |
+| Run-from-source route (V1 `packaging/source_install`) | Kept as a dev-only fallback (ported to V2) until the certificate arrives, then retired (T3) | Confirmed 17-11-2026 | Phase 11 |
+| Uninstall "delete data" scope (T26, DEP-12) | Yes deletes the data folder settings.json names (even if moved; only if it holds `catalogue.duckdb`) plus `%LOCALAPPDATA%\Sankalan` and `%TEMP%\Sankalan`; No (default, and silent uninstall) touches nothing | Confirmed 17-11-2026 | Phase 11 |
+| Installer shortcuts | Start menu `Sankalan` and Desktop `Sankalan` | Confirmed 17-11-2026 | Phase 11 |
 | O12 unencrypted local data | Customer still to confirm (SEC-3); no code impact | Open (customer) | — |
 | F20 Sales_Macro.xlsm without a VBA part | Generated as a true macro-enabled workbook (macro content type) with no `vbaProject.bin`; replace with an Excel-saved file if a real module is ever needed | Confirmed 16-11-2026 | — |
 | DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Confirmed 16-11-2026 | Phase 1 |
@@ -57,6 +59,8 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 - The UI mockups don't yet show: the Decimals field (2.3; built on 3.3 in Phase 7), the Input = Loaded + Left out
   totals table (4.5), and "Export left-out rows" (5.1; built on 3.1 in Phase 7). Build them from the Tech Spec.
 - Certificate (R1) not yet bought: develop with Smart App Control off; the SAC check waits for a signed build.
+- (Phase 11) The dev PC has an older Sankalan install (program folder, shortcuts, `%LOCALAPPDATA%\Sankalan`): run the
+  installer DEP cases on the test laptop, not here.
 - (Phase 8) Test-process crash (access violation) in some test orders, also on the Phase 7 commit
   (`pytest tests/engine tests/gui`): a closed DuckDB connection left in a reference cycle by an earlier test was
   finalised by a garbage collection on the main thread while a Job thread was inside DuckDB on another connection.
@@ -67,6 +71,47 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 11: Packaging, signing, install/uninstall
+- **Decisions (asked and confirmed 17-11-2026):** run-from-source kept as a **dev-only fallback** until the
+  certificate arrives (it can't help customers: SAC blocks the unsigned duckdb/calamine `.pyd` files from source too);
+  uninstall **Yes** deletes the data folder settings.json names (even when moved) plus `%LOCALAPPDATA%\Sankalan` and
+  `%TEMP%\Sankalan`, **No** (default, and silent uninstall) touches nothing; installer makes **Start menu + Desktop**
+  shortcuts.
+- **`sankalan/selftest.py`** (`--self-test [--report f.json] [--expect-signed] [--no-window]`): everything in a new
+  temp folder standing in for `%LOCALAPPDATA%`/`%TEMP%`, so user data is never opened. Generates a stdlib-only .xlsx
+  (one hidden row) + CSV (one later duplicate); checks DuckDB 2.0 + calamine load, config locked
+  (`connection.configuration_locked`), files probed, read in **2 reader workers** (from the exe: the same exe in
+  worker mode), duplicate found, override, default output, totals Input = Loaded + Left out (hidden value absent),
+  commit R-0001, CSV export with BOM, staging/temp empty, re-open backs up the catalogue at the current schema
+  version (update path), only allowed compiled packages, window titled "Sankalan" (PNG beside the report), and on a
+  packaged Windows build `Get-AuthenticodeSignature` over every .exe/.dll/.pyd (fails only with `--expect-signed`).
+  From source 1.6 s, packaged 6 s; both PASS.
+- **`sankalan/uninstall.py`** (`--remove-data`, exit 0 / 1 partly / 2 not ours): deletes the data folder only if it
+  holds `catalogue.duckdb` and isn't a drive root. `log.close_handlers_under`.
+- **packaging/**: `version.py` (single source: `sankalan.__version__` → exe resource, installer name, DEP-06);
+  `sankalan.spec` (folder build, upx off, icon, version file generated in the work dir); `version_info.txt` is a
+  template; `make_icon.py` + new `sankalan.ico`/`.png` from `theme.monogram_pixmap` (V1's blue "S" replaced);
+  `sign_files.ps1` (`-Path` folder or file, `-Thumbprint` for the USB-token certificate or `-Pfx`, `-VerifyOnly`,
+  finds signtool in Windows Kits, verifies RSA + timestamp on our signatures); `sign_one.bat` (makensis hook);
+  `installer.nsi` (MUI2, per-user `%LOCALAPPDATA%\Programs\Sankalan`, no admin, Start menu `Sankalan.lnk` + desktop,
+  removes V1's Start-menu folder, upgrade in place clears `_internal` first, waits for Sankalan to close on install
+  and uninstall, T26 question → `Sankalan.exe --remove-data`, `!uninstfinalize`/`!finalize` sign the uninstaller and
+  installer when `/DSIGN` is given, BrandingText "Sankalan <version>", no publisher/copyright);
+  `build_windows.bat` (tests → PyInstaller → sign → self-test with `--expect-signed` when signing → NSIS → verify
+  installer signature; env `SANKALAN_SIGN_THUMBPRINT` or `SANKALAN_PFX`(+password), `SANKALAN_TIMESTAMP_URL`).
+  Source route ported to V2: `Sankalan.pyw` → `sankalan.__main__.main` (guarded for spawn), README marked dev-only,
+  uninstall asks about data, demo-data = self-test samples, refuses to install over the signed install.
+- **Tests:** 436 passed, 2 skipped (`tests/packaging/test_installer.py`, 21 tests). The 2 skipped run with
+  `SANKALAN_BUILD_TESTS=1` (PyInstaller build + packaged self-test + installer compile, ~2¼ min): run this session,
+  both pass. Installer compile with a stand-in signer checks the uninstaller and installer both go through `SIGN`.
+- **Not verified:** signing (no certificate, no signtool on this PC); DEP-01…13 (manual) — the installer was **not
+  run** here because this PC already has a Sankalan install (program folder, Start menu and desktop shortcuts, data
+  in `%LOCALAPPDATA%\Sankalan`) that it would overwrite; the installer's running-app check, the T26 dialog and
+  `--remove-data` from the uninstaller; Windows 10; SAC. Qt ships 113 unsigned files in the build — all get signed
+  by `sign_files.ps1`.
+- **Next:** Phase 12. Retire the source route once R1 arrives (delete `packaging/source_install`,
+  `make_source_package.py`, the test). Release version: set `__version__ = "2.0.0"`.
 
 ### 17-11-2026 — Phase 10: Analysis and export dialogs
 - **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11). Saved-analysis
