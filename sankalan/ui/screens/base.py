@@ -126,6 +126,8 @@ class Screen(QWidget):
         banner.setParent(self)
         self.banner_slot.addWidget(banner)
         self.banner_slot.addSpacing(0)
+        if self.isVisible():
+            banner.show()               # a layout shows a new child only on the next event loop pass
         return banner
 
     def banners(self) -> list[Banner]:

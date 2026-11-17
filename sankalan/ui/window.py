@@ -19,7 +19,7 @@ from sankalan import APP_NAME
 from sankalan.ui import theme
 from sankalan.ui.dialogs.base import ask
 from sankalan.ui.jobs import JobBridge
-from sankalan.ui.screens.base import STAY, PlaceholderScreen, Screen
+from sankalan.ui.screens.base import STAY, Screen
 from sankalan.ui.widgets.rail import Rail
 
 ScreenFactory = Callable[["MainWindow"], Screen]
@@ -39,10 +39,11 @@ def close_prompt(operation: str) -> str:
 
 
 def default_screens() -> dict[str, ScreenFactory]:
+    from sankalan.ui.screens.analyses import AnalysesScreen
     from sankalan.ui.screens.clients import ClientsScreen
     return {
         "clients": lambda w: ClientsScreen(w),
-        "analysis": lambda w: PlaceholderScreen("analysis", "Analysis", "Saved analyses appear here.", w),
+        "analysis": lambda w: AnalysesScreen(w),
     }
 
 
@@ -74,17 +75,29 @@ def _open_run(w: "MainWindow", run_id: str, template_id: str = "", name: str = "
     return w.open_screen(screen, banner=banner)
 
 
-def _export_later(w: "MainWindow", request=None, **_kw) -> bool:
-    """The Export dialog (7.4) arrives in Phase 10; until then the request is kept for it."""
+def _open_export(w: "MainWindow", request=None, **_kw) -> bool:
+    """The Export dialog (7.4, 7.5) for an ``ExportRequest`` built by the screen."""
+    from sankalan.ui.dialogs.export_dialog import ExportDialog
     w.last_export = request
-    ask(w, "Export", "The Export dialog arrives in Phase 10.", [("ok", "OK", "primary")])
+    dlg = ExportDialog(w, request)
+    w.export_dialog = dlg
+    dlg.finished.connect(lambda _r: dlg.deleteLater())
+    dlg.open()
     return True
 
 
+def _open_analysis(w: "MainWindow", analysis_id: str | None = None, template_id: str | None = None,
+                   definition=None, runs=None, banner=None, **_kw) -> bool:
+    """6.2 New analysis (optionally a duplicate's settings) or 6.3 a saved analysis."""
+    from sankalan.ui.screens.analysis import AnalysisScreen
+    screen = AnalysisScreen(w, analysis_id=analysis_id, template_id=template_id, definition=definition, runs=runs)
+    return w.open_screen(screen, banner=banner)
+
+
 def default_routes() -> dict[str, Callable[..., bool]]:
-    """Where navigation goes (``MainWindow.go``). Later phases replace the placeholders."""
+    """Where navigation goes (``MainWindow.go``)."""
     return {"client": _open_client, "template": _open_template, "new_template": _open_new_template,
-            "new_run": _open_new_run, "run": _open_run, "export": _export_later}
+            "new_run": _open_new_run, "run": _open_run, "export": _open_export, "analysis": _open_analysis}
 
 
 class MainWindow(QMainWindow):
@@ -101,6 +114,8 @@ class MainWindow(QMainWindow):
         self.factories.update(screens or {})
         self.routes = default_routes()
         self.last_export = None
+        self.export_dialog = None
+        self.pending_drops: list = []       # analysis results of screens that were left (temporary tables)
         self._closing = False           # waiting for a Job to stop before closing
         self._may_close = False
 
@@ -216,6 +231,19 @@ class MainWindow(QMainWindow):
         """Re-open the current area's top screen (after the data folder moved)."""
         area = self.current.area if self.current is not None else "clients"
         self.open_screen(self.factories[area](self), check_leave=False)
+
+    def drop_results(self, results: list) -> None:
+        """Drop analysis results (temporary tables) of a screen that was left, as a quiet Job when the runner is
+        free; otherwise the next analysis run drops them."""
+        self.pending_drops.extend(r for r in results if r is not None)
+        todo = list(self.pending_drops)
+        if not todo:
+            return
+        from sankalan import analyses
+
+        def done(_r):
+            self.pending_drops = [r for r in self.pending_drops if r not in todo]
+        self.bridge.try_quiet("Clear result", lambda ctx: analyses.drop_results(ctx, todo), on_done=done)
 
     def _open_job_origin(self) -> None:
         origin = self.bridge.current_origin()

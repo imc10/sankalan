@@ -83,3 +83,20 @@ def gigabytes(num_bytes: int | None) -> str:
 def count(n: int, one: str, many: str | None = None) -> str:
     """``1 template``, ``13 templates``, ``241,334,120 rows``."""
     return f"{number(int(n))} {one if int(n) == 1 else (many or one + 's')}"
+
+
+def result_cell(value, kind: tuple, group: bool) -> str:
+    """One cell of an analysis or output result on screen. ``kind``: (type, decimals, grain); type is Text, Number,
+    Date or "count". A blank group value is "(Null)"; a date group shows its period."""
+    from sankalan.model.definition import NULL_LABEL
+    from sankalan.model.template import DATE, NUMBER
+    typ, decimals, grain = kind
+    if value is None:
+        return NULL_LABEL if group else ""
+    if typ == DATE:
+        return period(value, grain) if group else date(value)
+    if typ == NUMBER:
+        return number(value, decimals)
+    if typ == "count":
+        return number(int(value))
+    return str(value)

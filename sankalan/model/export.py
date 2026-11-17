@@ -101,7 +101,7 @@ class ExportDefaults:
 
 @dataclass(frozen=True)
 class ExportRequest:
-    """What the Export dialog (7.4, Phase 10) opens with (EXP-4, C4-18): the template's export defaults with the
+    """What the Export dialog (7.4) opens with (EXP-4, C4-18): the template's export defaults with the
     name pattern resolved for this export. ``kind``: data | issues | left_out | output | outputs (every output of
     the run, one file each) | analysis. ``output``: the output's position for ``output``; ``subtotals``: as shown;
     ``items``: set by a screen whose data isn't a committed run yet (the Validate step's issue list, RUNV-07): Job
@@ -117,13 +117,29 @@ class ExportRequest:
     subtotals: bool | None = None
     values: dict | None = None          # Client, Template, RunID for the per-output names of Export all outputs
     items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportQuery, file name)]
+    what: str = ""                      # "R-0013 data", "State-wise sales": the dialog's "Export R-0013 data"
+    rows: int | None = None             # rows the file will hold, when the screen knows ("9,344,350 rows · CSV file")
+
+    @property
+    def many(self) -> bool:
+        """Several files, one per output, named by the pattern (Export all outputs)."""
+        return self.kind == "outputs"
 
 
 def prefill(kind: str, export: dict | None, *, template_id: str, client: str, template: str,
             run_id: str | None = None, run_label: str = "", output: str = "", position: int | None = None,
-            subtotals: bool | None = None, items: Callable | None = None) -> ExportRequest:
+            subtotals: bool | None = None, items: Callable | None = None, rows: int | None = None) -> ExportRequest:
     d = ExportDefaults.of(export)
     name = output or {"data": DATA_NAME, "issues": ISSUES_NAME, "left_out": LEFT_OUT_NAME}.get(kind, "")
     file_name = csv_file_name(d.pattern, Client=client, Template=template, RunID=run_label, Output=name)
     return ExportRequest(kind, template_id, run_id, d.folder, file_name, d.pattern, d.options, position, subtotals,
-                         {"Client": client, "Template": template, "RunID": run_label}, items)
+                         {"Client": client, "Template": template, "RunID": run_label}, items,
+                         describe(kind, run_label, output), rows)
+
+
+def describe(kind: str, run_label: str, output: str = "") -> str:
+    """What an export holds, for the dialog's title: "Export R-0013 data", "Exporting State-wise sales"."""
+    run = f"{run_label} " if run_label else ""
+    return {"data": f"{run}data", "issues": f"{run}issue list", "left_out": f"{run}left-out rows",
+            "outputs": f"all outputs of {run_label}".strip(),
+            "analysis": output or "analysis result"}.get(kind, output or kind)

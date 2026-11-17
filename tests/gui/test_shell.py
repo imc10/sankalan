@@ -367,7 +367,7 @@ def test_left_rail(window, monkeypatch):
     assert rail.settings_button.y() > rail.height() / 2
     assert window.current.title == "Clients" and rail.selected() == "clients"
     rail.buttons["analysis"].click()
-    assert window.current.title == "Analysis" and rail.selected() == "analysis"
+    assert window.current.title == "Analyses" and rail.selected() == "analysis"
     assert rail.buttons["analysis"].isChecked() and not rail.buttons["clients"].isChecked()
     rail.buttons["clients"].click()
     assert window.current.title == "Clients"

@@ -24,17 +24,7 @@ NO_RUN = "Preview runs on the latest committed run. This template has none yet."
 STALE = "Settings changed: Preview again."
 
 
-def cell_text(value, kind: tuple, group: bool) -> str:
-    typ, decimals, grain = kind
-    if value is None:
-        return d.NULL_LABEL if group else ""
-    if typ == DATE:
-        return formats.period(value, grain) if group else formats.date(value)
-    if typ == NUMBER:
-        return formats.number(value, decimals)
-    if typ == "count":
-        return formats.number(int(value))
-    return str(value)
+cell_text = formats.result_cell
 
 
 class OutputItem(QFrame):

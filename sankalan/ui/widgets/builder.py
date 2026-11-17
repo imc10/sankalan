@@ -4,14 +4,16 @@ Shared by the template's Default outputs tab (3.2), the New template wizard (2.5
 (6.2, Phase 10). With ``output=True`` date filters are relative only (latest month, quarter or year in the run) or
 Blank / Not blank (DO-3, C3-19). Columns are referenced by stable ID (V3-2).
 
-Values typed for Is one of are separated by commas; Phase 10 adds the picker of the 1,000 most frequent values.
+Is one of: on the Analysis screen (a ``picker`` is given) the values are chosen from the 1,000 most frequent values
+with their counts, plus a search across the whole column (ANA-4, ``ValuesDialog``). Default outputs have no runs
+ticked to read values from, so there the values are typed, separated by commas.
 """
 from __future__ import annotations
 
 import datetime as dt
 
 from PySide6.QtCore import QSignalBlocker, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
                                QVBoxLayout, QWidget)
 
 from sankalan.model import definition as d
@@ -89,11 +91,22 @@ class _Row(QWidget):
         return b
 
 
+def picked_text(values: list[str]) -> str:
+    """The Is one of button: "Choose values…", "B2B", "B2B, B2C", "Delhi, Goa and 3 more"."""
+    if not values:
+        return "Choose values…"
+    if len(values) <= 2:
+        return ", ".join(values)
+    return f"{values[0]}, {values[1]} and {len(values) - 2} more"
+
+
 class FilterRow(_Row):
-    def __init__(self, columns: list[Column], output: bool, f: Filter | None = None, parent=None):
+    def __init__(self, columns: list[Column], output: bool, f: Filter | None = None, parent=None, picker=None):
         super().__init__(parent)
         self.columns = {c.id: c for c in columns}
         self.output = output
+        self.picker = picker                # fn(row): opens the value picker (Analysis screen)
+        self.picked: list[str] = list(f.values) if f is not None and f.op == d.ONE_OF else []
         self.column = self._combo([(c.name, c.id) for c in columns], f.column_id if f else None, "Filter column")
         self.op = QComboBox(self)
         self.op.setAccessibleName("Filter condition")
@@ -142,7 +155,14 @@ class FilterRow(_Row):
         self.edits = []
         op, col = self.op.currentData(), self.col
         v = list(values or [])
-        if op == d.ONE_OF:
+        if op == d.ONE_OF and self.picker is not None:
+            self.picked = [str(x) for x in v]
+            b = QPushButton(picked_text(self.picked), self.values)
+            b.setAccessibleName("Choose values")
+            b.setToolTip(", ".join(self.picked))
+            b.clicked.connect(lambda: self.picker(self))
+            self.edits = [b]
+        elif op == d.ONE_OF:
             self.edits = [self._line(", ".join(str(x) for x in v), "Values, separated by commas")]
         elif op == d.CONTAINS:
             self.edits = [self._line(v[0] if v else "", "Text")]
@@ -175,10 +195,20 @@ class FilterRow(_Row):
             self.values_lay.addWidget(w, 1)
         self.values.setVisible(bool(self.edits))
 
+    def set_picked(self, values: list[str]) -> None:
+        """The values chosen in the picker."""
+        self.picked = list(values)
+        if self.edits and isinstance(self.edits[0], QPushButton):
+            self.edits[0].setText(picked_text(self.picked))
+            self.edits[0].setToolTip(", ".join(self.picked))
+        self.changed.emit()
+
     def value(self) -> Filter:
         op, col = self.op.currentData(), self.col
         e = self.edits
-        if op == d.ONE_OF:
+        if op == d.ONE_OF and self.picker is not None:
+            values = list(self.picked)
+        elif op == d.ONE_OF:
             values = [x.strip() for x in e[0].text().split(",") if x.strip()]
         elif op in (d.CONTAINS, d.EQUALS):
             values = [e[0].text().strip() if op == d.EQUALS else e[0].text()]
@@ -287,9 +317,10 @@ class _Section(QWidget):
 class DefinitionBuilder(QWidget):
     changed = Signal()
 
-    def __init__(self, columns: list[Column], *, output: bool = False, parent=None):
+    def __init__(self, columns: list[Column], *, output: bool = False, parent=None, picker=None):
         super().__init__(parent)
         self.output = output
+        self.picker = picker
         self.columns = [c for c in columns if not c.removed]
         self.template_id = ""
         lay = QVBoxLayout(self)
@@ -343,7 +374,7 @@ class DefinitionBuilder(QWidget):
             r.number.setText(str(i))
 
     def add_filter(self, f: Filter | None = None, emit: bool = True) -> FilterRow:
-        row = self._add(self.filters, FilterRow(self.columns, self.output, f, self))
+        row = self._add(self.filters, FilterRow(self.columns, self.output, f, self, self.picker))
         if emit:
             self.changed.emit()
         return row

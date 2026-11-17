@@ -106,7 +106,6 @@ def test_run_row_menu_and_export_prefill(screen, qtbot, answers, tpla):
     menu = tab.row_menu(0)
     assert [a.text() for a in menu.actions()] == ["Open", "Export data", "Export issue list", "Export left-out rows",
                                                   "Delete"]
-    answers.append("ok")
     menu.actions()[1].trigger()                          # Export data (C4-18 prefill)
     req = screen.window_.last_export
     folder = ex.default_folder()
@@ -382,7 +381,6 @@ def test_export_defaults_prefill(screen, qtbot, answers, tmp_path, tpla):
     settle(qtbot, screen.window_)
     t = q.load_template(screen.storage.con, screen.template_id)
     assert t.export["folder"] == str(tmp_path / "Exports") and t.export["delimiter"] == ";"
-    answers.append("ok")
     run1 = tpla["runs"][0].run_id
     screen.export("data", run1, "R-0001")
     req = screen.window_.last_export

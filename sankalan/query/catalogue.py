@@ -477,9 +477,47 @@ def run_delete_figures(con, run_id: str) -> tuple | None:
 
 
 def insert_saved_analysis(con, template_id: str, name: str, definition: dict, analysis_id: str | None = None) -> str:
-    """A saved analysis (ANA-1). Phase 10 builds the screens; delete counts (C1-11, C2-08) need the table now."""
+    """A saved analysis (ANA-1): the definition only; runs are never stored (D33)."""
     aid = analysis_id or new_id()
     now = _now()
     con.execute("INSERT INTO saved_analysis VALUES (?, ?, ?, ?, ?, ?)",
                 [aid, template_id, name, json.dumps(definition, ensure_ascii=False), now, now])
     return aid
+
+
+# ---------------------------------------------------------------------------------------------- saved analyses (Phase 10)
+def saved_analysis_rows(con) -> list[tuple]:
+    """6.1 grid (UX-10, ANA-1): (id, name, client id, client name, template id, template name, saved on)."""
+    return [tuple(r) for r in con.execute("""
+        SELECT a.id, a.name, c.id, c.name, t.id, t.name, a.created_on
+        FROM saved_analysis a JOIN template t ON t.id = a.template_id JOIN client c ON c.id = t.client_id
+        ORDER BY a.name""").fetchall()]
+
+
+def saved_analysis(con, analysis_id: str) -> tuple | None:
+    """(id, template id, name, definition (dict), saved on)."""
+    row = con.execute("SELECT id, template_id, name, definition, created_on FROM saved_analysis WHERE id = ?",
+                      [analysis_id]).fetchone()
+    return (row[0], row[1], row[2], json.loads(row[3]), row[4]) if row else None
+
+
+def saved_analysis_names(con, template_id: str) -> dict[str, str]:
+    """id -> name of the template's saved analyses (names are unique within a template, ANA-1)."""
+    return {r[0]: r[1] for r in con.execute("SELECT id, name FROM saved_analysis WHERE template_id = ?",
+                                            [template_id]).fetchall()}
+
+
+def rename_saved_analysis(con, analysis_id: str, name: str) -> None:
+    con.execute("UPDATE saved_analysis SET name = ?, modified_on = ? WHERE id = ?", [name, _now(), analysis_id])
+
+
+def delete_saved_analysis(con, analysis_id: str) -> None:
+    con.execute("DELETE FROM saved_analysis WHERE id = ?", [analysis_id])
+
+
+def template_choices(con) -> list[tuple]:
+    """The New analysis Client and Template lists: (client id, client name, template id, template name), every
+    client with at least one template, by client then template name."""
+    return [tuple(r) for r in con.execute("""
+        SELECT c.id, c.name, t.id, t.name FROM template t JOIN client c ON c.id = t.client_id
+        ORDER BY lower(c.name), c.name, lower(t.name), t.name""").fetchall()]

@@ -87,6 +87,7 @@ class PagedModel(QAbstractTableModel):
         self._in_flight: int | None = None   # page number, or -1 for the count
         self._generation = 0
         self._need_count = False
+        self.emphasis: Callable[[Sequence[Any]], bool] | None = None    # rows drawn in medium weight (subtotals)
         bridge.jobFinished.connect(self._job_finished)     # a bound slot: dropped with the model
 
     # ------------------------------------------------------------------------------------------ loading
@@ -96,6 +97,12 @@ class PagedModel(QAbstractTableModel):
     def set_source(self, source: PageSource | None) -> None:
         self.source = source
         self.refresh()
+
+    def set_columns(self, columns: list[GridColumn], source: PageSource | None) -> None:
+        """New columns and rows (an analysis result has its own columns each time it runs); the sort is cleared."""
+        self.columns = list(columns)
+        self.sort_spec = []
+        self.set_source(source)
 
     def refresh(self) -> None:
         """Count again and drop every loaded page (after a change or a new sort)."""
@@ -218,8 +225,14 @@ class PagedModel(QAbstractTableModel):
             if col.muted:
                 return QColor(theme.MUTED)
             return None
-        if role == Qt.ItemDataRole.FontRole and col.kind == LINK:
-            return theme.font(theme.GRID_TEXT_PX, medium=True)
+        if role == Qt.ItemDataRole.FontRole:
+            if col.kind == LINK:
+                return theme.font(theme.GRID_TEXT_PX, medium=True)
+            if self.emphasis is not None:
+                values = self.row_values(index.row())
+                if values is not None and self.emphasis(values):
+                    return theme.font(theme.GRID_TEXT_PX, medium=True)
+            return None
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
             values = self.row_values(index.row())
             if values is None:

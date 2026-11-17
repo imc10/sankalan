@@ -452,9 +452,10 @@ class RunScreen(DataScreen):
                 return None
             output = o.name
             sub = self.outputs_tab.subtotals.isChecked()
+        rows = v.run.get("rows_loaded") if kind == "data" else None
         return ex.prefill(kind, v.template.export, template_id=v.template.id, client=v.client_name,
                           template=v.template.name, run_id=self.run_id, run_label=v.label, output=output,
-                          position=position, subtotals=sub)
+                          position=position, subtotals=sub, rows=rows)
 
     def export(self, kind: str, position: int | None = None) -> bool:
         req = self.export_request(kind, position)

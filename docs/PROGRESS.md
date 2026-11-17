@@ -16,7 +16,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 7 | 7 — Clients, Client, Template screens | Done | `v2` (Phase 7 commit) | C1, C2, C4 with all four tabs; New template / New run / Run / Export open placeholders until Phases 8–10 |
 | 8 | 8 — New template wizard | Done | `v2` (Phase 8 commit) | 2.1–2.6; Save and start first run opens the `new_run` route (Phase 9 placeholder) |
 | 9 | 9 — New run wizard and Run detail | Done | `v2` (Phase 9 commit) | 4.1–4.5, 5.1, 7.1, 7.6; export buttons build requests, the Export dialog stays Phase 10's placeholder |
-| 10 | 10 — Analysis and export dialogs | Not started | | |
+| 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Not started | | Signing needs the RSA OV certificate (R1) |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
 
@@ -67,6 +67,60 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 10: Analysis and export dialogs
+- **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11). Saved-analysis
+  names follow the confirmed C1-04 / C2-05 rule (unique within the template, ignoring case and outer spaces).
+- **Query layer (`query/catalogue.py`):** `saved_analysis_rows`, `saved_analysis`, `saved_analysis_names`,
+  `rename_saved_analysis`, `delete_saved_analysis`, `template_choices`.
+- **`sankalan/analyses.py`** (Job work, no SQL): list + `matches` (name, client, template), `template_data` (runs
+  newest first with file names; damaged runs left out), `open_saved`, `save` / `rename` / `delete`, `run` (checks the
+  definition, runs into a temp table, drops the previous result only once the new one exists), `ResultSource`
+  (first `ROW_CAP` rows, header sort within parent groups, cells formatted, `_depth` last), `total_cells`,
+  `distinct_values`, `export_items` (the full result as shown: subtotals and sort, grand total last), `describe`
+  (6.3 locked lines). `formats.result_cell` now holds the result-cell format (moved from `template_outputs`).
+- **Export model:** `ExportRequest.what` ("R-0013 data", "all outputs of R-0001", the analysis name) and `rows`;
+  `prefill(rows=)`; `model.export.describe`. The Run screen passes `rows_loaded` for Export data.
+- **Screens and dialogs:** `screens/analyses.py` `AnalysesScreen` (6.1: subtitle, search name/client/template, New
+  analysis, grid Name · Client · Template · Saved on · ⋯ Open / Rename / Duplicate / Delete with a plain confirmation,
+  empty and no-match states). `screens/analysis.py` `AnalysisScreen` (6.2/6.3: badge Not saved / Saved DD-MM-YYYY,
+  Save… or Duplicate to edit + ⋯ Rename / Delete; 380 px settings panel: client and template combos, runs list
+  "R-0001    Sales_Oct.xlsx" with file names as tooltip, Select all, "3 of 4 runs selected" / "No runs selected. Tick
+  the runs to include.", the builder or the locked summary, Run; result panel: summary line, Export (.csv),
+  ProgressPanel with Cancel, PagedGrid with subtotal rows in medium weight, pinned grand total, cap note; empty
+  states). `dialogs/export_dialog.py` `ExportDialog` (7.4 → 7.5 in place; folder + Change…, file name or name
+  pattern for Export all outputs, delimiter, encoding; replace prompt; banner with Open folder, or "Export
+  cancelled…"). `dialogs/values_dialog.py` `ValuesDialog` (Is one of picker: busy bar + Cancel, top 1,000 with
+  counts, search of the whole column, ticks kept across searches). Builder `picker` hook; window routes `export`
+  (dialog; `last_export` still recorded) and `analysis`; area factory `analysis` → `AnalysesScreen`;
+  `MainWindow.drop_results` / `pending_drops` for temp tables of screens that were left. `PagedModel.emphasis` and
+  `set_columns`. `Screen.show_banner` shows a banner at once on a visible screen (a layout only showed it on the
+  next event loop pass).
+- **Tests:** 420 passing, full suite run twice (32 new in `tests/gui/test_analysis.py` on TPL-A with R-0001…R-0004,
+  R-0004 being the sheet's F14 R-0006): A0-01…05, A1-01…14 (A1-11 with a run held until Cancel; A1-12 with the cap
+  lowered to 1,000 and a 5,000-group result; A1-08 picker on 10 customers × 500 and a search), EXP-01…08 through the
+  dialog (EXP-08 holds the stream until Cancel; Open folder target checked), C6-06 by pattern + replace prompt,
+  analysis export with subtotals, save from the 7.7 prompt, rename/delete from 6.3, removed column in a saved
+  analysis. `test_shell::test_left_rail` now expects the A0 title "Analyses". Screens rendered offscreen at 1366×768
+  and looked at.
+- **Interpretations** (change if wrong):
+  - "Saved on" is the date the analysis was saved; a rename doesn't change it.
+  - After Save… the analysis stays on screen locked (6.3) with its result and ticked runs. Save… in 7.7 saves then
+    leaves; Cancel in the Save dialog stays.
+  - Duplicate to edit (6.3) carries the ticked runs; Duplicate from the list starts with none ticked.
+  - Export (.csv) is off while the result is greyed (tooltip "Run again to export."); it exports the result as
+    shown (sort, subtotals). `{Output}` is the saved name, else "Analysis"; `{RunID}` drops out.
+  - The Export dialog doesn't save a changed folder or options back to the template's defaults. Its info line shows
+    rows when known ("5,000 rows · CSV file"); the canvas's "about 1.4 GB" estimate is not shown.
+  - While exporting the dialog stops being modal (7.5 "You can keep working in other screens"); Esc does nothing
+    then, Cancel export stops it. Export all outputs asks to replace when the first existing file is met.
+  - Default outputs (3.2, 2.5) keep typed comma-separated values for Is one of; the picker is on the Analysis screen
+    only (no ticked runs to read values from there).
+  - A run left running when the screen is closed finishes, but its temp table is only dropped when the app closes.
+- **Not verified:** A1-11, A1-12, A1-15, EXP-08 on the 10M-row data (P01; tests hold Jobs open instead); the real
+  folder picker; Explorer opening from Open folder; screens at 125% / 150% and on the laptop; menus opened by a real
+  click on ⋯.
+- **Next:** Phase 11 (Packaging, signing, install/uninstall). Run-from-source is still Proposed: confirm first.
 
 ### 17-11-2026 — Phase 9: New run wizard and Run detail
 - **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11). Low-disk

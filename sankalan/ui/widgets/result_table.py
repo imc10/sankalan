@@ -11,9 +11,7 @@ from sankalan.model.template import NUMBER
 from sankalan.ui import theme
 
 
-def cell_text(value, kind: tuple, group: bool) -> str:
-    from sankalan.ui.screens.template_outputs import cell_text as _cell
-    return _cell(value, kind, group)
+from sankalan.formats import result_cell as cell_text
 
 
 class ResultTable(QTableWidget):
