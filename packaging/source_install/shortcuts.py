@@ -1,4 +1,4 @@
-"""Create or remove Sankalan's Start menu and desktop shortcuts on Windows.
+"""Create or remove Sankalan's Start menu and desktop shortcuts on Windows (run-from-source fallback only).
 
     python shortcuts.py --dest "%LOCALAPPDATA%\\Programs\\Sankalan"           create
     python shortcuts.py --dest "%LOCALAPPDATA%\\Programs\\Sankalan" --remove  remove
@@ -103,7 +103,7 @@ def main(argv=None):
         return 0
     target = os.path.join(dest, "venv", "Scripts", "pythonw.exe")
     launcher = os.path.join(dest, "app", "Sankalan.pyw")
-    icon = os.path.join(dest, "app", "sankalan", "ui", "sankalan.ico")
+    icon = os.path.join(dest, "app", "sankalan.ico")
     for p in (target, launcher):
         if not os.path.exists(p):
             print(f"Missing: {p}")

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sankalan · New analysis</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&amp;family=IBM+Plex+Sans+Devanagari:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0E6B6B}a:hover{color:#0A4F4F}
+</style>
+</helmet>
+<div style="width: 1366px; height: 768px; display: flex; flex-direction: column; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #1C2128; background: #FFFFFF; overflow: hidden">
+
+<div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #F6F7F8; border-bottom: 1px solid #E6E8EB">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="width: 18px; height: 18px; border-radius: 4px; background: #0E6B6B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Sans Devanagari', sans-serif; font-size: 11px; font-weight: 500">सं</div>
+<span style="font-size: 12px; color: #1C2128">Sankalan</span>
+</div>
+<div style="display: flex; height: 32px">
+<button aria-label="Minimise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+<button aria-label="Maximise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="#1C2128" stroke-width="1"></rect></svg></button>
+<button aria-label="Close" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; min-height: 0">
+
+<nav aria-label="Main" style="width: 64px; flex-shrink: 0; background: #F6F7F8; border-right: 1px solid #E6E8EB; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px">
+<a href="Main.dc.html" style="width: 52px; height: 52px; border-radius: 8px; color: #5B636E; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-6h6v6"></path><path d="M9 10h.01M15 10h.01"></path></svg>
+<span style="font-size: 11px">Clients</span>
+</a>
+<a href="Analyses.dc.html" aria-current="page" style="width: 52px; height: 52px; border-radius: 8px; background: #E3F1F0; color: #0A4F4F; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"></path><path d="M7 16V10"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+<span style="font-size: 11px; font-weight: 500">Analysis</span>
+</a>
+<div style="flex: 1"></div>
+<button aria-label="App settings" style="width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+</button>
+</nav>
+
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 32px 20px">
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5B636E; margin-bottom: 12px">
+<a href="Analyses.dc.html" style="color: #0E6B6B; text-decoration: none">Analyses</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<span aria-current="page">New analysis</span>
+</nav>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px">
+<div style="display: flex; align-items: center; gap: 12px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 500; color: #1C2128">New analysis</h1>
+<span style="font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #EEF0F2; color: #444B55">Not saved</span>
+</div>
+<button style="height: 36px; padding: 0 14px; border: 1px solid #D9DCE1; border-radius: 6px; background: #FFFFFF; color: #1C2128; font-family: inherit; font-size: 14px">Save…</button>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex; gap: 16px">
+
+<section aria-label="Analysis settings" style="width: 380px; flex-shrink: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden">
+<div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 500; color: #5B636E">Data</span>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px">
+<select aria-label="Client" style="height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid #D9DCE1; border-radius: 6px; font-family: inherit; font-size: 13px; color: #1C2128; background: #FFFFFF; width: 100%"><option>Acme Traders</option></select>
+<select aria-label="Template" style="height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid #D9DCE1; border-radius: 6px; font-family: inherit; font-size: 13px; color: #1C2128; background: #FFFFFF; width: 100%"><option>Monthly Sales Register</option></select>
+</div>
+<div style="border: 1px solid #E6E8EB; border-radius: 6px; overflow: hidden">
+<label style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 13px; font-weight: 500"><input type="checkbox" style="width: 16px; height: 16px; margin: 0; accent-color: #0E6B6B">Select all runs</label>
+<div style="max-height: 160px; overflow-y: auto">
+<sc-for list="{{runs}}" as="r" hint-placeholder-count="5">
+<label title="{{r.files}}" style="display: grid; grid-template-columns: 16px 58px minmax(0, 1fr); column-gap: 10px; align-items: center; height: 40px; padding: 0 12px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums">
+<input type="checkbox" checked="{{r.on}}" style="width: 16px; height: 16px; margin: 0; accent-color: #0E6B6B">
+<span style="font-weight: 500">{{r.id}}</span><span style="color: #5B636E; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.files}}</span>
+</label>
+</sc-for>
+</div>
+</div>
+<span style="font-size: 12px; color: #444B55; font-variant-numeric: tabular-nums">3 of 13 runs selected</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 12px; font-weight: 500; color: #5B636E">Filters (all must match)</span><button style="height: 24px; padding: 0 4px; border: 0; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500">+ Add filter</button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px; background: #F8F9FA"><span style="font-weight: 500">Invoice Type</span><span style="color: #6B737D">is one of</span><span style="flex: 1">B2B</span><button aria-label="Remove filter on Invoice Type" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px; background: #F8F9FA"><span style="font-weight: 500">Invoice Date</span><span style="color: #6B737D">year is</span><span style="flex: 1">2026</span><button aria-label="Remove filter on Invoice Date" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 12px; font-weight: 500; color: #5B636E">Group by</span><button style="height: 24px; padding: 0 4px; border: 0; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500">+ Add level</button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px"><span style="width: 14px; color: #6B737D">1</span><span style="flex: 1">Invoice Date <span style="color: #6B737D">by</span> Month</span><button aria-label="Move Invoice Date up" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button><button aria-label="Move Invoice Date down" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button><button aria-label="Remove level Invoice Date" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px"><span style="width: 14px; color: #6B737D">2</span><span style="flex: 1">Place of Supply</span><button aria-label="Move Place of Supply up" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg></button><button aria-label="Move Place of Supply down" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button><button aria-label="Remove level Place of Supply" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between"><span style="font-size: 12px; font-weight: 500; color: #5B636E">Measures</span><button style="height: 24px; padding: 0 4px; border: 0; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500">+ Add measure</button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px"><span style="flex: 1; color: #444B55">Count of rows</span><span style="color: #A3AAB2">as</span><span style="font-weight: 500">Invoices</span><button aria-label="Remove measure Invoices" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 6px 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; font-size: 13px"><span style="flex: 1; color: #444B55">Sum of Taxable Value</span><span style="color: #A3AAB2">as</span><span style="font-weight: 500">Taxable value</span><button aria-label="Remove measure Taxable value" style="width: 24px; height: 24px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B737D" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+</div>
+
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px"><input type="checkbox" style="width: 16px; height: 16px; margin: 0; accent-color: #0E6B6B">Show subtotals</label>
+</div>
+<div style="flex-shrink: 0; padding: 12px 16px; border-top: 1px solid #E6E8EB; display: flex; justify-content: flex-end">
+<button style="height: 36px; padding: 0 20px; border: 0; border-radius: 6px; background: #0E6B6B; color: #FFFFFF; font-family: inherit; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"></path></svg>Run</button>
+</div>
+</section>
+
+<section aria-label="Result" style="flex: 1; min-width: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 16px; border-bottom: 1px solid #E6E8EB">
+<span style="font-size: 12px; color: #6B737D; font-variant-numeric: tabular-nums">3 runs · 28,796,813 rows · 15 result rows · 1.4 s</span>
+<button style="height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #0A4F4F; font-family: inherit; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5"></path><path d="M5 19h14"></path></svg>Export (.csv)</button>
+</div>
+<div style="flex-shrink: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr) 100px minmax(0, 1fr); column-gap: 16px; align-items: center; height: 40px; padding: 0 16px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 12px; font-weight: 500; color: #5B636E"><span>Month</span><span>Place of Supply</span><span style="text-align: right">Invoices</span><span style="text-align: right">Taxable value</span></div>
+<div style="flex: 1; min-height: 0; overflow-y: auto">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="15">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 100px minmax(0, 1fr); column-gap: 16px; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums"><span style="color: {{r.mFg}}">{{r.month}}</span><span>{{r.state}}</span><span style="text-align: right">{{r.count}}</span><span style="text-align: right">{{r.taxable}}</span></div>
+</sc-for>
+</div>
+<div style="flex-shrink: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr) 100px minmax(0, 1fr); column-gap: 16px; align-items: center; height: 40px; padding: 0 16px; background: #F3F8F7; border-top: 1px solid #D5E6E4; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums"><span>Grand total</span><span></span><span style="text-align: right">{{total.count}}</span><span style="text-align: right">{{total.taxable}}</span></div>
+</section>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+renderVals() {
+const fmt2 = function (v) { return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+const fmt0 = function (v) { return v.toLocaleString('en-US'); };
+const base = [['Gujarat', 41800, 184200000], ['Karnataka', 39100, 172100000], ['Maharashtra', 97300, 415600000], ['Tamil Nadu', 35500, 151900000], ['Telangana', 23100, 99100000]];
+const months = [['Sep-2026', 0.97], ['Oct-2026', 1.0], ['Nov-2026', 1.012]];
+const rows = []; let c = 0, t = 0;
+months.forEach(function (m, mi) {
+base.forEach(function (b, bi) {
+const cnt = Math.round(b[1] * m[1] + bi * 37 + mi * 11);
+const tax = Math.round((b[2] * m[1] + bi * 104417.35 + mi * 52011.4) * 100) / 100;
+c += cnt; t += tax;
+rows.push({ month: bi === 0 ? m[0] : m[0], mFg: bi === 0 ? '#1C2128' : '#A3AAB2', state: b[0], count: fmt0(cnt), taxable: fmt2(tax) });
+});
+});
+const runs = [['R-0013', 'Nov-2026', true], ['R-0012', 'Oct-2026', true], ['R-0011', 'Sep-2026', true], ['R-0010', 'Aug-2026', false], ['R-0009', 'Jul-2026', false], ['R-0008', 'Jun-2026', false]];
+return {
+runs: runs.map(function (r) { return { id: r[0], on: r[2], files: ['North', 'South', 'East', 'West'].map(function (g) { return 'Sales_' + r[1] + '_' + g + '.xlsx'; }).join(', ') }; }),
+rows: rows,
+total: { count: fmt0(c), taxable: fmt2(Math.round(t * 100) / 100) }
+};
+}
+}
+</script>
+</body>
+</html>

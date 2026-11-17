@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sankalan · B2B sales by month and state</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&amp;family=IBM+Plex+Sans+Devanagari:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0E6B6B}a:hover{color:#0A4F4F}
+</style>
+</helmet>
+<div style="width: 1366px; height: 768px; display: flex; flex-direction: column; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #1C2128; background: #FFFFFF; overflow: hidden">
+
+<div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #F6F7F8; border-bottom: 1px solid #E6E8EB">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="width: 18px; height: 18px; border-radius: 4px; background: #0E6B6B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Sans Devanagari', sans-serif; font-size: 11px; font-weight: 500">सं</div>
+<span style="font-size: 12px; color: #1C2128">Sankalan</span>
+</div>
+<div style="display: flex; height: 32px">
+<button aria-label="Minimise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+<button aria-label="Maximise" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="#1C2128" stroke-width="1"></rect></svg></button>
+<button aria-label="Close" style="width: 46px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="#1C2128" stroke-width="1"></path></svg></button>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; min-height: 0">
+
+<nav aria-label="Main" style="width: 64px; flex-shrink: 0; background: #F6F7F8; border-right: 1px solid #E6E8EB; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px">
+<a href="Main.dc.html" style="width: 52px; height: 52px; border-radius: 8px; color: #5B636E; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 21v-6h6v6"></path><path d="M9 10h.01M15 10h.01"></path></svg>
+<span style="font-size: 11px">Clients</span>
+</a>
+<a href="Analyses.dc.html" aria-current="page" style="width: 52px; height: 52px; border-radius: 8px; background: #E3F1F0; color: #0A4F4F; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E6B6B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"></path><path d="M7 16V10"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+<span style="font-size: 11px; font-weight: 500">Analysis</span>
+</a>
+<div style="flex: 1"></div>
+<button aria-label="App settings" style="width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+</button>
+</nav>
+
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 32px 20px">
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5B636E; margin-bottom: 12px">
+<a href="Analyses.dc.html" style="color: #0E6B6B; text-decoration: none">Analyses</a>
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A9199" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+<span aria-current="page">B2B sales by month and state</span>
+</nav>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px">
+<div style="display: flex; align-items: center; gap: 12px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 500; color: #1C2128">B2B sales by month and state</h1>
+<span style="font-size: 12px; color: #5B636E">Saved 14-11-2026</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px">
+<a href="Analysis.dc.html" style="height: 36px; box-sizing: border-box; padding: 0 14px; border: 1px solid #D9DCE1; border-radius: 6px; background: #FFFFFF; color: #1C2128; text-decoration: none; font-size: 14px; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1C2128" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg>Duplicate to edit</a>
+<button aria-label="More actions for this analysis" style="width: 36px; height: 36px; border: 1px solid #D9DCE1; border-radius: 6px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="#5B636E"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button>
+</div>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex; gap: 16px">
+
+<section aria-label="Analysis settings" style="width: 380px; flex-shrink: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden">
+<div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 500; color: #5B636E">Data</span>
+<div style="height: 36px; box-sizing: border-box; padding: 0 12px; border: 1px solid #E6E8EB; border-radius: 6px; background: #F8F9FA; display: flex; align-items: center; font-size: 13px; color: #444B55">Acme Traders · Monthly Sales Register</div>
+<div style="border: 1px solid #E6E8EB; border-radius: 6px; overflow: hidden">
+<label style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; background: #F8F9FA; border-bottom: 1px solid #E6E8EB; font-size: 13px; font-weight: 500"><input type="checkbox" style="width: 16px; height: 16px; margin: 0; accent-color: #0E6B6B">Select all runs</label>
+<div style="max-height: 160px; overflow-y: auto">
+<sc-for list="{{runs}}" as="r" hint-placeholder-count="5">
+<label title="{{r.files}}" style="display: grid; grid-template-columns: 16px 58px minmax(0, 1fr); column-gap: 10px; align-items: center; height: 40px; padding: 0 12px; border-bottom: 1px solid #EEF0F2; font-size: 13px; font-variant-numeric: tabular-nums">
+<input type="checkbox" checked="{{r.on}}" style="width: 16px; height: 16px; margin: 0; accent-color: #0E6B6B">
+<span style="font-weight: 500">{{r.id}}</span><span style="color: #5B636E; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.files}}</span>
+</label>
+</sc-for>
+</div>
+</div>
+<span style="font-size: 12px; color: #444B55; font-variant-numeric: tabular-nums">No runs selected. Tick the runs to include.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 8px; background: #F8F9FA">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5B636E"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5B636E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>Settings are locked. Duplicate the analysis to change them.</span>
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr); row-gap: 10px; column-gap: 12px; font-size: 13px; line-height: 1.5">
+<span style="color: #5B636E">Filters</span><span>Invoice Type is one of B2B<br>Invoice Date year is 2026</span>
+<span style="color: #5B636E">Group by</span><span>1. Invoice Date by Month<br>2. Place of Supply</span>
+<span style="color: #5B636E">Measures</span><span>Count of rows as Invoices<br>Sum of Taxable Value as Taxable value</span>
+<span style="color: #5B636E">Subtotals</span><span>Off</span>
+</div>
+</div>
+</div>
+<div style="flex-shrink: 0; padding: 12px 16px; border-top: 1px solid #E6E8EB; display: flex; justify-content: flex-end">
+<button style="height: 36px; padding: 0 20px; border: 0; border-radius: 6px; background: #0E6B6B; color: #FFFFFF; font-family: inherit; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"></path></svg>Run</button>
+</div>
+</section>
+
+<section aria-label="Result" style="flex: 1; min-width: 0; border: 1px solid #E6E8EB; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center">
+<svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#A3AAB2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18M9 9v11"></path></svg>
+<span style="font-size: 15px; font-weight: 500">Pick runs, then press Run</span>
+<span style="font-size: 13px; color: #5B636E; max-width: 340px; line-height: 1.5">This analysis reruns with its saved settings on the runs you tick. The result can be exported as a CSV file.</span>
+</section>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1366,"height":768}}'>
+class Component extends DCLogic {
+renderVals() {
+const fmt2 = function (v) { return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+const fmt0 = function (v) { return v.toLocaleString('en-US'); };
+const base = [['Gujarat', 41800, 184200000], ['Karnataka', 39100, 172100000], ['Maharashtra', 97300, 415600000], ['Tamil Nadu', 35500, 151900000], ['Telangana', 23100, 99100000]];
+const months = [['Sep-2026', 0.97], ['Oct-2026', 1.0], ['Nov-2026', 1.012]];
+const rows = []; let c = 0, t = 0;
+months.forEach(function (m, mi) {
+base.forEach(function (b, bi) {
+const cnt = Math.round(b[1] * m[1] + bi * 37 + mi * 11);
+const tax = Math.round((b[2] * m[1] + bi * 104417.35 + mi * 52011.4) * 100) / 100;
+c += cnt; t += tax;
+rows.push({ month: bi === 0 ? m[0] : m[0], mFg: bi === 0 ? '#1C2128' : '#A3AAB2', state: b[0], count: fmt0(cnt), taxable: fmt2(tax) });
+});
+});
+const runs = [['R-0013', 'Nov-2026', true], ['R-0012', 'Oct-2026', true], ['R-0011', 'Sep-2026', true], ['R-0010', 'Aug-2026', false], ['R-0009', 'Jul-2026', false], ['R-0008', 'Jun-2026', false]];
+return {
+runs: runs.map(function (r) { return { id: r[0], on: false, files: ['North', 'South', 'East', 'West'].map(function (g) { return 'Sales_' + r[1] + '_' + g + '.xlsx'; }).join(', ') }; }),
+rows: rows,
+total: { count: fmt0(c), taxable: fmt2(Math.round(t * 100) / 100) }
+};
+}
+}
+</script>
+</body>
+</html>
