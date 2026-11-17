@@ -322,6 +322,7 @@ def test_source_package_is_a_dev_only_fallback(tmp_path):
     install = z.read(f"{name}/Install Sankalan.bat").decode()
     uninstall = z.read(f"{name}/Uninstall Sankalan.bat").decode()
     assert "\r\n" in install and "--self-test" in install
+    assert "sankalan-requirements.txt" in install            # a 1.x (or older) environment is rebuilt
     assert "--remove-data" in uninstall
     assert "from sankalan.__main__ import main" in z.read(f"{name}/app/Sankalan.pyw").decode()
 

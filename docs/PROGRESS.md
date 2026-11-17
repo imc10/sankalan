@@ -41,7 +41,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | RUNC-10 totals mismatch test | `SANKALAN_FAULT_TOTALS=<column id>:<amount>[,…]` adds the amount to Loaded; read only when running from source (`sys.frozen` false), so the packaged exe ignores it. Automated tests pass the fault as an argument | Confirmed 17-11-2026 | Phase 5 |
 | Commit free-space check (Tech spec, Commit) | Commit needs at least 100 MB free on the data folder's drive (`COMMIT_FREE_BYTES`); revisit after PERF-08 | Confirmed 17-11-2026 | Phase 5 |
 | C4-06 Customers per state on R-0005 | **5** per state, not the sheet's 10: under F00, Customer cycles mod 10 and State mod 4, so each state sees 5 customers. Update the live test sheet | Confirmed 17-11-2026 | Phase 5 |
-| Run-from-source route (V1 `packaging/source_install`) | Kept as a dev-only fallback (ported to V2) until the certificate arrives, then retired (T3) | Confirmed 17-11-2026 | Phase 11 |
+| Run-from-source route (V1 `packaging/source_install`) | Kept (ported to V2) for development and manual testing on a PC with Smart App Control off, while the certificate is awaited; retire only when the user says so after the signed installer is in use (T3) | Confirmed 17-11-2026 | Phase 11 |
 | Uninstall "delete data" scope (T26, DEP-12) | Yes deletes the data folder settings.json names (even if moved; only if it holds `catalogue.duckdb`) plus `%LOCALAPPDATA%\Sankalan` and `%TEMP%\Sankalan`; No (default, and silent uninstall) touches nothing | Confirmed 17-11-2026 | Phase 11 |
 | Installer shortcuts | Start menu `Sankalan` and Desktop `Sankalan` | Confirmed 17-11-2026 | Phase 11 |
 | O12 unencrypted local data | Customer still to confirm (SEC-3); no code impact | Open (customer) | — |
@@ -71,6 +71,18 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 11 follow-up: version 2.0.0, README, run from source for manual testing
+- `__version__ = "2.0.0"` (exe resource, installer name `Sankalan-Setup-2.0.0.exe`, source zip
+  `Sankalan-2.0.0-Windows.zip`, App settings).
+- README rewritten for V2: features, where data is kept, the two install routes (signed installer for customers;
+  run from source for manual testing with Smart App Control off), self-test, development, layout, limits. CHANGELOG
+  has a 2.0.0 entry marked "not yet released (manual testing)".
+- The user keeps run-from-source to deploy on their own PC (SAC off) for manual testing while the certificate is
+  awaited. `Install Sankalan.bat` now rebuilds the Python environment when its pinned packages differ from the
+  app's (marker `venv\sankalan-requirements.txt`), so a Sankalan 1.x source install's environment (with
+  cryptography, XlsxWriter, …) is replaced, not reused. 1.x JSON templates are not imported.
+- Tests: full suite passing (see commit).
 
 ### 17-11-2026 — Phase 11: Packaging, signing, install/uninstall
 - **Decisions (asked and confirmed 17-11-2026):** run-from-source kept as a **dev-only fallback** until the
@@ -110,8 +122,7 @@ Newest first. One entry per session: date, phase, what was done, deviations from
   in `%LOCALAPPDATA%\Sankalan`) that it would overwrite; the installer's running-app check, the T26 dialog and
   `--remove-data` from the uninstaller; Windows 10; SAC. Qt ships 113 unsigned files in the build — all get signed
   by `sign_files.ps1`.
-- **Next:** Phase 12. Retire the source route once R1 arrives (delete `packaging/source_install`,
-  `make_source_package.py`, the test). Release version: set `__version__ = "2.0.0"`.
+- **Next:** Phase 12. The source route stays until the user decides to retire it (see the follow-up entry above).
 
 ### 17-11-2026 — Phase 10: Analysis and export dialogs
 - **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11). Saved-analysis

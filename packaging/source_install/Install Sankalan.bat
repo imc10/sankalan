@@ -25,6 +25,11 @@ robocopy "%~dp0app" "%DEST%\app" /MIR /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 goto :fail
 
 echo [2/5] Creating the Python environment
+REM An environment made for other package versions (e.g. Sankalan 1.x) is rebuilt from scratch, so no package
+REM the app no longer uses is left in it.
+if exist "%DEST%\venv\" (
+  fc /b "%DEST%\app\requirements.txt" "%DEST%\venv\sankalan-requirements.txt" >nul 2>&1 || rmdir /s /q "%DEST%\venv"
+)
 if not exist "%DEST%\venv\Scripts\pythonw.exe" (
   py -3.13 -m venv "%DEST%\venv" || goto :fail
 )
@@ -35,6 +40,7 @@ if exist "%~dp0wheels\" (
 ) else (
   "%DEST%\venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r "%DEST%\app\requirements.txt" || goto :fail
 )
+copy /y "%DEST%\app\requirements.txt" "%DEST%\venv\sankalan-requirements.txt" >nul
 
 echo [4/5] Checking the app (self-test; a window may flash briefly)
 if exist "%DEST%\selftest.json" del "%DEST%\selftest.json"

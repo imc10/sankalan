@@ -1,13 +1,15 @@
 """Build the run-from-source package: Sankalan-<version>-Windows.zip. DEVELOPMENT AND TEST FALLBACK ONLY until the
-signed installer is available (decision confirmed 17-11-2026; retire it once the certificate arrives, T3): Smart App
-Control blocks the unsigned duckdb and python-calamine files, so it can't run on customer laptops with SAC on.
+signed installer is in use (decision confirmed 17-11-2026, T3); used meanwhile for manual testing on a PC with Smart
+App Control off. Smart App Control blocks the unsigned duckdb and python-calamine files, so it can't run on customer
+laptops with SAC on.
 
     python packaging/make_source_package.py --out dist --download     # fetch Windows packages (needs internet)
     python packaging/make_source_package.py --out dist --wheels path  # use already downloaded packages
     python packaging/make_source_package.py --out dist --no-wheels    # installer downloads packages itself
 
 The zip holds: Install/Uninstall Sankalan.bat, README.txt, app\\ (Sankalan.pyw + the sankalan package),
-wheels\\ (Windows packages for Python 3.13, so laptops need no internet) and demo-data\\.
+wheels\\ (Windows packages for Python 3.13, so the PC needs no internet) and demo-data\\ (the self-test's sample
+.xlsx and .csv).
 """
 from __future__ import annotations
 
