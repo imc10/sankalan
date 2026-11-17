@@ -66,7 +66,8 @@ class Choice(Dialog):
         if text:
             self.text(text)
         for i, (key, label, kind) in enumerate(options):
-            self.add_button(label, kind, lambda k=key: self._pick(k), default=(i == len(options) - 1))
+            # clicked(bool) passes `checked` as the first argument: without `_c` it would overwrite `k` (False)
+            self.add_button(label, kind, lambda _c=False, k=key: self._pick(k), default=(i == len(options) - 1))
 
     def _pick(self, key: str) -> None:
         self.choice = key

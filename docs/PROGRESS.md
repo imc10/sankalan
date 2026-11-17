@@ -67,10 +67,33 @@ before the phase that relies on them; mark them **Confirmed** with the date when
   `tests/conftest.py::collect_garbage` now collects after every test (suite ~95 s). In the app only the data-folder
   move closes one connection and opens another: Phase 12 should check the old connection object is released at
   once (no cycle) or collect right after the move, before the next Job.
+- (17-11-2026) `tests/gui/test_analysis.py` fails 1–2 tests per run, varying (`test_list_and_search`,
+  `test_rename_and_name_uniqueness`, `test_saved_analysis_rename_and_delete_from_its_screen`,
+  `test_save_from_the_leave_prompt`), also on the Phase 11 commit: the test reads `storage.con` on the main thread
+  while a Job is still on the shared connection, and DuckDB 2.0 raises `ResourceInUseException` instead of waiting.
+  Test-side race (the app never queries on the UI thread); fix by settling the bridge before direct catalogue reads.
 
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Fix: prompt buttons did nothing (Discard, Discard run, Leave without saving, …)
+- Reported in manual testing: Cancel → "Discard" in New template and New run left the wizard open.
+- Cause: `Choice` (every `ask()` prompt) wired its buttons as `lambda k=key: self._pick(k)`; Qt's `clicked(bool)`
+  passed `checked=False` into `k`, so every button returned False. Prompts affected: Discard this template?, Leave
+  and discard this run?, Save your changes? (Template tabs and leaving the screen), This analysis isn't saved,
+  Change template?, Delete saved analysis, Start a new run on …?, Replace file? (export), Use a synced folder?,
+  close while a Job runs. Fixed with `lambda _c=False, k=key:` as the rest of the UI does.
+- Why tests missed it: every GUI test answered prompts through `base.answer_hook`, which bypasses the buttons.
+  New `tests/gui/test_dialog_buttons.py` (15 tests) leaves the hook off and clicks the real buttons at every Discard
+  point: New template (Cancel with/without a sample, Keep editing, leaving by the rail), New run (Cancel before and
+  after reading files, Stay, leaving by the rail; staging emptied), Template tab bar Discard, switching tab, leaving
+  the screen, unsaved analysis "Leave without saving". 14 of the 15 fail on the old code.
+- Checked: the `QMenu.addAction(text, lambda t=t: …)` "Add rule" menus are not affected (no `checked` passed).
+- Suite: 450 passed, 2 skipped, 1 failed (`test_save_from_the_leave_prompt`, the pre-existing analysis-test race
+  under Known issues; it uses the hook, not the changed code).
+- Also this session: installed 2.0.0 from source on the dev PC and ran a manual demo (Test Client, 10 × 5,000-row
+  files) outside the repo.
 
 ### 17-11-2026 — Phase 11 follow-up: version 2.0.0, README, run from source for manual testing
 - `__version__ = "2.0.0"` (exe resource, installer name `Sankalan-Setup-2.0.0.exe`, source zip
