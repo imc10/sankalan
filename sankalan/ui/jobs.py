@@ -130,6 +130,8 @@ class JobBridge(QObject):
         for t in list(self._tracked):
             if t.job.wait(0):
                 self._tracked.remove(t)
+                if not any(not x.quiet for x in self._tracked):
+                    self._set_busy(False)       # callbacks may start the next Job (the run wizard chains them)
                 self._finish(t)
             elif not t.quiet:
                 self.progressed.emit(t.job)

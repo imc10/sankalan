@@ -46,11 +46,6 @@ def default_screens() -> dict[str, ScreenFactory]:
     }
 
 
-def _later(title: str, phase: int):
-    """A screen a later phase builds (New run and Run: 9)."""
-    return lambda w, **_kw: w.open_screen(PlaceholderScreen("clients", title, f"Arrives in Phase {phase}.", w))
-
-
 def _open_client(w: "MainWindow", client_id: str, name: str = "", banner=None, **_kw) -> bool:
     from sankalan.ui.screens.client import ClientScreen
     return w.open_screen(ClientScreen(client_id, name, w), banner=banner)
@@ -66,6 +61,19 @@ def _open_template(w: "MainWindow", template_id: str, name: str = "", tab: int =
     return w.open_screen(TemplateScreen(template_id, name, w, tab=tab), banner=banner)
 
 
+def _open_new_run(w: "MainWindow", template_id: str, name: str = "", **_kw) -> bool:
+    from sankalan.ui.screens.new_run import NewRunScreen
+    return w.open_screen(NewRunScreen(template_id, name, w))
+
+
+def _open_run(w: "MainWindow", run_id: str, template_id: str = "", name: str = "", banner=None, tab: int = 0,
+              **_kw) -> bool:
+    from sankalan.ui.screens.run import RunScreen
+    screen = RunScreen(run_id, template_id, name, w)
+    screen.select_tab(tab)
+    return w.open_screen(screen, banner=banner)
+
+
 def _export_later(w: "MainWindow", request=None, **_kw) -> bool:
     """The Export dialog (7.4) arrives in Phase 10; until then the request is kept for it."""
     w.last_export = request
@@ -76,7 +84,7 @@ def _export_later(w: "MainWindow", request=None, **_kw) -> bool:
 def default_routes() -> dict[str, Callable[..., bool]]:
     """Where navigation goes (``MainWindow.go``). Later phases replace the placeholders."""
     return {"client": _open_client, "template": _open_template, "new_template": _open_new_template,
-            "new_run": _later("New run", 9), "run": _later("Run", 9), "export": _export_later}
+            "new_run": _open_new_run, "run": _open_run, "export": _export_later}
 
 
 class MainWindow(QMainWindow):

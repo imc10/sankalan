@@ -81,17 +81,19 @@ def test_cancel_between_steps():
 @spec("UI-5")
 def test_cancel_callbacks_and_abort_cleanup():
     calls = []
+    ready = threading.Event()
 
     def work(ctx):
         ctx.on_cancel(lambda: calls.append("stop workers"))
         ctx.on_abort(lambda: calls.append("discard staging"))
+        ready.set()
         while not ctx.cancel_requested:
             time.sleep(0.01)
         raise Cancelled()
 
     r = JobRunner()
     job = r.start("Load", work)
-    time.sleep(0.05)
+    assert ready.wait(5)            # a fixed sleep raced the thread start under load (full suite, Phase 9)
     job.cancel()
     job.wait(5)
     assert calls == ["stop workers", "discard staging"]

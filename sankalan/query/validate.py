@@ -234,6 +234,14 @@ def rule_counts(con, issues: Path) -> dict[str, int]:
         f"SELECT rule_id, count(*) FROM {_src(issues)} GROUP BY rule_id").fetchall()}
 
 
+def rule_lines(con, issues: Path) -> list[tuple]:
+    """Failures per rule as stored (ISS-1, the Run screen's by-rule table): (rule ID, rule type, column ID,
+    severity, count), in rule ID order."""
+    return [tuple(r) for r in con.execute(
+        f"SELECT rule_id, any_value(rule_type), any_value(column_id), any_value(severity), count(*) "
+        f"FROM {_src(issues)} GROUP BY rule_id ORDER BY rule_id").fetchall()]
+
+
 def issue_counts(con, issues: Path) -> list[IssueCount]:
     """Errors and warnings per rule and per file and sheet, for ``run_issue_count`` (ISS-1)."""
     rows = con.execute(

@@ -183,6 +183,35 @@ class RunSession:
         self.duplicate_decisions.pop(key, None)
         self._invalidate(FILES)
 
+    def recheck_files(self, ctx: JobContext, paths=None) -> list[FileSheet]:
+        """Re-check (IN-15, RUNF-06): probe files again where they are in the list, e.g. after closing Excel.
+        ``paths`` defaults to every file in the list. A Load anyway decision is kept."""
+        keys = list(dict.fromkeys(f.path for f in self.files)) if paths is None else [str(p) for p in paths]
+        keys = [k for k in keys if any(f.path == k for f in self.files)]
+        if not keys:
+            return []
+        others = [f.path for f in self.files if f.path not in keys and f.status not in (SKIPPED, REFUSED)]
+        fresh = stage.probe(ctx, keys, settings=self.template.source, columns=self.template.columns,
+                            template_id=self.template.id, existing=others, workers=self.workers)
+        by_path: dict[str, list[FileSheet]] = {}
+        for r in fresh:
+            if r.status != REFUSED:
+                by_path.setdefault(r.path, []).append(r)
+        out: list[FileSheet] = []
+        done: set[str] = set()
+        for f in self.files:
+            if f.path not in keys:
+                out.append(f)
+            elif f.path not in done:
+                done.add(f.path)
+                out += by_path.get(f.path, [])
+        for r in [r for rs in by_path.values() for r in rs]:
+            if r.duplicate_of and self.duplicate_decisions.get(r.path) == LOAD_ANYWAY:
+                r.status = READY
+        self.files = out
+        self._invalidate(FILES)
+        return [r for rs in by_path.values() for r in rs]
+
     def load_anyway(self, path) -> None:
         """RUN-7: keep a file whose contents were loaded in an earlier run; it shows as Ready."""
         key = str(path)
@@ -448,6 +477,13 @@ class RunSession:
             outputs=[RunOutput(o.position, o.name, o.definition, o.file) for o in self.outputs])
 
     # ------------------------------------------------------------------------------------------ leaving
+    def drop_staging(self) -> None:
+        """Cancel on Validate (RUNV-12): the staging folder goes, files and mapping decisions stay."""
+        if self.staging is not None:
+            self.folder.discard_staging(self.staging)
+        self.staging = None
+        self._invalidate(VALIDATE)
+
     def discard(self) -> None:
         """Leave and discard this run (RUN-14): the staging folder goes; nothing else was written."""
         if self.staging is not None:

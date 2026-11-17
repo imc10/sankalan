@@ -32,6 +32,7 @@ class Breadcrumb(QWidget):
         while self._lay.count():
             item = self._lay.takeAt(0)
             if item.widget():
+                item.widget().hide()            # deleted on the next loop pass; never drawn under the new ones
                 item.widget().deleteLater()
         self.parts = []
         self.crumbs = list(crumbs)

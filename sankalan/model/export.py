@@ -7,7 +7,8 @@ characters Windows doesn't allow in file names become ``_``.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 DELIMITERS = {",": "Comma", ";": "Semicolon", "\t": "Tab", "|": "Pipe"}
 DEFAULT_PATTERN = "{Client}_{Template}_{RunID}_{Output}"
@@ -101,7 +102,10 @@ class ExportDefaults:
 @dataclass(frozen=True)
 class ExportRequest:
     """What the Export dialog (7.4, Phase 10) opens with (EXP-4, C4-18): the template's export defaults with the
-    name pattern resolved for this export. ``kind``: data | issues | left_out | output | analysis."""
+    name pattern resolved for this export. ``kind``: data | issues | left_out | output | outputs (every output of
+    the run, one file each) | analysis. ``output``: the output's position for ``output``; ``subtotals``: as shown;
+    ``items``: set by a screen whose data isn't a committed run yet (the Validate step's issue list, RUNV-07): Job
+    work returning the queries and file names. ``sankalan.runs.export_items`` resolves every other request."""
     kind: str
     template_id: str
     run_id: str | None
@@ -109,11 +113,17 @@ class ExportRequest:
     file_name: str
     pattern: str
     options: ExportOptions
+    output: int | None = None
+    subtotals: bool | None = None
+    values: dict | None = None          # Client, Template, RunID for the per-output names of Export all outputs
+    items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportQuery, file name)]
 
 
 def prefill(kind: str, export: dict | None, *, template_id: str, client: str, template: str,
-            run_id: str | None = None, run_label: str = "", output: str = "") -> ExportRequest:
+            run_id: str | None = None, run_label: str = "", output: str = "", position: int | None = None,
+            subtotals: bool | None = None, items: Callable | None = None) -> ExportRequest:
     d = ExportDefaults.of(export)
     name = output or {"data": DATA_NAME, "issues": ISSUES_NAME, "left_out": LEFT_OUT_NAME}.get(kind, "")
     file_name = csv_file_name(d.pattern, Client=client, Template=template, RunID=run_label, Output=name)
-    return ExportRequest(kind, template_id, run_id, d.folder, file_name, d.pattern, d.options)
+    return ExportRequest(kind, template_id, run_id, d.folder, file_name, d.pattern, d.options, position, subtotals,
+                         {"Client": client, "Template": template, "RunID": run_label}, items)

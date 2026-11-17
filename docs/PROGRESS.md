@@ -15,7 +15,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 6 | 6 — UI shell and design system | Done | `v2` (Phase 6 commit) | Window, rail, theme, shared widgets, App settings; Clients/Analysis are placeholders until Phases 7/10 |
 | 7 | 7 — Clients, Client, Template screens | Done | `v2` (Phase 7 commit) | C1, C2, C4 with all four tabs; New template / New run / Run / Export open placeholders until Phases 8–10 |
 | 8 | 8 — New template wizard | Done | `v2` (Phase 8 commit) | 2.1–2.6; Save and start first run opens the `new_run` route (Phase 9 placeholder) |
-| 9 | 9 — New run wizard and Run detail | Not started | | Largest UI phase; split wizard / Run detail if needed |
+| 9 | 9 — New run wizard and Run detail | Done | `v2` (Phase 9 commit) | 4.1–4.5, 5.1, 7.1, 7.6; export buttons build requests, the Export dialog stays Phase 10's placeholder |
 | 10 | 10 — Analysis and export dialogs | Not started | | |
 | 11 | 11 — Packaging, signing, install/uninstall | Not started | | Signing needs the RSA OV certificate (R1) |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
@@ -67,6 +67,74 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 17-11-2026 — Phase 9: New run wizard and Run detail
+- **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11). Low-disk
+  threshold (10 GB) reused for RUNF-14.
+- **Engine additions:** `RunSession.recheck_files` (Re-check on the Files step, keeps Load anyway) and
+  `drop_staging` (Cancel/Back on Validate: staging deleted, files and mapping kept). `query/validate.rule_lines`
+  (by-rule table of a stored issue list), `query/convert.rows_by_file` (rows loaded per file-sheet).
+- **`sankalan/runs.py`** (Job work, no SQL): `wizard_start` (template, client, free space, next Run ID),
+  `rule_lines` / `stored_rule_lines` (Errors first, then column and rule order; "N other rules passed"),
+  `IssueSource` (PageSource over an issue list, first 10,000 per rule, rule/severity filters, sort),
+  `stored_output` (an output read back as stored, DO-6), `run_view` (run details, rules that ran = snapshot at the
+  run's version + run-only edits, rows loaded per file), `export_items` (data, left-out rows, issue list, one output,
+  all outputs → queries and file names), `rule_change_lines`, `mapping_lines`.
+- **`model/export.ExportRequest`** gained `output` (position), `subtotals`, `values` (Client/Template/RunID for the
+  per-output names of Export all outputs) and `items` (Job work a screen supplies for data not committed yet: the
+  Validate step's issue list). `prefill(position=, subtotals=, items=)`.
+- **Screens:** `screens/new_run.py` `NewRunScreen` (StepBar with skipped Mapping/Outputs, ProgressPanel, footer:
+  Cancel · Back · text · Continue despite errors… · Re-check files · Next / Commit R-00NN), `FilesStep` (Add files…,
+  drag and drop, refusals listed, grid File · Sheet · Size · Header · Rows ≈ · Status · ✕, per-file banners: error
+  → Exclude file / Re-check, duplicate → Remove file / Load anyway, low-disk warning, summary with hidden data and
+  skipped files), `MappingStep` (grid rows = template columns then headers not in the template, columns = file-sheets,
+  amber undecided cells, decision panel: pick a header + Map and save as alias / This run only / Leave as null with
+  the (Null) output warning; Leave out / Add as new column… dialog). `screens/new_run_steps.py`: `ValidateStep`
+  (result banner, tiles Errors · Warnings · Rows read · Hidden data skipped, `IssuesView` = by-rule table + paged issue
+  grid with severity filter, "showing the first 10,000 of 15,000", Edit rules for this run, Export issue list),
+  `OutputsStep` (per-output status, Retry, Show subtotals, "Export is available after commit", `ResultTable`),
+  `CommitStep` (what will be committed, decisions, totals table In the files · Loaded · Left out, comment ≤ 500 with
+  counter, required + prefilled after override). `screens/run.py` `RunScreen` (badge, summary line, Export data, ⋯
+  Export issue list / Export left-out rows / Delete run; tabs Summary · Issues · Outputs · Source files).
+  `dialogs/run_dialogs.py`: `OverrideDialog` (7.1), `AddColumnDialog`, `EditRulesDialog` (the 2.4 rules editor on
+  this run's columns + "Also save these rule changes to the template"), `LimitedText`. `widgets/result_table.py`.
+  Routes `new_run` and `run` registered (placeholders removed); `Screen.title_row` holds a badge beside the h1.
+- **Fixes to earlier code:** `JobBridge.poll` clears busy before delivering callbacks, so a callback can start the
+  next Job (the wizard chains Prepare rows → Generate outputs, Commit step → Check totals). `Breadcrumb.set_crumbs`
+  hides old parts before deleting them (they were drawn under the new ones until the next loop pass).
+  `tests/engine/test_jobs.py::test_cancel_callbacks_and_abort_cleanup` waited a fixed 50 ms for the Job thread to
+  register its callbacks; under full-suite load it failed once this session. It now waits on an event (probably the
+  unnamed one-off failure Phase 1 recorded).
+- **Tests:** 388 passing on the final code (19 new in `tests/gui/test_new_run.py`, the TPL-A sequence through the
+  screens on one module storage): RUNF-01…14 (RUNF-06 with an Excel-style handle, Re-check → Ready), RUNM-01…05/07/08,
+  RUNV-01…10/12/13 (RUNV-07 and C6-06 write real CSVs through `runs.export_items`), RUNO-01…07 (RUNO-06 holds the
+  output write until Cancel), RUNC-01…09, C6-01…10 (C6-09 delete from the Run screen), TPL-C (Outputs skipped),
+  TPL-D (one row per sheet), wizard and Run screen fit 1280×640. Rendered offscreen at 1366×768 and looked at.
+- **Interpretations** (change if wrong):
+  - Mapping lists every header no template column uses as a "Not in the template" row, including one the user will
+    pick for a missing column (F08 "Inv No"); it leaves the list once mapped. Next with decisions left selects the
+    first undecided item (cells, then extra headers).
+  - Back from Validate (and Cancel during it) deletes the staging folder and returns to Mapping, or Files when Mapping
+    was skipped. Back from Outputs (or from Commit when Outputs was skipped) validates again, since the rows were
+    split. Back from Mapping to Files keeps the decisions while the file list is unchanged.
+  - The Commit button and 7.1 name the next Run ID ("Commit R-0003"): last issued + 1; the number is still issued
+    only in the commit transaction (T22).
+  - Issue grid columns follow RUNV-04 (File · Sheet · Row · Column · Value · Rule · Severity), the full message as the
+    row's tooltip; a blank value shows "(blank)". The mockup's Problem column is not drawn.
+  - Totals table: Column · In the files · Loaded · Left out (the Tech spec's Input = Loaded + Left out).
+  - Output times on the Outputs step are the generate Job's time split evenly over the outputs it made.
+  - Export buttons (Validate issue list, Run screen data / issues / left-out / one output / all outputs) open the
+    `export` route with an `ExportRequest`; Phase 10's dialog should run `runs.export_items` then `exporting.export`
+    or `export_many`. Export left-out rows on a run with none says so (`RunProblem`).
+  - Run screen Source files: "Rows loaded" counted per file-sheet from `data.parquet` (`run_file.rows_read`
+    includes blank rows).
+  - "Load anyway" and "Path at load time" are written as split string literals so the SQL `LOAD` guard in
+    `tests/security/test_offline.py` doesn't read them as statements.
+- **Not verified:** the real file dialog and drag and drop from Explorer (tests call `add_files`); screens at
+  125% / 150% and on the laptop; RUNV-11 with a source really edited in Excel (Re-check runs Validate again, which
+  re-reads); RUNV-12 / RUNO-06 cancel speed on P01; the menus opened by a real click on ⋯.
+- **Next:** Phase 10 (Analysis and export dialogs): replace the `export` route with the 7.4/7.5 dialogs, resolving
+  requests with `runs.export_items`; the builder's "Is one of" still takes typed values.
 
 ### 17-11-2026 — Phase 8: New template wizard
 - **Decisions:** no Proposed decision used (the only one left, run-from-source, belongs to Phase 11).

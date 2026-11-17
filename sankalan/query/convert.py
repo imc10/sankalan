@@ -199,3 +199,9 @@ def convert_values(con, raws: list[str | None], col: Column) -> list:
     rows = ", ".join(f"({i}, {'NULL' if r is None else lit(r)})" for i, r in enumerate(raws))
     sql = (f"SELECT CAST({convert_sql(col, 'v')} AS {sql_type(col)}) FROM (VALUES {rows}) t(i, v) ORDER BY i")
     return [r[0] for r in con.execute(sql).fetchall()]
+
+
+def rows_by_file(con, path: Path) -> dict[int, int]:
+    """Rows per source file in a run's ``data.parquet`` (5.1 Source files: rows loaded)."""
+    return {int(f): int(n) for f, n in con.execute(
+        f"SELECT _src_file, count(*) FROM read_parquet({_path(path)}) GROUP BY _src_file").fetchall()}
