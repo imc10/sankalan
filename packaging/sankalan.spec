@@ -70,3 +70,8 @@ exe = EXE(
     version=_version_file(),
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="Sankalan", upx=False)
+
+# Third-party licence notices (LGPL-3.0 for Qt/PySide6, MIT, BSD, Apache, PSF, OFL) sit next to Sankalan.exe, so the
+# installer copies them to the install folder with everything else.
+import shutil  # noqa: E402
+shutil.copy2(ROOT / "THIRD_PARTY_NOTICES.txt", Path(DISTPATH) / "Sankalan" / "THIRD_PARTY_NOTICES.txt")  # noqa: F821

@@ -121,6 +121,10 @@ set SANKALAN_BUILD_TESTS=1                 # optional: also build the exe and in
 compiled package may load at run time; `tests/security` checks this. `requirements-dev.txt` holds test and build
 tools only.
 
+`THIRD_PARTY_NOTICES.txt` holds the licences and copyright notices of everything Sankalan ships (Qt/PySide6 under
+LGPL-3.0, DuckDB, python-calamine, Python, the IBM Plex fonts and their bundled parts). Both packages install it.
+When a runtime package changes version, update it too; `tests/packaging` fails until you do.
+
 | Tests | Cover |
 | --- | --- |
 | `tests/unit` | Formats, value rules, paths, client/template management, the fixture pack |

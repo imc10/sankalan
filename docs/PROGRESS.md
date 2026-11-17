@@ -77,6 +77,29 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
 
+### 17-11-2026 — Third-party licence notices
+- Licence review of everything shipped: Python 3.13 (PSF), Qt 6.12.0 + PySide6/shiboken6 6.12.0 (LGPL-3.0),
+  DuckDB 2.0.0 (MIT), python-calamine 0.9.1 (MIT), IBM Plex (OFL-1.1), Mesa llvmpipe `opengl32sw.dll` (MIT), MSVC
+  runtime. All allow closed-source commercial use; the gap was that no notices shipped.
+- New `THIRD_PARTY_NOTICES.txt` (repo root): summary, the LGPL-3.0 statement for Qt (replaceable DLLs, reverse
+  engineering for debugging, source at download.qt.io plus a 3-year offer "from whoever gave you Sankalan" so no
+  publisher is named, NF-6), copyright lines per component, full licence texts (LGPL-3.0 + GPL-3.0, Apache-2.0, MIT,
+  BSD-2/3, Zlib, BSL-1.0, FTL, IJG, libpng-2.0, libtiff, Unicode-3.0, Unlicense, OFL) and Python's LICENSE.txt.
+  Sources: the binaries a PyInstaller build actually ships, Qt's attribution pages for 6.12, DuckDB v2.0.0
+  `third_party/` and duckdb-python's build config, python-calamine's bundled CycloneDX SBOM, SPDX licence texts.
+  Licence choices where offered: FreeType under FTL, mbedtls and dual MIT/Apache Rust crates under Apache-2.0.
+- Shipped: the PyInstaller spec copies it next to `Sankalan.exe` (so the installer installs it); the source package
+  puts it at the zip root and in `app\`. New test `test_third_party_notices_cover_every_runtime_package` fails when a
+  pinned runtime package or its version changes until the notices are updated.
+- **Not verified / gaps:** Wintab, Imlib2 and ICC licence texts are linked, not copied; copyright lines for the
+  MIT crates calamine, quick-xml, zip and zlib-rs are taken from SBOM authors, not their LICENSE files; which Qt
+  third-party parts are compiled into the PyPI Windows wheels was taken from Qt's docs, not the Qt SBOM. The 3-year
+  source offer is a commitment whoever distributes Sankalan must honour (or drop it and rely on the download link).
+- **On upgrade of any runtime package:** refresh `THIRD_PARTY_NOTICES.txt` (versions, copyright lines, Qt URLs).
+- Suite: 451 passed, 2 skipped, 1 failed (`test_new_template_cancel_keep_editing`: "Read sample failed: JobBusy",
+  the start-up "Read clients" Job still running; a timing race like the one under Known issues, passed 3 of 3 runs
+  on its own). A PyInstaller build in a scratch folder put `THIRD_PARTY_NOTICES.txt` next to `Sankalan.exe`.
+
 ### 17-11-2026 — Fix: prompt buttons did nothing (Discard, Discard run, Leave without saving, …)
 - Reported in manual testing: Cancel → "Discard" in New template and New run left the wizard open.
 - Cause: `Choice` (every `ask()` prompt) wired its buttons as `lambda k=key: self._pick(k)`; Qt's `clicked(bool)`
