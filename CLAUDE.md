@@ -19,7 +19,9 @@ local per-template dataset (DuckDB + Parquet) that can be analysed and exported 
 | How to build it (T1–T27, storage, ingestion, rules table, query layer, packaging) | `docs/specs/technical-spec-v1.0.md` | **Wins over the feature spec** where they differ (its "Feature spec changes" table lists the 21 differences) |
 | Screen layouts, copy, column sets, colours | `docs/specs/ui-screens/README.md` + `*.dc.html` | 30 artboards at 1366×768; mockups, not app code |
 | Acceptance figures, fixtures F00–F21/P01–P02, screen→test coverage | `docs/specs/test-cases.md` | 191 cases. Expected numbers are the oracle for automated tests |
-| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | |
+| Rows view, measures by column, export in parts (ROW, MEA, EXP-8–14) | `docs/specs/feature-spec-a1.md` | Behaviour and acceptance criteria |
+| How to build A1 (T28–T44) | `docs/specs/technical-spec-a1.md` | **Wins over Feature Spec A1** where they differ (its section 14.1) |
+| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | A1 phases: `docs/plans/a1-implementation-plan.md` |
 | Status, decisions, session log | `docs/PROGRESS.md` | Update at the end of every session |
 
 ## Hard rules (break none of these)

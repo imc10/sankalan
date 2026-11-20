@@ -19,6 +19,14 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
+| — | A1-0 — Fixtures, markers, baselines | Not started | | Feature Spec A1 build: plan in `docs/plans/a1-implementation-plan.md` |
+| — | A1-1 — Stored order and the export engine | Not started | | |
+| — | A1-2 — Export dialogs | Not started | | |
+| — | A1-3 — Measures v2 engine and catalogue version 2 | Not started | | |
+| — | A1-4 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
+| — | A1-5 — Rows view engine | Not started | | |
+| — | A1-6 — Rows view UI | Not started | | |
+| — | A1-7 — Docs, test sheet, performance suite | Not started | | |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
