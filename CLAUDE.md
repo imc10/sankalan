@@ -1,7 +1,7 @@
 # Sankalan — notes for Claude sessions
 
-Sankalan (संकलन, "compilation") is an offline Windows desktop app for accounting executives. Version 2 (being
-built on the `v2` branch) merges and validates Excel/CSV files, runs default outputs, and commits each run to a
+Sankalan (संकलन, "compilation") is an offline Windows desktop app for accounting executives. Version 2 (on `main`;
+new work on a branch off `main`) merges and validates Excel/CSV files, runs default outputs, and commits each run to a
 local per-template dataset (DuckDB + Parquet) that can be analysed and exported to CSV.
 
 ## Start every session here
@@ -67,8 +67,9 @@ python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F
 
 ## Working rules
 
-- **Branch:** work on `v2` (or a worktree branch off it). Never commit to `main` except the v1 hotfixes the user asks
-  for. Never push unless the user asks.
+- **Branch:** never commit to `main`. Always commit to the branch off `main` on which the changes are being made
+  (currently `Feature-Updates`), or a worktree branch off it. Changes reach `main` only by merging that branch when
+  the user asks. Never push unless the user asks.
 - **Scope:** one phase per session. If the phase is too large, finish a coherent part, record what's left in
   `docs/PROGRESS.md`, and stop there.
 - **Tests first for engine phases:** turn the matching test-case figures into pytest assertions with generated
