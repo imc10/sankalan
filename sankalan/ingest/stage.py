@@ -77,7 +77,7 @@ class LoadPart:
     """One file and sheet to read, with its mapping (column ID → source column position, or None)."""
     file_index: int
     path: str
-    kind: str                       # xlsx | xlsm | csv
+    kind: str                       # xlsx | xlsm | xlsb | xls | csv
     sheet: str
     header_row: int
     width: int
@@ -135,7 +135,8 @@ def read_part(path: str, kind: str, sheet: str, header_row: int, width: int, enc
                 c = csvread.read_csv(fh, encoding or "utf-8", delimiter or ",", header_row, width, out_path,
                                      report=report, stop=stop)
             else:
-                c = excel.read_sheet(path, fh, sheet, header_row, width, out_path, report=report, stop=stop)
+                c = excel.read_sheet(path, fh, sheet, header_row, width, out_path, report=report, stop=stop,
+                                     kind=kind)
     except excel.ExcelError:
         raise source.FileProblem("damaged", f"{name} can't be read. It may be damaged.") from None
     except OSError as e:

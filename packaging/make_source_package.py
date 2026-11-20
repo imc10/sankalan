@@ -55,6 +55,8 @@ def build(out: Path, wheels: Path | None = None, download=False, demo=True) -> P
     shutil.copy(SRC / "Sankalan.pyw", stage / "app" / "Sankalan.pyw")
     shutil.copy(ROOT / "packaging" / "sankalan.ico", stage / "app" / "sankalan.ico")
     shutil.copy(ROOT / "requirements-lock.txt", stage / "app" / "requirements.txt")
+    for dest in (stage, stage / "app"):         # in the zip, and copied with the app into the install folder
+        shutil.copy(ROOT / "THIRD_PARTY_NOTICES.txt", dest / "THIRD_PARTY_NOTICES.txt")
     shutil.copytree(ROOT / "sankalan", stage / "app" / "sankalan",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     if download:

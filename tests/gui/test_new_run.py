@@ -127,10 +127,11 @@ def test_add_files_grid_and_refusals(win, qtbot, tpla):
     assert rows[1][5] == "Ready"                                    # .xlsm accepted
     wz.remove_file(str(tpla["fx"] / "Sales_Macro.xlsm"))           # ✕
     assert [r[0] for r in wz.files_step.rows()] == ["Sales_Oct.xlsx"]
-    assert wz.add_files([tpla["fx"] / "Sales_Old.xls", tpla["fx"] / "Run_Folder"])
+    assert wz.add_files([tpla["fx"] / "Sales_Notes.txt", tpla["fx"] / "Run_Folder"])
     settle(qtbot, win)
     refused = wz.files_step.refused.text()
-    assert ".xls files aren't supported" in refused and "Folders can't be added" in refused
+    assert "only .xlsx, .xlsm, .xlsb, .xls and .csv files can be added" in refused
+    assert "Folders can't be added" in refused
     assert [r[0] for r in wz.files_step.rows()] == ["Sales_Oct.xlsx"]
     assert wz.next_button.isEnabled()
 

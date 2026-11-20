@@ -521,14 +521,14 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 ### C3-04 — Allowed sample file types
 
 - **Area:** C3 New template · **Priority:** P2 · **Screen:** 2.1 · **Spec:** IN-3 · **Type:** Functional
-- **Preconditions:** F11 Sales_Old.xls, F20 Sales_Macro.xlsm.
+- **Preconditions:** F29 Sales_Notes.txt, F11 Sales_Old.xls, F20 Sales_Macro.xlsm.
 - **Steps:**
 
     1. Open the file picker and check the file-type filter.
-    2. Drag F11 onto the step.
-    3. Pick F20.
+    2. Drag F29 onto the step.
+    3. Pick F11, then F20.
 
-- **Expected:** Picker offers .xlsx, .xlsm and .csv only. F11 is refused with a plain message that .xls files are not supported. F20 is accepted.
+- **Expected:** Picker offers .xlsx, .xlsm, .xlsb, .xls and .csv only. F29 is refused with a plain message that only .xlsx, .xlsm, .xlsb, .xls and .csv files can be added. F11 and F20 are accepted. (Changed 20-11-2026, D38: .xls was refused.)
 
 ### C3-05 — Template name unique within client
 
@@ -949,7 +949,7 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 
 - **Expected:** One row: File Sales_Oct.xlsx · Sheet Sales · Size (matches Explorer) · Header 1 · Rows ≈5,000 (approximate until Validate) · Status Ready.
 
-### RUNF-03 — .xlsm accepted, .xls refused
+### RUNF-03 — .xlsm and .xls accepted, .txt refused
 
 - **Area:** C5 Run · Files · **Priority:** P2 · **Screen:** 4.1 · **Spec:** IN-3 · **Type:** Functional
 - **Preconditions:** New run on TPL-A.
@@ -957,8 +957,9 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 
     1. Add F20 Sales_Macro.xlsm.
     2. Add F11 Sales_Old.xls.
+    3. Add F29 Sales_Notes.txt.
 
-- **Expected:** F20 is Ready. F11 is refused with a plain message that .xls isn't supported.
+- **Expected:** F20 is Ready. F11 is Ready (100 rows). F29 is refused with a plain message that only .xlsx, .xlsm, .xlsb, .xls and .csv files can be added. (Changed 20-11-2026, D38: .xls was refused.)
 
 ### RUNF-04 — Header row detected per file
 
@@ -1067,6 +1068,37 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
     1. New run > add F16.
 
 - **Expected:** Two rows: Sales_Regions.xlsx · North and Sales_Regions.xlsx · South, both Ready; info that hidden sheet Archive is skipped.
+
+### RUNF-15 — .xls and .xlsb read like .xlsx
+
+- **Area:** C5 Run · Files · **Priority:** P1 · **Screen:** 4.1 · **Spec:** IN-3, IN-13, T11 · **Type:** Functional
+- **Preconditions:** A template with TPL-A columns reading sheet Sales by name (added 20-11-2026, D38).
+- **Steps:**
+
+    1. Run with F22 Sales_Nov.xls alone; Validate.
+    2. Discard; run with F23 Sales_Nov.xlsb alone; Validate.
+
+- **Expected:** Each file: Sales · Header 2 · Ready; info lines for hidden rows and hidden sheet Old. Rows loaded 4,000; blank rows 10; hidden rows 25. Taxable Value 6,029,500.00; Tax Amount 765,378.00 (as RUNV-02 and RUNC-03 for F03).
+
+### RUNF-16 — Password-protected .xls and .xlsb
+
+- **Area:** C5 Run · Files · **Priority:** P2 · **Screen:** 4.1a · **Spec:** IN-9, IN-15 · **Type:** Functional
+- **Preconditions:** New run on TPL-A (added 20-11-2026, D38).
+- **Steps:**
+
+    1. Add F26 Sales_Protected.xls and F27 Sales_Protected.xlsb.
+
+- **Expected:** Both Error: password-protected, as RUNF-05. No password prompt.
+
+### RUNF-17 — Web page saved with an .xls name
+
+- **Area:** C5 Run · Files · **Priority:** P3 · **Screen:** 4.1a · **Spec:** IN-15 · **Type:** Functional
+- **Preconditions:** New run on TPL-A (added 20-11-2026, D38).
+- **Steps:**
+
+    1. Add F28 Sales_Export.xls.
+
+- **Expected:** Error: "Sales_Export.xls is a web page or XML file with an Excel name. Open it in Excel and save it as .xlsx."
 
 ### RUNF-14 — Low-disk warning
 
@@ -1542,6 +1574,17 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
     1. Validate and commit; export data.
 
 - **Expected:** Formula cell =100*1.5 → 150.00 (last calculated value). #N/A cell → blank with Is a number warning, value "#N/A". Excel date-time 05-11-2026 14:30 → 05-11-2026. Text cell 00123 → 00123.
+
+### CONV-06 — Excel values in .xls and .xlsb
+
+- **Area:** C5 Run · Conversion · **Priority:** P2 · **Screen:** — · **Spec:** T11, MAP-10 · **Type:** Functional
+- **Preconditions:** As CONV-05 (added 20-11-2026, D38).
+- **Steps:**
+
+    1. Run with F24 Conversion_Values.xls; validate and commit; export data.
+    2. Run with F25 Conversion_Values.xlsb; validate and commit; export data.
+
+- **Expected:** Each run as CONV-05.
 
 ### C6-01 — Run header
 
@@ -2141,7 +2184,7 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 | F08 | Sales_Renamed_Headers.xlsx | .xlsx | Sheet Sales; headers: Inv No, invoice_date, CUSTOMER, G.S.T.I.N, Taxable Value, GST-Rate, Tax Amount, Remarks (no State column) | 1,000 rows; base 70000; November 2026; Remarks = "ok" | Taxable 1,507,375.00; Tax 191,344.50 | R-0004, RUNM |
 | F09 | Sales_NoHeader.xlsx | .xlsx | Sheet Sales holding only numbers, 100 rows × 8 columns, no text row | Random integers 1–999 | Error: header not found | RUNF-08 |
 | F10 | Sales_WrongSheet.xlsx | .xlsx | One sheet named Data; header row 1 | 100 rows; base 17000 | Error: sheet Sales not found | RUNF-07 |
-| F11 | Sales_Old.xls | .xls (Excel 97-2003) | F02 layout, 100 rows | — | Refused (.xls not supported) | C3-04, RUNF-03 |
+| F11 | Sales_Old.xls | .xls (Excel 97-2003) | F02 layout, 100 rows | — | Ready, 100 rows (changed 20-11-2026, D38) | C3-04, RUNF-03 |
 | F12 | Sales_ManyIssues.csv | .csv UTF-8, comma | Header row 1, TPL-A columns | 15,000 rows; base 25000; October 2026; Customer empty on every row | 15,000 warnings (Customer Not blank) | RUNV-06 |
 | F13 | Sales_Dec_NewCol.xlsx | .xlsx | Sheet Sales; TPL-A headers + Branch | 3,000 rows; base 50000; December 2026; Branch = [Pune, Nashik, Nagpur][(n−1) mod 3] | Taxable 4,522,125.00; Tax 574,033.50; 1,000 per branch | R-0005 |
 | F14 | Sales_NoDates.xlsx | .xlsx | As F13 | 500 rows; base 80000; Invoice Date empty on every row | Taxable 753,687.50; Tax 95,672.25 | R-0006 |
@@ -2152,6 +2195,14 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 | F19 | Conversion_Values.xlsx | .xlsx | Sheet Data (first visible); F17 header | Rows: Amount cell number 2.345; Amount formula =100*1.5; Amount #N/A error cell; Doc Date Excel date-time 05-11-2026 14:30; Code text cell 00123 | 150.00; blank + warning "#N/A"; 05-11-2026; 00123 | CONV-05 |
 | F20 | Sales_Macro.xlsm | .xlsm | Sheet Sales; header row 1; one empty VBA module | 500 rows; base 15000; October 2026 | Ready | C3-04, RUNF-01, RUNF-03 |
 | F21 | Run_Folder (a folder) | Folder | Contains a copy of F02 | — | Dropping a folder is refused | RUNF-01 |
+| F22 | Sales_Nov.xls | .xls (Excel 97-2003), saved by Excel | F03 opened and saved as .xls | As F03 | As F03 | RUNF-15 |
+| F23 | Sales_Nov.xlsb | .xlsb, saved by Excel | F03 opened and saved as .xlsb | As F03 | As F03 | RUNF-15 |
+| F24 | Conversion_Values.xls | .xls, saved by Excel | F19 saved as .xls | As F19 | As F19 | CONV-06 |
+| F25 | Conversion_Values.xlsb | .xlsb, saved by Excel | F19 saved as .xlsb | As F19 | As F19 | CONV-06 |
+| F26 | Sales_Protected.xls | .xls (encrypted), saved by Excel | F06 contents | Password Sankalan@123 to open | Error: password-protected | RUNF-16 |
+| F27 | Sales_Protected.xlsb | .xlsb (encrypted), saved by Excel | F06 contents | Password Sankalan@123 to open | Error: password-protected | RUNF-16 |
+| F28 | Sales_Export.xls | HTML text named .xls | An HTML table with TPL-A headers and 10 rows | — | Error: web page or XML file with an Excel name | RUNF-17 |
+| F29 | Sales_Notes.txt | Plain text | One line of text | — | Refused (only .xlsx, .xlsm, .xlsb, .xls and .csv) | C3-04, RUNF-03 |
 | P01 | Perf_10M_01.csv … Perf_10M_12.csv | .csv UTF-8, comma (~2.2 GB each) | 20 columns: Invoice No (INV-{9 digits}), Invoice Date (DD-MM-YYYY text), Customer ID (CUST-{7 digits}), Customer Name, GSTIN, State, Category (CAT-01…CAT-20), HSN, Branch, Salesperson (50 names), Qty (0 dp), Rate, Taxable Value, GST Rate, CGST, SGST, IGST, Tax Amount, Place of Supply, Remarks (blank on 90%) | 10,000,000 rows each; file k uses month k of 2026; Customer ID = ((n−1) mod 1,000,000) + 1; Category = (n−1) mod 20; State and rates as F00; all rows clean | 0 errors; ~1M distinct Customer IDs per file | PERF, RUNV-12, A1-11/12/15, EXP-08, SH |
 | P02 | Perf_xlsx_01.xlsx … Perf_xlsx_10.xlsx | .xlsx | Sheet Sales; P01 columns | 1,000,000 rows each, invoice numbers continuing across files | 10,000,000 rows in total | PERF-02 |
 
@@ -2171,8 +2222,8 @@ C1-04 client-name case rule · RUNF-06 message wording (UX doc vs Tech spec) · 
 | 3.2 | Template · Default outputs | TemplateOutputs.dc.html | C4-05, C4-06, C4-07, C4-08 |
 | 3.3 | Template · Columns and rules | TemplateColumns.dc.html | C2-07, C4-09, C4-10, C4-11, C4-12, C4-13, C4-14, C4-15, C4-16 |
 | 3.4 | Template · Settings | TemplateSettings.dc.html | C4-17, C4-18 |
-| 4.1 | Run · Files | RunFiles.dc.html | RUNF-01, RUNF-02, RUNF-03, RUNF-04, RUNF-10, RUNF-11, RUNF-12, RUNF-13, RUNF-14, PERF-01, PERF-02 |
-| 4.1a | Run · Files, a file can't be read | RunFilesError.dc.html | RUNF-05, RUNF-06, RUNF-07, RUNF-08, RUNF-09 |
+| 4.1 | Run · Files | RunFiles.dc.html | RUNF-01, RUNF-02, RUNF-03, RUNF-04, RUNF-10, RUNF-11, RUNF-12, RUNF-13, RUNF-14, RUNF-15, PERF-01, PERF-02 |
+| 4.1a | Run · Files, a file can't be read | RunFilesError.dc.html | RUNF-05, RUNF-06, RUNF-07, RUNF-08, RUNF-09, RUNF-16, RUNF-17 |
 | 4.2 | Run · Mapping | RunMapping.dc.html | RUNM-01, RUNM-02, RUNM-03, RUNM-04, RUNM-05, RUNM-06, RUNM-07, PERF-01, PERF-02 |
 | 4.3 | Run · Validate | RunValidate.dc.html | GEN-07, RUNV-01, RUNV-02, RUNV-03, RUNV-04, RUNV-05, RUNV-06, RUNV-07, RUNV-08, RUNV-09, RUNV-10, RUNV-11, RUNV-12, CONV-01, CONV-02, SH-01, PERF-01, PERF-02, PERF-07 |
 | 4.4 | Run · Outputs | RunOutputs.dc.html | RUNO-01, RUNO-02, RUNO-03, RUNO-04, RUNO-05, RUNO-06, RUNO-07, PERF-01, PERF-02 |

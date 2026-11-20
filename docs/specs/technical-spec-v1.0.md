@@ -30,7 +30,7 @@ Feature IDs in brackets point to Feature Spec v2.0. Changes this spec requires i
 | T8 | Storage layout B: one folder of Parquet files per run plus a DuckDB catalogue; the commit is a folder rename plus one catalogue transaction | RUN-1, RUN-5, RUN-9 |
 | T9 | The run being staged lives in the data folder's `_staging` area | SEC-4 (changed) |
 | T10 | The catalogue is backed up at each app start; the last 5 copies are kept | New |
-| T11 | Excel values read with python-calamine; hidden rows found by a separate scan of the sheet XML | IN-3, IN-13 |
+| T11 | Excel values read with python-calamine; hidden rows and error cells found by a separate scan of the sheet XML (.xlsx, .xlsm) or of the sheet's binary records (.xlsb, .xls; added 20-11-2026) | IN-3, IN-13 |
 | T12 | CSV files are read by the worker processes; Windows-1252 is converted to UTF-8 in Python | IN-4 |
 | T13 | Number columns are stored as DECIMAL(38, d), with d set per column (0 to 6, default 2) and fixed after the first committed run. Extra decimals are rounded silently, half away from zero | MAP-10, TPL-1 (changed) |
 | T14 | A cell that is empty or only spaces counts as blank. All other spaces are kept as typed | MAP-9, VAL-1 |
@@ -165,18 +165,18 @@ Files go through four stages, from the Files step to typed rows in `_staging\<jo
 | Check | How |
 | --- | --- |
 | Lock files, the same file twice (IN-10) | Skipped by name and resolved path; listed as skipped |
-| File type | Read from the content: ZIP → .xlsx or .xlsm; encrypted Office container → password-protected, an error (IN-9); text → CSV |
+| File type | Read from the content: ZIP with `xl/workbook.xml` → .xlsx or .xlsm, with `xl/workbook.bin` → .xlsb; Office container (OLE) with a `Workbook` stream → .xls; encrypted Office container (`EncryptionInfo` stream, or an .xls with a `FILEPASS` record) → password-protected, an error (IN-9); an Excel 5.0/95 workbook (`Book` stream only) → an error asking to save it as .xlsx; text named as a workbook and starting with `<` (a web page or XML saved with an Excel name) → an error asking to save it as .xlsx; other text → CSV |
 | File can't be opened (IN-15) | A sharing violation becomes "…is open in another program. Close it, then Re-check" |
 | Sheets to read (IN-5, IN-13) | Sheet list with visibility from calamine; hidden sheets listed as skipped |
 | Header row (IN-6) | V1 header detection on the first rows of each sheet |
 | CSV encoding and delimiter (IN-4) | V1 detection on the first 64 KB; the template's setting overrides it |
-| Row count (IN-11) | .xlsx: the sheet's dimension record. CSV: a fast line count. Approximate until stage 3, which gives the exact count |
+| Row count (IN-11) | Excel: the sheet's dimension record. CSV: a fast line count. Approximate until stage 3, which gives the exact count |
 | Duplicate contents (RUN-7) | SHA-256 of the file, compared with `run_file` |
 | Header match (TPL-6) | All headers match → the Mapping step is skipped |
 
 ### 3. Read
 
-- **Excel (T11).** python-calamine reads the values; formulas give their last calculated values, and error cells (`#N/A`, `#REF!`) are read as text. A separate scan of the decompressed sheet XML collects rows with `hidden="1"`; those rows are dropped and counted (IN-13).
+- **Excel (T11).** python-calamine reads the values; formulas give their last calculated values, and error cells (`#N/A`, `#REF!`) are read as text. A separate scan collects hidden rows and error cells, which calamine doesn't report: for .xlsx/.xlsm the decompressed sheet XML (rows with `hidden="1"`), for .xlsb the sheet's records (`BrtRowHdr` hidden flag, `BrtCellError`/`BrtFmlaError`), for .xls the sheet's BIFF8 records in the `Workbook` stream (`ROW` hidden flag, `BOOLERR`, `FORMULA` with an error result). Hidden rows are dropped and counted (IN-13).
 - **CSV (T12).** Read with Python's `csv` module. Windows-1252 is converted to UTF-8 with the standard library. A single large CSV is read on one core, because a CSV can't be split safely when values may contain line breaks.
 - **Raw staging format.** UTF-8 CSV, one file per file and sheet, with `_src_row` first and every value as text in one standard form:
   - numbers: the shortest exact decimal, never in exponent form
@@ -424,6 +424,6 @@ The largest risk is the certificate: until it arrives, nothing can be tested on 
 | R2 | PERF-2: Excel reading speed is unmeasured | 10M rows from .xlsx may take longer than 5 minutes | Measure in the first build; the target is provisional |
 | R3 | PERF-5: about 1M groups across 120M rows with Count distinct and subtotals, under an 8 GB memory cap | Heavy spilling to disk; may miss 60 s | Release performance suite; it is reported, not blocking |
 | R4 | One 10M-row CSV is read on a single core | Could approach the PERF-1 limit of 2 minutes | Measure in the first build |
-| R5 | python-calamine reports no hidden rows | Hidden rows would be loaded by mistake | A separate XML scan (T11), covered by tests with hidden rows |
+| R5 | python-calamine reports no hidden rows | Hidden rows would be loaded by mistake | A separate XML or record scan (T11), covered by tests with hidden rows in .xlsx, .xlsb and .xls |
 | R6 | Data folder inside a synced or network folder | Sync conflicts or damaged files | Default outside OneDrive; Change… refuses network paths and warns for OneDrive (T25) |
 | O12 | The customer has not confirmed that client data may be kept on the laptop unencrypted (SEC-3) | Could require encryption, which is out of scope today | Open, carried over from Feature Spec v2.0 |

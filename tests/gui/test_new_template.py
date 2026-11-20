@@ -149,12 +149,16 @@ def test_sample_file_and_rows_read(env, qtbot, fixtures_dir):
 
 @spec("C3-04", "IN-3")
 def test_allowed_sample_file_types(env, qtbot, fixtures_dir):
-    assert ntui.FILE_FILTER == "Excel and CSV files (*.xlsx *.xlsm *.csv)"
+    assert ntui.FILE_FILTER == "Excel and CSV files (*.xlsx *.xlsm *.xlsb *.xls *.csv)"
     wz = open_wizard(qtbot, env)
-    assert not wz.pick(fixtures_dir / "Sales_Old.xls")
-    assert wz.sample_step.file_error.text() == ("Sales_Old.xls: .xls files aren't supported. Save it as .xlsx in "
-                                                "Excel, then add it.")
+    assert not wz.pick(fixtures_dir / "Sales_Notes.txt")
+    assert wz.sample_step.file_error.text() == ("Sales_Notes.txt: only .xlsx, .xlsm, .xlsb, .xls and .csv files "
+                                                "can be added.")
     assert wz.staged is None
+    assert wz.pick(fixtures_dir / "Sales_Old.xls")
+    settle(qtbot, wz.window_)
+    assert wz.sample_step.file_error.isHidden()
+    assert wz.info.kind == "xls" and wz.sample_step.rows.text() == "Read 100 rows for previews"
     assert wz.pick(fixtures_dir / "Sales_Macro.xlsm")
     settle(qtbot, wz.window_)
     assert wz.sample_step.file_error.isHidden()

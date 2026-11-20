@@ -13,7 +13,7 @@ The app has two areas in the left rail: **Clients** (Clients → Client → Temp
 
 1. **Clients and templates.** One template per client task. The New template wizard builds it from one sample file:
    sheets to read, columns (Text, Number with 0–6 decimals, Date), rules, default outputs.
-2. **Runs.** The New run wizard takes files (.xlsx, .xlsm, .csv) through Files → Mapping → Validate → Outputs →
+2. **Runs.** The New run wizard takes files (.xlsx, .xlsm, .xlsb, .xls, .csv) through Files → Mapping → Validate → Outputs →
    Commit:
    - finds the header row, skips hidden rows and sheets, blank rows and Excel lock files, and warns about files
      already loaded;
@@ -71,7 +71,7 @@ until the signed installer is available.
    desktop shortcuts named "Sankalan". If a Sankalan 1.x source install is there, it is replaced, and its Python
    environment is rebuilt.
 5. Start Sankalan from the Start menu. Sample files for a first run are in the zip's `demo-data` folder
-   (`Sales_Oct.xlsx`, `Sales_Nov.csv`). The test fixture pack F00–F21 used by `docs/specs/test-cases.md` is made
+   (`Sales_Oct.xlsx`, `Sales_Nov.csv`). The test fixture pack F00–F29 used by `docs/specs/test-cases.md` is made
    with `python tests\fixtures\generate.py`.
 
 **Update:** build a new zip and run its Install Sankalan.bat; the data folder is kept.
@@ -121,6 +121,10 @@ set SANKALAN_BUILD_TESTS=1                 # optional: also build the exe and in
 compiled package may load at run time; `tests/security` checks this. `requirements-dev.txt` holds test and build
 tools only.
 
+`THIRD_PARTY_NOTICES.txt` holds the licences and copyright notices of everything Sankalan ships (Qt/PySide6 under
+LGPL-3.0, DuckDB, python-calamine, Python, the IBM Plex fonts and their bundled parts). Both packages install it.
+When a runtime package changes version, update it too; `tests/packaging` fails until you do.
+
 | Tests | Cover |
 | --- | --- |
 | `tests/unit` | Formats, value rules, paths, client/template management, the fixture pack |
@@ -157,7 +161,8 @@ docs/
 
 ## Known limits
 
-- Inputs are .xlsx, .xlsm and .csv. Password-protected and .xls files are refused with a message.
+- Inputs are .xlsx, .xlsm, .xlsb, .xls (Excel 97-2003) and .csv. Password-protected files, Excel 5.0/95 files,
+  web pages saved with an Excel name, and other types (.txt, .ods, templates) are refused with a message.
 - Exports are CSV only.
 - The performance targets (10M rows per run, about 120M per template per year) are measured on the 16 GB release
   test laptop before release.

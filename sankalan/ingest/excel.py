@@ -1,4 +1,8 @@
-"""Excel (.xlsx, .xlsm) access: sheet list, first rows for the probe, the sheet-XML scan, and the full read (T11).
+"""Excel access: sheet list, first rows for the probe, the hidden-row and error-cell scan, and the full read (T11).
+
+``open_book`` picks the reader by kind: ``Book`` here for .xlsx/.xlsm, ``xlsb.XlsbBook`` for .xlsb and
+``xls.XlsBook`` for .xls (D38). All three give ``sheets``, ``peek`` and ``scan`` with the same results, and
+``read_sheet`` is the same for all of them. For .xlsx/.xlsm:
 
 - **Probe** reads the workbook parts with the standard library: the sheet list with visibility, the first rows of a
   sheet (for header detection, without loading the whole sheet), the dimension record (approximate row count) and
@@ -29,6 +33,21 @@ _COL_RE = re.compile(r"([A-Z]+)(\d+)")
 
 class ExcelError(Exception):
     """The workbook structure can't be read (damaged or not an Excel workbook)."""
+
+
+class ExcelPassword(ExcelError):
+    """The workbook is password-protected (an .xls with a FILEPASS record, IN-9)."""
+
+
+def open_book(fh, kind: str):
+    """The workbook reader for ``kind`` (xlsx | xlsm | xlsb | xls), opened from a binary file object."""
+    if kind == "xlsb":
+        from sankalan.ingest.xlsb import XlsbBook
+        return XlsbBook(fh)
+    if kind == "xls":
+        from sankalan.ingest.xls import XlsBook
+        return XlsBook(fh)
+    return Book(fh)
 
 
 def _local(tag: str) -> str:
@@ -253,6 +272,7 @@ class _Shared:
 class Scan:
     hidden_rows: set[int] = field(default_factory=set)
     error_cells: dict[int, dict[int, str]] = field(default_factory=dict)   # sheet row -> {absolute column: text}
+    last_row: int | None = None                                           # .xls/.xlsb: from the dimension record
 
 
 _ROW_RE = re.compile(rb"<(?:\w+:)?row\b([^>]*)>")
@@ -303,13 +323,13 @@ class ReadCounts:
 
 def read_sheet(path: str, fh, sheet: str, header_row: int, width: int, out_path, *,
                report: Callable[[int], None] | None = None, stop: Callable[[], bool] | None = None,
-               limit: int | None = None) -> ReadCounts:
+               limit: int | None = None, kind: str = "xlsx") -> ReadCounts:
     """Write the raw staged text of one sheet: rows below ``header_row``, columns 0..width-1, hidden and blank
-    rows dropped and counted. ``fh`` is the open source file (for the XML scan); calamine opens ``path`` itself.
+    rows dropped and counted. ``fh`` is the open source file (for the scan); calamine opens ``path`` itself.
     ``limit`` stops after that many data rows (the New template wizard's sample, TPL-3)."""
     import python_calamine as pc
 
-    scan = Book(fh).scan(sheet, stop=stop)
+    scan = open_book(fh, kind).scan(sheet, stop=stop)
     counts = ReadCounts()
     try:
         wb = pc.CalamineWorkbook.from_path(path)

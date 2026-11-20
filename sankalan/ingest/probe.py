@@ -12,31 +12,31 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from sankalan.ingest import csvread, detect, source
-from sankalan.ingest.excel import Book, ExcelError
+from sankalan.ingest.excel import ExcelError, ExcelPassword, open_book
 from sankalan.ingest.source import FileProblem
 from sankalan.model.template import (ENCODING_LABELS, SHEETS_ALL_VISIBLE, SHEETS_BY_NAME, SourceSettings)
 
 READY, WARNING, ERROR, SKIPPED, REFUSED = "ready", "warning", "error", "skipped", "refused"
-SUPPORTED = (".xlsx", ".xlsm", ".csv")
+SUPPORTED = (".xlsx", ".xlsm", ".xlsb", ".xls", ".csv")        # IN-3 (D38)
 
 
 @dataclass
 class FileSheet:
     """One row of the file list. ``status``: ready, warning (can still be read), error (blocks the run until
-    excluded or fixed, IN-15), skipped (listed, never read, IN-10) or refused (not added: folders, .xls, .txt)."""
+    excluded or fixed, IN-15), skipped (listed, never read, IN-10) or refused (not added: folders, .txt)."""
     path: str
     file_name: str
     status: str
     message: str = ""
     sheet: str = ""                     # "" for a CSV file
-    kind: str = ""                      # xlsx | xlsm | csv
+    kind: str = ""                      # xlsx | xlsm | xlsb | xls | csv
     size: int = 0
     modified: float | None = None       # seconds since the epoch
     sha256: str = ""
     header_row: int | None = None       # 1-based sheet row (CSV: record number)
     headers: list[str] = field(default_factory=list)
     rows_approx: int | None = None      # approximate until Validate reads the file (IN-11)
-    hidden_rows: int = 0                # below the header; exact for .xlsx
+    hidden_rows: int = 0                # below the header; exact for Excel files
     hidden_sheets: list[str] = field(default_factory=list)
     encoding: str | None = None         # CSV only
     delimiter: str | None = None        # CSV only
@@ -74,12 +74,8 @@ def screen_paths(paths, existing=()) -> tuple[list[str], list[FileSheet]]:
             rows.append(FileSheet(str(p), name, SKIPPED, "Excel lock file, skipped."))
             continue
         ext = p.suffix.lower()
-        if ext == ".xls":
-            rows.append(FileSheet(str(p), name, REFUSED,
-                                  f"{name}: .xls files aren't supported. Save it as .xlsx in Excel, then add it."))
-            continue
         if ext not in SUPPORTED:
-            rows.append(FileSheet(str(p), name, REFUSED, f"{name}: only .xlsx, .xlsm and .csv files can be added."))
+            rows.append(FileSheet(str(p), name, REFUSED, refused_message(name)))
             continue
         key = resolved_key(p)
         if key in seen:
@@ -88,6 +84,15 @@ def screen_paths(paths, existing=()) -> tuple[list[str], list[FileSheet]]:
         seen.add(key)
         accepted.append(str(p))
     return accepted, rows
+
+
+def refused_message(name: str) -> str:
+    return f"{name}: only .xlsx, .xlsm, .xlsb, .xls and .csv files can be added."
+
+
+def _password(name: str) -> FileProblem:
+    return FileProblem("password", f"{name} is password-protected. Remove the password at source, or exclude the "
+                                   "file.")
 
 
 # ---------------------------------------------------------------------------------------------- in a worker
@@ -100,18 +105,14 @@ def probe_file(path: str, settings: SourceSettings, known_names: set[str] | None
         st = os.stat(p)
         base.size, base.modified = st.st_size, st.st_mtime
         with source.open_source(p) as fh:
-            head = fh.read(8)
-            kind = source.sniff(head)
-            if kind == "ole":
-                if source.ole_is_encrypted(fh):
-                    raise FileProblem("password", f"{p.name} is password-protected. Remove the password at "
-                                                  "source, or exclude the file.")
-                raise FileProblem("not_xlsx", f"{p.name} isn't an .xlsx workbook (it may be an old .xls file "
-                                              "renamed). Save it as .xlsx in Excel, then Re-check.")
-            if kind == "zip":
-                return _probe_excel(fh, base, settings, known_names)
+            try:
+                base.kind = source.file_kind(fh, p.name)
+            except FileProblem as e:
+                if e.kind == "password":
+                    raise _password(p.name) from None
+                raise
             if base.kind != "csv":
-                raise FileProblem("not_xlsx", f"{p.name} isn't a valid Excel workbook.")
+                return _probe_excel(fh, base, settings, known_names)
             return [_probe_csv(fh, base, settings, known_names)]
     except FileProblem as e:
         base.message = e.message
@@ -137,11 +138,11 @@ def _copy(base: FileSheet, **kw) -> FileSheet:
 def _probe_excel(fh, base: FileSheet, settings: SourceSettings, known) -> list[FileSheet]:
     name = base.file_name
     try:
-        book = Book(fh)
+        book = open_book(fh, base.kind)
+    except ExcelPassword:
+        raise _password(name) from None
     except ExcelError:
         raise FileProblem("damaged", f"{name} can't be read. It may be damaged, or not an Excel workbook.") from None
-    if base.kind not in ("xlsx", "xlsm"):
-        base.kind = "xlsx"
     base.sha256 = source.sha256_of(fh)
     visible = [s.name for s in book.sheets if s.visible]
     hidden = [s.name for s in book.sheets if not s.visible]

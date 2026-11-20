@@ -19,6 +19,14 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
+| — | A1-0 — Fixtures, markers, baselines | Not started | | Feature Spec A1 build: plan in `docs/plans/a1-implementation-plan.md` |
+| — | A1-1 — Stored order and the export engine | Not started | | |
+| — | A1-2 — Export dialogs | Not started | | |
+| — | A1-3 — Measures v2 engine and catalogue version 2 | Not started | | |
+| — | A1-4 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
+| — | A1-5 — Rows view engine | Not started | | |
+| — | A1-6 — Rows view UI | Not started | | |
+| — | A1-7 — Docs, test sheet, performance suite | Not started | | |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
@@ -52,6 +60,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts | Confirmed 17-11-2026 | Phase 4 |
 | EXP-04 Reason text | "Column: Rule" per Error rule that caused it, in rule order, joined by `; ` (e.g. "Invoice No: Character pattern; Taxable Value: Is a number"). `left_out.parquet` `_reason` holds the rule IDs comma-separated | Confirmed 17-11-2026 | Phase 4 |
 | Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
+| Input formats (D38, IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -76,6 +85,66 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 20-11-2026 — .xls and .xlsb input (D38)
+- **Decision:** after a spike (Excel 16 saved one workbook in every format it offers; read with python-calamine
+  0.9.1), the user chose to add .xls (Excel 97-2003) and .xlsb (Excel Binary). Not added: templates, .ods (calamine
+  reads `#N/A` as 0), .txt (separate decision), .xml 2003/.prn/.dif/.slk/.htm. Plan in
+  `docs/plans/xls-xlsb-support.md`; no new dependency.
+- **Specs updated** (with approval): feature spec IN-3, out-of-scope line, decision D38; tech spec T11, File type
+  row, Read section, R5; test-cases snapshot: C3-04 and RUNF-03 (.xls accepted, F29 .txt refused), F11 now Ready,
+  new RUNF-15/16/17, CONV-06, fixtures F22–F29, coverage rows. **The live test sheet (claude.ai artifact) still has
+  the old C3-04/RUNF-03/F11 text: update it to match `docs/specs/test-cases.md`.**
+- **Code:** `ingest/cfb.py` (read-only compound-file reader: v3/v4, mini streams, top-level streams only so an
+  embedded object's Workbook isn't mistaken for the file's), `ingest/xls.py` (`XlsBook`: BOUNDSHEET8 sheets,
+  FILEPASS → `ExcelPassword`, scan of ROW hidden flag / BOOLERR / FORMULA error results / DIMENSIONS, peek via
+  calamine `from_filelike`), `ingest/xlsb.py` (`XlsbBook`: chunked record reader, BrtBundleSh sheets, scan of
+  BrtRowHdr hidden bit / error cells incl. short records / BrtWsDim, its own first-rows peek with shared strings so
+  a large file isn't loaded). `excel.open_book(fh, kind)` picks the reader; `read_sheet(kind=)` is unchanged
+  otherwise. `source.file_kind` decides the kind from content (ZIP `workbook.bin` → xlsb; OLE `EncryptionInfo` →
+  password, `Workbook` → xls, `Book` → Excel 95 message, other → not a workbook; text named as a workbook starting
+  with `<` → web page message). Probe, sample, stage, file pickers and "accepts" notes updated. Problem code
+  `not_xlsx` replaced by `not_excel`, `old_excel`, `web_page`.
+- **Fixtures:** F22–F27 are Excel-saved binaries in `tests/fixtures/static` made by
+  `tests/fixtures/make_static_formats.ps1` (Excel COM, dev only) from F03, F19 and F06; `generate.py` copies them,
+  writes F28 (HTML named .xls) and F29 (.txt), and verifies F22–F25 cell-for-cell against their sources.
+- **Tests:** probe (F11 ready, F22/F23 = F03 incl. hidden rows/sheet and row count, F26/F27 password, F28, Excel 95
+  and other OLE, content beats extension), load (F22/F23 = F03 rows and totals 6,029,500.00 / 765,378.00; F24/F25 =
+  CONV-05), sample (inspect + stage), GUI pickers/refusals, and `tests/unit/test_excel_readers.py` (hand-built v3/v4
+  CFB, embedded-object streams, damaged chains, synthetic .xlsb with RK and short records).
+- **Speed (dev PC):** 300,000 rows × 8 columns: .xlsx probe 1.3 s / read 5.0 s; .xlsb probe 2.4 s / read 4.7 s;
+  .xls (65,536-row limit) probe 0.3 s / read 0.6 s.
+- **Not done / not verified:** Strict Open XML .xlsx has no fixture or test (a scratch Excel-saved file read
+  correctly in the spike); version-4 (4096-byte sector) .xls files and 1-byte "short" .xlsb cell records are
+  covered only by hand-built files, not by Excel-saved ones; `selftest.py` still checks .xlsx + CSV only; .xls
+  written by non-Excel tools (ERP exports) was tested only with F11 (xlwt). Not tried by hand in the running app
+  (GUI tests cover the pickers, refusals and an .xls sample in the New template wizard).
+- Suite: 470 passed, 2 skipped, then 1 failure fixed (a wrapped string "load every" tripped
+  `test_no_extension_install_or_load_in_sql`) and 1 known flaky `test_analysis.py` failure (Known issues), which
+  passed on rerun with the security and New template tests (59 passed).
+
+### 17-11-2026 — Third-party licence notices
+- Licence review of everything shipped: Python 3.13 (PSF), Qt 6.12.0 + PySide6/shiboken6 6.12.0 (LGPL-3.0),
+  DuckDB 2.0.0 (MIT), python-calamine 0.9.1 (MIT), IBM Plex (OFL-1.1), Mesa llvmpipe `opengl32sw.dll` (MIT), MSVC
+  runtime. All allow closed-source commercial use; the gap was that no notices shipped.
+- New `THIRD_PARTY_NOTICES.txt` (repo root): summary, the LGPL-3.0 statement for Qt (replaceable DLLs, reverse
+  engineering for debugging, source at download.qt.io plus a 3-year offer "from whoever gave you Sankalan" so no
+  publisher is named, NF-6), copyright lines per component, full licence texts (LGPL-3.0 + GPL-3.0, Apache-2.0, MIT,
+  BSD-2/3, Zlib, BSL-1.0, FTL, IJG, libpng-2.0, libtiff, Unicode-3.0, Unlicense, OFL) and Python's LICENSE.txt.
+  Sources: the binaries a PyInstaller build actually ships, Qt's attribution pages for 6.12, DuckDB v2.0.0
+  `third_party/` and duckdb-python's build config, python-calamine's bundled CycloneDX SBOM, SPDX licence texts.
+  Licence choices where offered: FreeType under FTL, mbedtls and dual MIT/Apache Rust crates under Apache-2.0.
+- Shipped: the PyInstaller spec copies it next to `Sankalan.exe` (so the installer installs it); the source package
+  puts it at the zip root and in `app\`. New test `test_third_party_notices_cover_every_runtime_package` fails when a
+  pinned runtime package or its version changes until the notices are updated.
+- **Not verified / gaps:** Wintab, Imlib2 and ICC licence texts are linked, not copied; copyright lines for the
+  MIT crates calamine, quick-xml, zip and zlib-rs are taken from SBOM authors, not their LICENSE files; which Qt
+  third-party parts are compiled into the PyPI Windows wheels was taken from Qt's docs, not the Qt SBOM. The 3-year
+  source offer is a commitment whoever distributes Sankalan must honour (or drop it and rely on the download link).
+- **On upgrade of any runtime package:** refresh `THIRD_PARTY_NOTICES.txt` (versions, copyright lines, Qt URLs).
+- Suite: 451 passed, 2 skipped, 1 failed (`test_new_template_cancel_keep_editing`: "Read sample failed: JobBusy",
+  the start-up "Read clients" Job still running; a timing race like the one under Known issues, passed 3 of 3 runs
+  on its own). A PyInstaller build in a scratch folder put `THIRD_PARTY_NOTICES.txt` next to `Sankalan.exe`.
 
 ### 17-11-2026 — Fix: prompt buttons did nothing (Discard, Discard run, Leave without saving, …)
 - Reported in manual testing: Cancel → "Discard" in New template and New run left the wizard open.

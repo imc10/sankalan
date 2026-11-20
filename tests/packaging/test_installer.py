@@ -208,8 +208,32 @@ def test_build_spec():
     assert "console=False" in spec_text and "upx=False" in spec_text
     assert "sankalan.ico" in spec_text and "version_info.txt" in spec_text and "app_version" in spec_text
     assert '"sankalan" / "ui" / "fonts"' in spec_text
+    assert '"THIRD_PARTY_NOTICES.txt", Path(DISTPATH) / "Sankalan"' in spec_text  # next to Sankalan.exe
     for mod in ("PySide6.QtNetwork", "PySide6.QtWebEngineCore", "pandas", "numpy", "pyarrow", "openpyxl"):
         assert f'"{mod}"' in spec_text
+
+
+@spec("T2")
+def test_third_party_notices_cover_every_runtime_package():
+    """THIRD_PARTY_NOTICES.txt names every pinned runtime package at its pinned version and carries the LGPL-3.0 and
+    GPL-3.0 texts and the Qt source location Qt's licence asks for. A version bump fails here until the notices
+    are updated."""
+    text = (ROOT / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
+    pins = dict(re.findall(r"^([A-Za-z0-9_.-]+)==(\S+)", (ROOT / "requirements-lock.txt").read_text(encoding="utf-8"),
+                           re.MULTILINE))
+    assert set(pins) == {"PySide6-Essentials", "shiboken6", "duckdb", "python-calamine"}, "update the notices too"
+    qt = pins["PySide6-Essentials"]
+    assert pins["shiboken6"] == qt
+    assert f"Qt                                   {qt}" in text and f"(PySide6, shiboken6)   {qt}" in text
+    assert f"DuckDB {pins['duckdb']}" in text and f"python-calamine {pins['python-calamine']}" in text
+    major_minor = ".".join(qt.split(".")[:2])
+    assert f"https://download.qt.io/official_releases/qt/{major_minor}/{qt}/" in text
+    assert f"PySide6-{qt}-src" in text
+    for licence in ("GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007", "GNU GENERAL PUBLIC LICENSE",
+                    "Apache License", "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2", "SIL OPEN FONT LICENSE",
+                    "The FreeType Project LICENSE", "Boost Software License"):
+        assert licence in text, licence
+    assert "Stichting DuckDB Foundation" in text and "Copyright (c) 2021 dimastbk" in text
 
 
 @spec("UI-1")
@@ -313,7 +337,8 @@ def test_source_package_is_a_dev_only_fallback(tmp_path):
     names = set(z.namelist())
     for f in ("Install Sankalan.bat", "Uninstall Sankalan.bat", "README.txt", "app/Sankalan.pyw",
               "app/shortcuts.py", "app/sankalan.ico", "app/requirements.txt", "app/sankalan/__main__.py",
-              "app/sankalan/selftest.py", "demo-data/Sales_Oct.xlsx", "demo-data/Sales_Nov.csv"):
+              "app/sankalan/selftest.py", "demo-data/Sales_Oct.xlsx", "demo-data/Sales_Nov.csv",
+              "THIRD_PARTY_NOTICES.txt", "app/THIRD_PARTY_NOTICES.txt", "app/sankalan/ui/fonts/OFL.txt"):
         assert f"{name}/{f}" in names, f
     assert not [n for n in names if "/legacy/" in n or "__pycache__" in n]
     readme = z.read(f"{name}/README.txt").decode()
