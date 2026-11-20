@@ -11,6 +11,7 @@ This spec adds three features to Sankalan's final version: a Rows view in the an
 | A | Rows view | A Rows mode in the analysis builder: pick client, template and runs, filter, choose columns, see the matching rows and export all of them as CSV | ROW-1 to ROW-15 |
 | B | Measures by column | In every analysis builder, add a column, then tick the operations to apply to it; a fixed Rows entry counts rows; rename result columns from the result header | MEA-1 to MEA-11 |
 | C | Export in parts | Any export with more than 1,000,000 data rows is written as numbered CSV files of up to 1,000,000 rows each, every one with its own header | EXP-8 to EXP-14 |
+| D | Bug fix: temp clean-up | Emptying the temp folder after a Job must not delete DuckDB's spill files that the open connection still uses (section 11) | BUG-1, SEC-4 |
 
 **Why C is needed.** A CSV file has no row limit, and Sankalan already writes every row. Excel opens at most 1,048,576 rows, header included, and silently drops the rest. A run holds about 10M rows, so a run's data, its issue list or a Rows export routinely goes past that. Parts of 1,000,000 data rows plus a header (1,000,001 lines) stay under Excel's limit.
 
@@ -430,6 +431,7 @@ Feature Spec v2.0 needs 14 updates and Technical Spec v1.0 needs 9. Six canvas s
 | New | EXP-8 to EXP-14 |
 | Performance targets | Adds PERF-7 to PERF-14 |
 | Decisions | Adds D38 to D60 |
+| SEC-4 | Becomes: "Temporary files live in the user's temp folder and are deleted when the operation ends, except the database engine's own spill files still in use, which it deletes itself; the folder is emptied completely at close and start-up" (BUG-1) |
 
 ### 9.2 Technical Spec v1.0
 
@@ -478,3 +480,23 @@ Four items need a decision before the technical spec update. The largest risk is
 | R8 | A split export needs working space of up to one run's share; a single-run export needs about twice its size free | Exports blocked on full laptops | The EXP-13 check states the need up front; choosing another drive is offered |
 | R9 | Splitter mistakes on quoted line breaks near a part boundary | A record cut across two parts | AC-EXP-9b with values planted at the boundary |
 | R10 | A 120M-row export is about 24 GB at 200 bytes a row (assumed), so PERF-13 depends on SSD write speed | PERF-13 missed on slower disks | Measured in the release suite; reported, not blocking (T4) |
+
+## 11. Bug fixes
+
+### 11.1 BUG-1 · Temp clean-up deletes DuckDB's live spill files (SEC-4)
+
+Found 20-11-2026 while building the full-size TPL-R data (Phase A1-0, since discarded). **Must be fixed** in this build; it is independent of features A to C and can hit any large load or analysis today.
+
+| Item | Detail |
+| --- | --- |
+| Symptom | A long operation fails with "Failed to delete file …\Temp\Sankalan\duckdb_temp_<pid>_…_storage_….tmp". Seen at a run's commit during a 2,500,000-row-per-run load |
+| Cause | After every Job, `Storage` empties `%TEMP%\Sankalan` (SEC-4). That also deletes the spill storage the open DuckDB connection is still using (Windows allows the delete). DuckDB's next use of those blocks fails |
+| When it happens | Whenever data spilled to disk in one Job is still held for the next: a large load, a large analysis result kept between Jobs, a large temporary table |
+| Fix | After a Job, delete everything in `%TEMP%\Sankalan` **except** the open connection's own spill files (`duckdb_temp_<pid>_…`); DuckDB deletes those as blocks free and when the connection closes. Closing the data folder and start-up still empty the folder completely |
+| Spec change | SEC-4 as in 9.1. Technical Spec v1.0: the DuckDB settings (temp folder), "Spill files live in…", the No leftovers row and the SEC-4 row say the same |
+
+| # | Acceptance criterion |
+| --- | --- |
+| AC-BUG-1a | A temporary table large enough to spill under a small memory limit, created in one Job and read in the next, reads back in full; the old code fails this test |
+| AC-BUG-1b | After every Job the temp folder holds nothing but the open connection's `duckdb_temp_<pid>_…` files; after closing the data folder, and after a restart, it is empty |
+| AC-BUG-1c | A full-size load (3 runs × 2,500,000 rows) commits all three runs |
