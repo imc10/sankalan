@@ -72,6 +72,18 @@ def test_f03_hidden_and_blank_rows(storage, fixtures_dir):
     assert res.failures == {}
 
 
+@spec("RUNF-15", "RUNV-02", "IN-13", "T11", "D38")
+@pytest.mark.parametrize("name", ["Sales_Nov.xls", "Sales_Nov.xlsb"])
+def test_xls_and_xlsb_load_like_f03(storage, fixtures_dir, name):
+    cols = tpl_a_columns()
+    _st, ref = _load(storage, fixtures_dir, ["Sales_Nov.xlsx"], tpl_a_settings(), cols)
+    _st, res = _load(storage, fixtures_dir, [name], tpl_a_settings(), cols)
+    assert (res.rows_loaded, res.hidden_rows, res.blank_rows) == (4000, 25, 10)
+    assert _sums(storage, res, "c006", "c008") == {"c006": Decimal("6029500.00"), "c008": Decimal("765378.00")}
+    assert res.failures == {}
+    assert _rows(storage, res, cols) == _rows(storage, ref, cols)     # same rows and sheet row numbers
+
+
 @spec("RUNV-03", "C3-16", "T20", "R-0003")
 def test_f04_conversion_failures(storage, fixtures_dir):
     cols = tpl_a_columns()
@@ -155,6 +167,22 @@ def test_f19_formulas_errors_times(storage, fixtures_dir):
     assert raw[0] == ["_src_row", "v0", "v1", "v2", "v3", "v4", "v5"]
     assert raw[1] == ["2", "C01", "2.345", "", "2026-11-05 14:30:00", "", "00123"]
     assert raw[2][:2] == ["3", "C02"] and raw[2][2] == "150"
+    assert raw[3][2] == "#N/A"
+
+
+@spec("CONV-06", "CONV-05", "T11", "D38")
+@pytest.mark.parametrize("name", ["Conversion_Values.xls", "Conversion_Values.xlsb"])
+def test_xls_and_xlsb_formulas_errors_times(storage, fixtures_dir, name):
+    cols = tpl_c_columns()
+    st, res = _load(storage, fixtures_dir, [name], TPL_C_FIRST, cols)
+    rows = {r[3]: r[4:] for r in _rows(storage, res, cols)}
+    assert rows["C01"] == (Decimal("2.35"), None, date(2026, 11, 5), None, "00123")
+    assert rows["C02"][0] == Decimal("150.00")
+    assert rows["C03"][0] is None
+    assert convert.read_failures(storage.con, res.failures_file) == [(0, "Data", 4, "c002", "#N/A")]
+    with open(st.raw / "0.csv", encoding="utf-8", newline="") as f:
+        raw = list(csv.reader(f))
+    assert raw[1] == ["2", "C01", "2.345", "", "2026-11-05 14:30:00", "", "00123"]
     assert raw[3][2] == "#N/A"
 
 

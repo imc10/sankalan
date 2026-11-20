@@ -36,7 +36,7 @@ from sankalan.ui.widgets.stepbar import StepBar
 
 FILES, MAPPING, VALIDATE, OUTPUTS, COMMIT = range(5)
 STEPS = ["Files", "Mapping", "Validate", "Outputs", "Commit"]
-FILE_FILTER = "Excel and CSV files (*.xlsx *.xlsm *.csv)"       # IN-3
+FILE_FILTER = "Excel and CSV files (*.xlsx *.xlsm *.xlsb *.xls *.csv)"       # IN-3
 WORKERS: int | None = None          # reader workers (tests set 0: read in the Job's thread)
 LEAVE_TITLE = "Leave and discard this run?"
 LOAD_ANYWAY = "Load" " anyway"      # split so the SQL LOAD guard (test_offline) never reads it as a statement
@@ -159,7 +159,7 @@ class FilesStep(QWidget):
         wz = self.wizard
         sess = wz.session
         if wz.start_info is not None:
-            self.accepts.setText(".xlsx, .xlsm or .csv · " + sheets_text(wz.start_info.template.source))
+            self.accepts.setText(".xlsx, .xlsm, .xlsb, .xls or .csv · " + sheets_text(wz.start_info.template.source))
         files = sess.files if sess else []
         decided = sess.duplicate_decisions if sess else {}
         while self.problems.count():

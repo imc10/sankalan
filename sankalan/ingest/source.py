@@ -92,6 +92,55 @@ def sniff(head: bytes) -> str:
     return "text"
 
 
+WORKBOOK_EXTS = ("xlsx", "xlsm", "xlsb", "xls")
+
+
+def file_kind(fh, name: str) -> str:
+    """The kind of a source file from its content (IN-3, D38): xlsx | xlsm | xlsb | xls | csv. Raises
+    ``FileProblem`` for a file that isn't one of those. A password-protected file raises kind ``password`` with no
+    message: the caller words it for its screen."""
+    from sankalan.ingest.cfb import CfbError, CompoundFile
+
+    ext = Path(name).suffix.lower().lstrip(".")
+    fh.seek(0)
+    head = fh.read(8)
+    kind = sniff(head)
+    if kind == "zip":
+        import zipfile
+        try:
+            fh.seek(0)
+            with zipfile.ZipFile(fh) as z:
+                if "xl/workbook.bin" in z.namelist():
+                    return "xlsb"
+        except (zipfile.BadZipFile, OSError):
+            pass                        # Book reports it as damaged
+        return ext if ext in ("xlsx", "xlsm") else "xlsx"
+    if kind == "ole":
+        try:
+            cf = CompoundFile(fh)
+        except CfbError:
+            if ole_is_encrypted(fh):
+                raise FileProblem("password", "") from None
+            raise FileProblem("damaged", f"{name} can't be read. It may be damaged, or not an Excel "
+                                         "workbook.") from None
+        if cf.has_entry("EncryptionInfo"):
+            raise FileProblem("password", "")
+        if cf.has_stream("Workbook"):
+            return "xls"
+        if cf.has_stream("Book"):
+            raise FileProblem("old_excel", f"{name} was saved in a format older than Excel 97. Open it in Excel "
+                                           "and save it as .xlsx.")
+        raise FileProblem("not_excel", f"{name} isn't a valid Excel workbook.")
+    if ext == "csv":
+        return "csv"
+    fh.seek(0)
+    start = fh.read(512).lstrip(b"\xef\xbb\xbf").lstrip(b" \t\r\n\x00\xff\xfe")
+    if start.startswith(b"<"):
+        raise FileProblem("web_page", f"{name} is a web page or XML file with an Excel name. Open it in Excel and "
+                                      "save it as .xlsx.")
+    raise FileProblem("not_excel", f"{name} isn't a valid Excel workbook.")
+
+
 def ole_is_encrypted(fh) -> bool:
     """An encrypted Office file is an OLE container holding an EncryptionInfo stream (IN-9)."""
     fh.seek(0)

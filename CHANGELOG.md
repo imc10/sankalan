@@ -15,7 +15,9 @@ A new codebase built on the Feature Spec v2.0 and Technical Spec v1.0 (16-11-202
   issues, left-out rows, outputs and analyses.
 - Signed per-user installer (PyInstaller + NSIS) built by `packaging\build_windows.bat`; uninstall asks whether to
   delete the data. Run-from-source package kept for development and manual testing until the certificate arrives.
-- Dropped from 1.x: .xlsx output, GSTIN/PAN checks, .xls and password-protected input, JSON templates.
+- Input files: .xlsx, .xlsm, .xlsb (Excel Binary), .xls (Excel 97-2003) and .csv; hidden rows and sheets skipped
+  and error cells read as text in every Excel format.
+- Dropped from 1.x: .xlsx output, GSTIN/PAN checks, .txt and password-protected input, JSON templates.
 
 ## 1.0.0 – 2026-11-16
 

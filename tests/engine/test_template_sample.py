@@ -67,13 +67,35 @@ def test_inspect_csv_1252(fixtures_dir):
 
 
 def test_refusals(fixtures_dir, tmp_path):
-    assert "aren't supported" in smp.refusal(fixtures_dir / "Sales_Old.xls")
+    assert smp.refusal(fixtures_dir / "Sales_Old.xls") is None
     (tmp_path / "notes.txt").write_text("x")
-    assert smp.refusal(tmp_path / "notes.txt") == "notes.txt: only .xlsx, .xlsm and .csv files can be added."
+    assert smp.refusal(tmp_path / "notes.txt") == ("notes.txt: only .xlsx, .xlsm, .xlsb, .xls and .csv files can be "
+                                                   "added.")
     assert "not found" in smp.refusal(tmp_path / "gone.xlsx")
     with pytest.raises(smp.FileProblem) as e:
         smp.inspect(fixtures_dir / "Sales_Protected.xlsx")
     assert e.value.kind == "password"
+    for name in ("Sales_Protected.xls", "Sales_Protected.xlsb"):
+        with pytest.raises(smp.FileProblem) as e:
+            smp.inspect(fixtures_dir / name)
+        assert e.value.kind == "password"
+        assert e.value.message == f"{name} is password-protected. Remove the password, or pick another file."
+    with pytest.raises(smp.FileProblem) as e:
+        smp.inspect(fixtures_dir / "Sales_Export.xls")
+    assert e.value.kind == "web_page"
+
+
+@spec("C3-04", "C3-06", "IN-3", "IN-13", "D38")
+@pytest.mark.parametrize("name,kind", [("Sales_Nov.xls", "xls"), ("Sales_Nov.xlsb", "xlsb")])
+def test_inspect_and_stage_xls_and_xlsb(storage, fixtures_dir, name, kind):
+    ref = smp.inspect(fixtures_dir / "Sales_Nov.xlsx")
+    info = smp.inspect(fixtures_dir / name)
+    assert info.kind == kind
+    assert [(s.name, s.visible, s.header_row, s.headers, s.rows_approx) for s in info.sheets] == \
+        [(s.name, s.visible, s.header_row, s.headers, s.rows_approx) for s in ref.sheets]
+    assert info.sheet("Sales").preview == ref.sheet("Sales").preview
+    _info, st = staged_sample(storage, fixtures_dir / name)
+    assert st.rows == 4000 and not st.limited
 
 
 @spec("C3-09", "C3-11", "MAP-9", "MAP-10")

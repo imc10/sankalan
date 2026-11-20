@@ -36,12 +36,67 @@ def test_f02_row(fixtures_dir):
     assert row.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-@spec("RUNF-03", "IN-3", "C3-04")
-def test_xlsm_accepted_xls_refused(fixtures_dir):
-    rows = _probe(fixtures_dir, ["Sales_Macro.xlsm", "Sales_Old.xls"])
-    assert [(r.file_name, r.status) for r in rows] == [("Sales_Macro.xlsm", P.READY), ("Sales_Old.xls", P.REFUSED)]
+@spec("RUNF-03", "IN-3", "C3-04", "D38")
+def test_xlsm_and_xls_accepted_txt_refused(fixtures_dir):
+    rows = _probe(fixtures_dir, ["Sales_Macro.xlsm", "Sales_Old.xls", "Sales_Notes.txt"])
+    assert [(r.file_name, r.status) for r in rows] == [("Sales_Macro.xlsm", P.READY), ("Sales_Old.xls", P.READY),
+                                                       ("Sales_Notes.txt", P.REFUSED)]
     assert rows[0].kind == "xlsm" and rows[0].rows_approx == 500
-    assert ".xls files aren't supported" in rows[1].message
+    assert (rows[1].kind, rows[1].sheet, rows[1].header_row, rows[1].rows_approx) == ("xls", "Sales", 1, 100)
+    assert rows[1].headers_match is True
+    assert rows[2].message == "Sales_Notes.txt: only .xlsx, .xlsm, .xlsb, .xls and .csv files can be added."
+
+
+@spec("RUNF-15", "IN-3", "IN-13", "T11", "D38")
+@pytest.mark.parametrize("name,kind", [("Sales_Nov.xls", "xls"), ("Sales_Nov.xlsb", "xlsb")])
+def test_xls_and_xlsb_like_f03(fixtures_dir, name, kind):
+    (ref,) = _probe(fixtures_dir, ["Sales_Nov.xlsx"])
+    (row,) = _probe(fixtures_dir, [name])
+    assert (row.kind, row.sheet, row.header_row, row.status) == (kind, "Sales", 2, P.READY)
+    assert row.hidden_sheets == ["Old"] and row.hidden_rows == 25
+    assert row.headers == ref.headers and row.headers_match is True
+    assert row.rows_approx == ref.rows_approx
+    assert row.notes == ref.notes
+
+
+@spec("RUNF-16", "IN-9", "IN-15", "D38")
+def test_password_protected_xls_and_xlsb(fixtures_dir):
+    rows = _probe(fixtures_dir, ["Sales_Protected.xls", "Sales_Protected.xlsb"])
+    assert [(r.status, r.problem) for r in rows] == [(P.ERROR, "password")] * 2
+    assert rows[0].message == ("Sales_Protected.xls is password-protected. Remove the password at source, or "
+                               "exclude the file.")
+
+
+@spec("RUNF-17", "IN-15", "D38")
+def test_web_page_named_xls(fixtures_dir):
+    (row,) = _probe(fixtures_dir, ["Sales_Export.xls"])
+    assert (row.status, row.problem) == (P.ERROR, "web_page")
+    assert row.message == ("Sales_Export.xls is a web page or XML file with an Excel name. Open it in Excel and "
+                           "save it as .xlsx.")
+
+
+def _rename_workbook_stream(data: bytes, new_name: str) -> bytes:
+    """The F11 container with its 'Workbook' directory entry renamed."""
+    old = "Workbook".encode("utf-16-le") + b"\0\0"
+    i = data.index(old)
+    enc = new_name.encode("utf-16-le") + b"\0\0"
+    out = bytearray(data)
+    out[i:i + 64] = enc.ljust(64, b"\0")
+    out[i + 64:i + 66] = len(enc).to_bytes(2, "little")
+    return bytes(out)
+
+
+def test_excel_95_and_other_office_files(fixtures_dir, tmp_path):
+    """An OLE file with only a 'Book' stream is Excel 5.0/95; one with neither stream isn't a workbook."""
+    data = (fixtures_dir / "Sales_Old.xls").read_bytes()
+    (tmp_path / "Old95.xls").write_bytes(_rename_workbook_stream(data, "Book"))
+    (tmp_path / "Letter.xls").write_bytes(_rename_workbook_stream(data, "WordDocument"))
+    old, other = _probe(tmp_path, ["Old95.xls", "Letter.xls"])
+    assert (old.status, old.problem, old.message) == (
+        P.ERROR, "old_excel", "Old95.xls was saved in a format older than Excel 97. Open it in Excel and save it "
+                              "as .xlsx.")
+    assert (other.status, other.problem, other.message) == (P.ERROR, "not_excel",
+                                                            "Letter.xls isn't a valid Excel workbook.")
 
 
 @spec("RUNF-04", "IN-6", "IN-13", "IN-5")
@@ -188,9 +243,13 @@ def test_content_decides_the_type(tmp_path, fixtures_dir):
     fake = tmp_path / "Report.xlsx"
     fake.write_text("a,b\n1,2\n", encoding="utf-8")
     shutil.copyfile(fixtures_dir / "Sales_Oct.xlsx", tmp_path / "Sales.csv")
-    rows = _probe(tmp_path, ["Report.xlsx", "Sales.csv"])
+    shutil.copyfile(fixtures_dir / "Sales_Old.xls", tmp_path / "Old.xlsx")
+    shutil.copyfile(fixtures_dir / "Sales_Nov.xlsb", tmp_path / "Nov.xlsx")
+    rows = _probe(tmp_path, ["Report.xlsx", "Sales.csv", "Old.xlsx", "Nov.xlsx"])
     assert (rows[0].status, rows[0].message) == (P.ERROR, "Report.xlsx isn't a valid Excel workbook.")
     assert (rows[1].status, rows[1].sheet, rows[1].rows_approx) == (P.READY, "Sales", 5000)
+    assert (rows[2].status, rows[2].kind, rows[2].rows_approx) == (P.READY, "xls", 100)
+    assert (rows[3].status, rows[3].kind, rows[3].hidden_rows) == (P.READY, "xlsb", 25)
 
 
 def test_missing_file(tmp_path):
@@ -201,7 +260,8 @@ def test_missing_file(tmp_path):
 @spec("T5")
 def test_probe_in_worker_processes(fixtures_dir):
     """The probe runs in spawned reader workers and gives the same rows."""
-    names = ["Sales_Oct.xlsx", "Sales_Protected.xlsx", "Sales_Nov.xlsx", "Conversion_Values.csv"]
+    names = ["Sales_Oct.xlsx", "Sales_Protected.xlsx", "Sales_Nov.xlsx", "Conversion_Values.csv", "Sales_Nov.xls",
+             "Sales_Nov.xlsb", "Sales_Protected.xls"]
     inline = _probe(fixtures_dir, names, workers=0)
     spawned = _probe(fixtures_dir, names, workers=2)
     assert [r.__dict__ for r in spawned] == [r.__dict__ for r in inline]

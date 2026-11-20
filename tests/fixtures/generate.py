@@ -1,4 +1,4 @@
-"""Build the test fixture pack F00-F21 (and P01/P02 with --perf) and check it against the Fixtures tab.
+"""Build the test fixture pack F00-F29 (and P01/P02 with --perf) and check it against the Fixtures tab.
 
     python tests\\fixtures\\generate.py                      # F01-F21 into tests\\fixtures\\_generated, then verify
     python tests\\fixtures\\generate.py --out C:\\SankalanTest\\Fixtures
@@ -9,7 +9,8 @@ from docs/specs/test-cases.md > Fixtures and are the acceptance oracle: `verify(
 app will (python-calamine, a sheet-XML scan for hidden rows, the csv module) and compares.
 
 Development only: uses XlsxWriter and msoffcrypto-tool (requirements-dev.txt). F11 (.xls) is a checked-in binary
-made by make_static_xls.py, because no runtime or dev package writes .xls any more.
+made by make_static_xls.py, because no runtime or dev package writes .xls any more. F22-F27 (.xls and .xlsb saved by
+Excel from F03, F19 and F06) are checked-in binaries made by make_static_formats.ps1.
 """
 from __future__ import annotations
 
@@ -306,7 +307,20 @@ def generate(out: Path = DEFAULT_OUT) -> Path:
     folder = p("Run_Folder")
     folder.mkdir(exist_ok=True)
     shutil.copyfile(p("Sales_Oct.xlsx"), folder / "Sales_Oct.xlsx")
+    for fid in STATIC_EXCEL:
+        shutil.copyfile(STATIC / FILES[fid], p(FILES[fid]))
+    p("Sales_Export.xls").write_bytes(f28_html().encode("utf-8"))
+    p("Sales_Notes.txt").write_bytes(b"Sales notes for November.\r\n")
     return out
+
+
+def f28_html() -> str:
+    """F28: an HTML table saved with an .xls name, as some ERP 'Excel' exports are."""
+    rows = ["<tr>" + "".join(f"<th>{h}</th>" for h in HEADERS) + "</tr>"]
+    for r in f00_rows(10, 18000, 2026, 10):
+        rows.append("<tr>" + "".join(f"<td>{csv_cell(v)}</td>" for v in r) + "</tr>")
+    nl = "\r\n"
+    return "<html><body><table>" + nl + nl.join(rows) + nl + "</table></body></html>" + nl
 
 
 def make_f06(path: Path) -> None:
@@ -328,7 +342,10 @@ FILES = {
     "F14": "Sales_NoDates.xlsx", "F15": "Sales_Jan.xlsx", "F16": "Sales_Regions.xlsx",
     "F17": "Conversion_Values.csv", "F18": "Conversion_1252.csv", "F19": "Conversion_Values.xlsx",
     "F20": "Sales_Macro.xlsm", "F21": "Run_Folder",
+    "F22": "Sales_Nov.xls", "F23": "Sales_Nov.xlsb", "F24": "Conversion_Values.xls", "F25": "Conversion_Values.xlsb",
+    "F26": "Sales_Protected.xls", "F27": "Sales_Protected.xlsb", "F28": "Sales_Export.xls", "F29": "Sales_Notes.txt",
 }
+STATIC_EXCEL = ("F22", "F23", "F24", "F25", "F26", "F27")    # saved by Excel, checked in (make_static_formats.ps1)
 
 EXPECTED = {
     "F01": {"rows": 1000, "taxable": "1507375.00", "tax": "191344.50", "per_state": 250, "per_rate": 200,
@@ -624,6 +641,29 @@ def verify(out: Path = DEFAULT_OUT) -> dict:
           "F19: #N/A error cell")
 
     check(f["F21"].is_dir() and sha256(f["F21"] / "Sales_Oct.xlsx") == sha256(f["F02"]), "F21: folder with F02")
+
+    # F22-F25: Excel's .xls/.xlsb copies of F03 and F19 hold the same cells, row for row (hidden and blank rows too;
+    # the app's own record scans are tested against them in tests/engine)
+    for fid, src in (("F22", "F03"), ("F23", "F03"), ("F24", "F19"), ("F25", "F19")):
+        magic = f[fid].read_bytes()[:8]
+        want = bytes.fromhex("D0CF11E0A1B11AE1") if fid in ("F22", "F24") else b"PK"
+        check(magic.startswith(want), f"{fid}: wrong container")
+        a, b = pc.CalamineWorkbook.from_path(str(f[src])), pc.CalamineWorkbook.from_path(str(f[fid]))
+        check([(m.name, str(m.visible)) for m in a.sheets_metadata]
+              == [(m.name, str(m.visible)) for m in b.sheets_metadata], f"{fid}: sheets")
+        for name in a.sheet_names:
+            ra = a.get_sheet_by_name(name).to_python(skip_empty_area=False)
+            rb = b.get_sheet_by_name(name).to_python(skip_empty_area=False)
+            check(ra == rb, f"{fid}: sheet {name} differs from {src}")
+    for fid in ("F26", "F27"):
+        check(f[fid].read_bytes()[:8] == bytes.fromhex("D0CF11E0A1B11AE1"), f"{fid}: not an OLE container")
+        try:
+            pc.CalamineWorkbook.from_path(str(f[fid]))
+            check(False, f"{fid}: must be password-protected")
+        except pc.PasswordError:
+            pass
+    check(f["F28"].read_text(encoding="utf-8").startswith("<html>"), "F28: HTML")
+    check(f["F29"].suffix == ".txt", "F29: .txt")
     report["checked"] = sorted(FILES)
     return report
 
@@ -729,9 +769,9 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if not args.verify_only:
         generate(args.out)
-        print(f"F01-F21 written to {args.out}")
+        print(f"F01-F29 written to {args.out}")
     verify(args.out)
-    print("F01-F21 verified against the Fixtures tab")
+    print("F01-F29 verified against the Fixtures tab")
     if args.perf:
         rows = args.perf_rows or 10_000_000
         generate_perf(args.out / "perf", rows_csv=rows, rows_xlsx=max(1, rows // 10))

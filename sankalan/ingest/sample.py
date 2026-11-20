@@ -1,6 +1,6 @@
 """The New template wizard's sample file (TPL-3, F1, IN-3 to IN-6; C3-02 to C3-08).
 
-``refusal`` screens the picked path (folders, .xls, other types). ``inspect`` opens the file read-only (SEC-2) and
+``refusal`` screens the picked path (folders, other types). ``inspect`` opens the file read-only (SEC-2) and
 returns what steps 1 and 2 show: the sheets (visible, hidden, approximate rows), the header row found in each
 (IN-6, the same detection as a run), the first rows for the preview and, for a CSV file, the encoding and
 delimiter detected (IN-4). It reads only the start of the file, never the whole of it (C3-03).
@@ -44,7 +44,7 @@ class SampleSheet:
 class SampleInfo:
     path: str
     file_name: str
-    kind: str                               # xlsx | xlsm | csv
+    kind: str                               # xlsx | xlsm | xlsb | xls | csv
     size: int
     modified: float
     sheets: list[SampleSheet]
@@ -118,23 +118,17 @@ def inspect(path, encoding: str | None = None, delimiter: str | None = None) -> 
     try:
         st = os.stat(p)
         with source.open_source(p) as fh:
-            kind = source.sniff(fh.read(8))
-            if kind == "ole":
-                if source.ole_is_encrypted(fh):
-                    raise FileProblem("password", f"{p.name} is password-protected. Remove the password, or pick "
-                                                  "another file.")
-                raise FileProblem("not_xlsx", f"{p.name} isn't an .xlsx workbook (it may be an old .xls file "
-                                              "renamed). Save it as .xlsx in Excel, then pick it again.")
+            try:
+                kind = source.file_kind(fh, p.name)
+            except FileProblem as e:
+                if e.kind == "password":
+                    raise _password(p.name) from None
+                raise
             fh.seek(0)
-            ext = p.suffix.lower().lstrip(".")
-            info = SampleInfo(str(p), p.name, ext, st.st_size, st.st_mtime, [])
-            if kind == "zip":
-                if info.kind not in ("xlsx", "xlsm"):
-                    info.kind = "xlsx"
+            info = SampleInfo(str(p), p.name, kind, st.st_size, st.st_mtime, [])
+            if kind != "csv":
                 _inspect_excel(fh, info)
             else:
-                if ext != "csv":
-                    raise FileProblem("not_xlsx", f"{p.name} isn't a valid Excel workbook.")
                 _inspect_csv(fh, info, encoding, delimiter)
     except FileNotFoundError:
         raise FileProblem("missing", f"{p.name} was not found. It may have been moved or deleted.") from None
@@ -146,9 +140,15 @@ def inspect(path, encoding: str | None = None, delimiter: str | None = None) -> 
     return info
 
 
+def _password(name: str) -> FileProblem:
+    return FileProblem("password", f"{name} is password-protected. Remove the password, or pick another file.")
+
+
 def _inspect_excel(fh, info: SampleInfo) -> None:
     try:
-        book = excel.Book(fh)
+        book = excel.open_book(fh, info.kind)
+    except excel.ExcelPassword:
+        raise _password(info.file_name) from None
     except excel.ExcelError:
         raise FileProblem("damaged", f"{info.file_name} can't be read. It may be damaged, or not an Excel "
                                      "workbook.") from None
@@ -238,7 +238,7 @@ def read_part(path: str, kind: str, sheet: str, header_row: int, width: int, enc
                                      report=report, stop=stop, limit=limit)
             else:
                 c = excel.read_sheet(path, fh, sheet, header_row, width, out_path, report=report, stop=stop,
-                                     limit=limit)
+                                     limit=limit, kind=kind)
     except excel.ExcelError:
         raise FileProblem("damaged", f"{name} can't be read. It may be damaged.") from None
     except OSError as e:

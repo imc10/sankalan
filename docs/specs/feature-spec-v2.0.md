@@ -99,7 +99,7 @@ A run reads the files the user adds. Each .xlsx sheet holds at most 1,048,576 ro
 | ID | Feature | Detail |
 | --- | --- | --- |
 | IN-1 | Add files | File picker (multi-select) or drag-and-drop. No folder import |
-| IN-3 | Formats | .xlsx, .xlsm, .csv. No .xls or .txt |
+| IN-3 | Formats | .xlsx, .xlsm, .xlsb, .xls (Excel 97-2003), .csv. No .txt, .ods or Excel templates. **Changed** 20-11-2026: .xlsb and .xls added (D38) |
 | IN-4 | CSV reading | Auto-detect encoding (UTF-8, UTF-8 with BOM, Windows-1252) and delimiter (comma, semicolon, tab, pipe); override in the template's settings |
 | IN-5 | Sheets to read | Set in the template: by name (one or more), first visible sheet, or all visible sheets. Each file and sheet read is a row in the file list |
 | IN-6 | Header row | Found automatically in each sheet; no manual override. A sheet whose header can't be found is an error for that file (IN-15) |
@@ -303,7 +303,7 @@ Because the app is offline (SEC-1), V3 will need an LLM that runs on the laptop.
 - Validation rules across columns or across runs; regular expressions; GSTIN and PAN rules
 - Per-file totals (grand totals only, RUN-6)
 - Run periods, excluding runs, and draft runs
-- .xls and .txt files, folder import, choosing the header row by hand, trailer rules, file preview, password prompts
+- .txt, .ods and Excel template files, folder import, choosing the header row by hand, trailer rules, file preview, password prompts
 - Excel (.xlsx) export
 - Shared datasets, network folders, logins, roles, audit trail of who ran what
 - Encryption of stored data
@@ -322,6 +322,7 @@ D8–D19 were settled in the feature brainstorm and D20–D37 in the UX discussi
 | D34 | 16-11-2026 | Input: files only, .xlsx, .xlsm and .csv; header found automatically with no override; no trailer rules; several sheets per file; password-protected files are errors; a file in error can be excluded from the run | IN |
 | D33 | 16-11-2026 | Saved analyses lock their settings; only the runs change, none ticked; Duplicate to edit; the run list shows Run ID and file names | ANA-1, ANA-3 |
 | D32 | 16-11-2026 | Analysis result is a flat table with optional subtotals; calendar-year date grouping; first 100,000 rows on screen; distinct-value lists for text filters | ANA-4, ANA-5, ANA-7 |
+| D38 | 20-11-2026 | .xls (Excel 97-2003) and .xlsb (Excel Binary) files are read like .xlsx: hidden rows and sheets skipped, error cells read as text, password-protected files an error | IN-3 |
 | D31 | 16-11-2026 | Every export is a CSV file | EXP-2 |
 | D30 | 16-11-2026 | Deleting a template deletes its runs and saved analyses | TPL-4 |
 | D29 | 16-11-2026 | A column's type is fixed after the first committed run; data already loaded is never modified | MAP-12, TPL-9 |

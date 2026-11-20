@@ -41,7 +41,7 @@ from sankalan.ui.widgets.progress import ProgressPanel
 from sankalan.ui.widgets.stepbar import StepBar
 
 SAMPLE, SHEETS, COLUMNS, RULES, OUTPUTS, REVIEW = range(6)
-FILE_FILTER = "Excel and CSV files (*.xlsx *.xlsm *.csv)"       # IN-3, C3-04
+FILE_FILTER = "Excel and CSV files (*.xlsx *.xlsm *.xlsb *.xls *.csv)"       # IN-3, C3-04
 WORKERS: int | None = None          # reader workers for the sample (tests set 0: read in the Job's thread)
 DISCARD_TITLE = "Discard this template?"
 DISCARD_TEXT = "Your entries will be lost. Nothing has been saved."
@@ -132,7 +132,8 @@ class SampleStep(QWidget):
         wizard.bridge.guard(self.choose)
         row.addWidget(self.choose)
         bl.addLayout(row)
-        bl.addWidget(note(".xlsx, .xlsm or .csv. Use a file that looks like the ones you'll load every month.", box))
+        bl.addWidget(note(".xlsx, .xlsm, .xlsb, .xls or .csv. Use a file that looks like the ones you'll "
+                          "load every month.", box))
         self.file_error = note("", box, "error")
         self.file_error.hide()
         bl.addWidget(self.file_error)
