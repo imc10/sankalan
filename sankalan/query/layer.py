@@ -28,6 +28,7 @@ from sankalan.model.template import Column
 from sankalan.query.compiler import (Compiled, OutColumn, column_expr, compile_definition, out_columns,
                                     present_columns, source_sql)
 from sankalan.query.convert import _path, lit
+from sankalan.query.headers import resolve_headers
 
 ROW_CAP = 100_000           # ANA-7: the grid shows the first 100,000 rows
 DISTINCT_TOP = 1_000        # ANA-4
@@ -82,8 +83,8 @@ def write_output(con, definition: Definition, columns: list[Column], data: Path,
 
 
 def headers(definition: Definition, columns: list[Column]) -> list[str]:
-    """A result's headers as shown today, stored with each committed output (``run_output.headers``, T50)."""
-    return [c.label for c in out_columns(definition, {c.id: c for c in columns})]
+    """A result's headers with today's column names (``resolve_headers``, Tech spec A2 9.3)."""
+    return resolve_headers(definition, columns)
 
 
 def open_output(definition: Definition, columns: list[Column], stored: Path, con=None,
@@ -177,7 +178,10 @@ def rows(con, result: Result, *, subtotals: bool, offset: int = 0, limit: int = 
 
 
 def grand_total(con, result: Result) -> tuple | None:
-    """The pinned grand total ``(m1, ..)``; None for an empty result ("No dates in this run")."""
+    """The pinned grand total ``(m1, ..)``; None for an empty result ("No dates in this run") and for a result
+    with no measures, which has no grand total (MEA-11, T39)."""
+    if not result.measures:
+        return None
     cols = ", ".join(c.name for c in result.measures)
     row = con.execute(f"SELECT {cols} FROM {result.relation} WHERE _depth = 0").fetchone()
     return tuple(row) if row is not None else None

@@ -22,7 +22,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | A2-1 | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Done | `Feature-Updates` (A2-1 commit) | All 12 steps. Convert writes in two statements (memory, see log). AC-TXT-1 Rows-view half is A2-5 |
 | A2-2 | A2-2 — Template without checks (F), then Choose sheets (D) | Done | `Feature-Updates` (A2-2 commit) | Both parts. Slow TPL-N full test passes. New run wizard's min height with Mapping skipped is a known issue (below) |
 | A2-3 | A2-3 — Export in parts (C): engine and dialogs | Done | `Feature-Updates` (A2-3 commit) | All 7 steps. Full-size split test lives in `test_stored_order.py` (reuses its committed runs) |
-| — | A2-4 — Measures by column (B): engine and UI | Not started | | |
+| A2-4 | A2-4 — Measures by column (B): engine and UI | Done | `Feature-Updates` (A2-4 commit) | All 9 steps (engine and UI). AC-MEA-10 test in `test_text_values.py` (reuses its committed TPL-R runs) |
 | — | A2-5 — Rows view (A): engine and UI | Not started | | |
 | — | A2-6 — Docs, full-size checks, performance suite | Not started | | Only phase that runs `perf` tests; any PERF miss goes to the user before proceeding |
 
@@ -96,6 +96,105 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 21-11-2026 — A2-4: Feature B (measures by column), engine and UI
+- **Model** (`model/definition.py`, Tech spec A2 9.1, T49): `Op(fn, name)`, `MeasureCard(column_id, ops)`, `ROWS =
+  "_rows"`, `FlatMeasure`, `flat_measures()` (cards in order, ops in the fixed order sum, count, count_distinct,
+  avg, min, max), `cards(*flat)` (groups flat measures by column; used by tests and fixtures). `to_dict` writes
+  `"definition_version": 2` and ops in MEA-6 order; `from_dict` reads version 2 only (`DefinitionError` otherwise,
+  T40). `CARD_OPS` per type (no Count distinct on Number, D70; Rows count only), `CHIP_NAMES`, `card_name`,
+  `default_name`, `card_ops`, `no_op_message`, `name_taken_message`, `clean_name`. `Measure`, `measure_label` and
+  `MEASURE_TYPES` are gone.
+- **Checks** (9.2): `first_problem(definition, columns)` gives the screen checks 3 and 4 as `(where, card index,
+  message)`; `check()` refuses them too, plus the programming errors (a column or Rows on two cards, an op twice, an
+  op that doesn't fit the type, a custom name not 1–100 characters after trimming, or clashing, ignoring case, with
+  a group header or another custom name). A Summary with groups and no measures passes (MEA-11).
+- **Headers** (`query/headers.py`, 9.3): `resolve_headers` (groups, then MEA-6 order; "Taxable Value · Sum",
+  "Rows · Count", " (removed)"; group headers and custom names placed first, then defaults get " (2)", " (3)" …;
+  two group levels on one column too), `hover_texts` (the default form), `rename_problem`.
+- **Compiler** (9.4): loops over `flat_measures()`; Rows → `count(*)`; no measures → `SELECT _depth, g…, k… …
+  GROUP BY k1, g1, …` (no ROLLUP, every row at `_depth = n`). `OutColumn.hover` added; labels come from
+  `resolve_headers`. `layer.grand_total` returns None when there are no measures, so the export has no Grand total
+  row; `layer.headers` = `resolve_headers`.
+- **Where headers flow** (9.5): `OutputState.headers(columns)` takes the labels of the result written at the
+  Outputs step (columns at that moment) and the commit stores them in `run_output.headers` (replaces A2-1's interim
+  producer). `analyses.describe` reads "Invoice No: Count, shown as Invoices" / "Invoice No: Count" ("None" with no
+  measures). `template.definition_columns` skips the Rows card. The self-test's output definition is version 2.
+- **UI** (9.6, 9.7): `ui/widgets/measures.py` (`MeasuresSection`, `MeasureCardWidget`, `OpChip` with theme QSS
+  `QPushButton[kind="op"]` 26 px pills, `#MeasureCard` with a red border on error, `AddColumnPopup` with a search box
+  above 12 columns); `ui/widgets/header_rename.py` (`RenamableHeader`: an edit icon in the right 20 px of renamable
+  sections with the header text painted left of it; click → text box with the text selected; Enter →
+  `rename_requested`, Esc / focus loss cancel; `finish()` / `show_error()`; tooltip callback). New `edit` icon.
+  `DefinitionBuilder` uses the section: `add_card`, `add_measure(FlatMeasure)` (ticks one op, adding the card),
+  `set_sections(...)` (for A2-5), `problem()` (shows checks under the section or card and scrolls to them),
+  `rename(flat_index, name)`; Show subtotals disabled with no cards; the summary counts ticked ops. `PagedGrid`
+  always uses `RenamableHeader` (nothing renamable by default); `PagedModel.set_titles` changes header text without
+  reading again.
+- **Screens:** 6.2 runs the checks before Run and Save (message under its section, no Job); ✎ on the measure
+  headers of an unsaved, current result (not while greyed or running; never on a saved analysis); a rename updates
+  the outcome's definition and headers (so the export uses it) and the builder's names, without greying or running
+  (`analyses.measure_name_problem` / `rename_measure`); no measures hides the pinned total. 6.3 locked summary uses
+  the new wording. 3.2 / 2.5 (`OutputsTab`, shared by the wizard's `OutputsStep`): Preview runs the checks; ✎ on
+  the preview's measure headers with hover text; a rename sets the output's name, marks the tab changed and keeps the
+  preview as it is (`manage.rename_problem` / `preview_headers`, `Preview.hovers`).
+- **Tests (new):** `unit/test_definition_v2.py` (7), `unit/test_headers.py` (5), `gui/test_measures.py` (9); in
+  `engine/test_query.py` AC-MEA-6 and AC-MEA-11; `engine/test_text_values.py` AC-MEA-10; `engine/test_export.py`
+  AC-MEA-5 (Average at 2 decimals in the export) and AC-MEA-11 (no Grand total row); `engine/test_run_pipeline.py`
+  AC-MEA-9 (a renamed default-output measure: the next run's stored headers and export header use it, earlier runs
+  keep theirs); `gui/test_analysis.py` AC-MEA-8 (✎ click, Enter, Esc, clash with a measure and a group header,
+  blank → default, not greyed and same time, a click beside ✎ still sorts, no ✎ while greyed or on a saved
+  analysis) and AC-MEA-4 / AC-MEA-11 on screen (Run and Save start nothing; no-measure result with the total hidden
+  and Show subtotals off); `gui/test_template.py` 3.2 preview rename (clash, dirty, Discard restores) and AC-MEA-4
+  for Preview; `gui/test_new_template.py` 2.5 builder uses cards and preview rename. **Changed:** every version-1
+  definition in the tests (`Measure(…)` lists → `cards(FlatMeasure(…), …)`; the hand-written dict in
+  `test_clients.py`), default header strings ("Sum of Taxable Value" → "Taxable Value · Sum", "Count of rows" →
+  "Rows · Count"), 6.3 lines, and the GUI tests that typed in a measure's label box (they now tick a chip).
+  **No expected figure changed.**
+- **Deviations (where, not what):** AC-MEA-10 is in `test_text_values.py`, not `test_query.py` (that module already
+  has TPL-R R-0001…R-0003 committed; `test_query.py` works on TPL-A). AC-MEA-9 extends the existing T50 test in
+  `test_run_pipeline.py` (a third run, `Sales_Jan.xlsx`). `analysis.write_outputs` still returns results (their
+  labels are the headers); the pipeline writes outputs itself and takes the headers from `OutputState.result`.
+- **Interpretations** (change if wrong):
+  - The screen's rename check compares against every other header **as shown** (resolved), so renaming a measure to
+    another measure's current default name is refused too; `definition.check` only refuses clashes with group
+    headers and other custom names (defaults are suffixed by `resolve_headers`).
+  - ✎ shows only on a current result: after a settings change (greyed) it is hidden until Run, because the result's
+    columns may no longer match the builder's cards.
+  - With no measure cards, Show subtotals is disabled with the tooltip "Add a measure to show subtotals" (its tick
+    is kept and has no effect: such a result has no subtotal rows).
+  - The outputs list summary ("1 group · 3 measures") counts ticked operations, not cards.
+  - Hovering ✎ itself reads "Rename this column"; elsewhere on a measure header, the default form.
+- **Suite: no full timed run passed; committed at the user's request without it.** Every test passed when run,
+  but no run of the whole normal suite finished within the time budgets:
+  - Run 1 (on AC): stopped at the first file, `engine/test_bug1.py` (10.0 s > 8 s budget, one of its tests
+    failed); alone, the file passed 4 of 4 in 2.7 s. That is the A2-2 retrying timing test; this phase doesn't
+    touch it.
+  - Run 2 (on AC): 367 passed, then stopped at `gui/test_new_template.py` (23.2 s, limit 23.1 s). Timed against
+    the A2-3 code with this phase stashed, the same file took 24.4–25.4 s against 23.8–27.7 s with it (fixture setup
+    included), so this phase doesn't slow it: the file sits at its limit.
+  - Run 3 (the laptop had gone onto battery): 349 passed, then stopped at `gui/test_new_run.py` (17.9 s > 16 s; a
+    file this phase doesn't change).
+  - The files no full run reached were run on their own on battery afterwards: `test_shell` 33, `test_template`
+    21 (its time budget stopped the file run after 20, and the last test passed alone), `test_unchecked_screens` 5,
+    packaging 20 (+2 skipped, build-only), security 9, unit 143, all passed. `test_template.py` reports one pytest
+    warning that wasn't read (the budget stop cut the summary).
+  - Budgets raised for added tests: `gui/test_analysis.py` 20 → 23 s (+2 tests with analysis runs; 20.8 s on AC),
+    `gui/test_template.py` 17 → 19 s (+1 preview test; 19.4 s on AC). New files: `unit/test_definition_v2.py`,
+    `unit/test_headers.py`, `gui/test_measures.py` 5 s each.
+  - **First thing next session (on AC power):** run the full normal suite. If a file is still over its budget on
+    AC, look at it before starting A2-5.
+  - No `slow` test belongs to this phase. The packaged self-test's code passed when run from source (`--no-window`,
+    every check true).
+- **Rendered offscreen at 1366×768 and 1280 wide and looked at:** 6.2 with five cards (Rows, Text, Number, Date),
+  the header icons, the rename box with the clash message, a card error after Run, the Add column popup; 3.2 preview
+  with a renamed header. Fixed from that: the icon overlapped right-aligned header text (now the text is painted
+  left of it, an SVG icon rather than a font glyph), the popup's type column (grey, right-aligned, full-height
+  rows), chips 28 px under the theme (QSS heights exclude the border; now 24 + 2), and a card error below the fold
+  (the builder now scrolls to it).
+- **Not verified:** a full normal suite run within its budgets (see Suite); the app by hand; the packaged build
+  (build tests not run); 125% / 150% scaling of the cards and the header icon; focus loss cancelling the rename box on
+  a real desktop (offscreen focus events are unreliable; Enter and Esc are tested).
+- **Next:** A2-5 (Feature A, Rows view). `DefinitionBuilder.set_sections(...)` is ready for the Rows mode.
 
 ### 21-11-2026 — A2-3: Feature C (export in parts), engine and dialogs
 - **Progress detail (T53).** `JobContext.set_detail()`, `Progress.detail` (a new stage clears it), and a muted line
@@ -333,8 +432,8 @@ Newest first. One entry per session: date, phase, what was done, deviations from
   - Choose folder… in the refusal dialog also accepts an existing data folder (one with `catalogue.duckdb`),
     otherwise Change…'s checks; Create new folder… creates `Sankalan Data` (or `Sankalan Data 2`, …) inside the
     folder picked. Close exits without touching anything (no error box: the message was the refusal).
-  - `run_output.headers` stores today's headers (`Sum of Taxable Value`); A2-4 switches the producer.
-  - Count distinct on a Number column is still allowed (refusing it is MEA-3, A2-4).
+  - `run_output.headers` stores today's headers (`Sum of Taxable Value`); A2-4 switches the producer (done).
+  - Count distinct on a Number column is still allowed (refusing it is MEA-3, A2-4; done).
   - Unique within the run still skips a row when **any** key part is blank, as the code did (Tech spec 5.4 says
     "only when every key part is null, as today", which contradicts today's code); text now counts as filled.
 - **Suite:** 505 passed, 2 skipped (build-only), 2 deselected (`slow`) in 2 min 28 s. `slow` once:

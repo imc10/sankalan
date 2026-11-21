@@ -104,6 +104,13 @@ class OutputState:
     def file(self) -> str:
         return f"{OUTPUTS_DIR}/{self.position}.parquet"
 
+    def headers(self, columns) -> list[str]:
+        """The headers stored with the committed run (T50): those resolved when the output was generated at the
+        Outputs step (Tech spec A2 9.5), with that moment's column names."""
+        if self.result is not None:
+            return [c.label for c in self.result.columns]
+        return layer.headers(Definition.from_dict(self.definition), columns)
+
 
 @dataclass
 class Validation:
@@ -633,8 +640,7 @@ class RunSession:
             status=STATUS_OVERRIDE if self.override_reason is not None else STATUS_COMMITTED,
             comment=comment, run_changes=changes, totals={t.column_id: t.to_dict() for t in self.totals or []},
             files=files, issue_counts=counts,
-            outputs=[RunOutput(o.position, o.name, o.definition, o.file,
-                               layer.headers(Definition.from_dict(o.definition), self.columns))
+            outputs=[RunOutput(o.position, o.name, o.definition, o.file, o.headers(self.columns))
                      for o in self.outputs],
             checks=bool(self.checks), text_counts=text_counts(con, st / convert.DATA, self.columns))
 

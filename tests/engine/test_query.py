@@ -7,7 +7,7 @@ import pytest
 from conftest import load_files, open_storage, run_job, spec, tpl_a_columns, tpl_a_rules, tpl_a_settings
 from sankalan import analysis, formats
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, DefinitionError, Filter, Group, Measure
+from sankalan.model.definition import Definition, DefinitionError, Filter, FlatMeasure, Group, MeasureCard, Op, cards
 from sankalan.model.template import Column
 from sankalan.query import layer
 from sankalan.query.split import split
@@ -71,9 +71,9 @@ def total(runs, res):
 
 
 DO1 = Definition("tpl-a", [], [Group(STATE)],
-                 [Measure(TAXABLE, d.SUM, "Taxable"), Measure(TAX, d.SUM, "Tax"), Measure(INV, d.COUNT, "Invoices")])
+                 cards(FlatMeasure(TAXABLE, d.SUM, "Taxable"), FlatMeasure(TAX, d.SUM, "Tax"), FlatMeasure(INV, d.COUNT, "Invoices")))
 DO2 = Definition("tpl-a", [Filter(DATE_, d.LATEST_MONTH)], [Group(DATE_, "month"), Group(RATE)],
-                 [Measure(TAXABLE, d.SUM)], subtotals=True)
+                 cards(FlatMeasure(TAXABLE, d.SUM)), subtotals=True)
 
 
 def by_state(rows):
@@ -83,33 +83,33 @@ def by_state(rows):
 # ---------------------------------------------------------------------------------------------- analysis (A1)
 @spec("A1-03", "ANA-5", "ANA-6", "ANA-7")
 def test_a103_basic_result_with_grand_total(runs):
-    res = analyse(runs, Definition("tpl-a", [], [Group(STATE)], [Measure(TAXABLE, d.SUM), Measure(INV, d.COUNT)]),
+    res = analyse(runs, Definition("tpl-a", [], [Group(STATE)], cards(FlatMeasure(TAXABLE, d.SUM), FlatMeasure(INV, d.COUNT))),
                   "R-0001")
     assert [(r[1], formats.number(r[2]), r[3]) for r in shown(runs, res)] == [
         ("Delhi", "1,903,437.50", 1250), ("Gujarat", "1,877,812.50", 1250), ("Karnataka", "1,890,625.00", 1250),
         ("Maharashtra", "1,865,000.00", 1250)]
     assert total(runs, res) == (D("7536875.00"), 5000)
-    assert [c.label for c in res.columns] == ["State", "Sum of Taxable Value", "Count of Invoice No"]
+    assert [c.label for c in res.columns] == ["State", "Taxable Value · Sum", "Invoice No · Count"]
     assert res.input_rows == 5000 and layer.count_rows(runs[0].con, res, False) == 4
 
 
 @spec("A1-04", "ANA-6", "T13", "T23")
 def test_a104_measures_and_renaming(runs):
-    ms = [Measure(TAXABLE, f) for f in (d.SUM, d.COUNT, d.AVG, d.MIN, d.MAX)]
-    ms[2].label = "Avg value"
-    ms += [Measure(CUST, d.COUNT_DISTINCT), Measure(GSTIN, d.COUNT_DISTINCT)]
+    ms = cards(*[FlatMeasure(TAXABLE, f) for f in (d.SUM, d.COUNT, d.AVG, d.MIN, d.MAX)])
+    ms[0].ops[2].name = "Avg value"
+    ms += cards(FlatMeasure(CUST, d.COUNT_DISTINCT), FlatMeasure(GSTIN, d.COUNT_DISTINCT))
     res = analyse(runs, Definition("tpl-a", [], [], ms), "R-0001")
     assert shown(runs, res) == []                           # no groups: the grand total is the only row
     t = total(runs, res)
     assert [formats.number(x) for x in t] == ["7,536,875.00", "5,000", "1,507.38", "1,000.00", "2,014.75", "10",
                                                "5,000"]
     assert t[2] == D("1507.38")                             # 1,507.375 rounded half away from zero (T13)
-    assert [c.label for c in res.measures][2:4] == ["Avg value", "Min of Taxable Value"]
+    assert [c.label for c in res.measures][2:4] == ["Avg value", "Taxable Value · Min"]
 
 
 @spec("A1-05", "ANA-7", "T23", "DO-7")
 def test_a105_subtotals_and_sorting_within_groups(runs):
-    res = analyse(runs, Definition("tpl-a", [], [Group(STATE), Group(RATE)], [Measure(TAXABLE, d.SUM)], True),
+    res = analyse(runs, Definition("tpl-a", [], [Group(STATE), Group(RATE)], cards(FlatMeasure(TAXABLE, d.SUM)), True),
                   "R-0001")
     con = runs[0].con
     rows = shown(runs, res, subtotals=True)
@@ -135,7 +135,7 @@ def test_a105_subtotals_and_sorting_within_groups(runs):
 @spec("A1-06", "ANA-5")
 def test_a106_group_levels_and_date_grain(runs):
     def run(groups):
-        return analyse(runs, Definition("tpl-a", [], groups, [Measure(INV, d.COUNT)]), "R-0001")
+        return analyse(runs, Definition("tpl-a", [], groups, cards(FlatMeasure(INV, d.COUNT))), "R-0001")
     res = run([Group(DATE_, "day")])
     rows = shown(runs, res)
     assert len(rows) == 31
@@ -153,7 +153,7 @@ def test_a106_group_levels_and_date_grain(runs):
 @spec("A1-07", "ANA-4")
 def test_a107_date_filters(runs):
     def count(f, *keys):
-        res = analyse(runs, Definition("tpl-a", [f], [], [Measure(INV, d.COUNT), Measure(TAXABLE, d.SUM)]), *keys)
+        res = analyse(runs, Definition("tpl-a", [f], [], cards(FlatMeasure(INV, d.COUNT), FlatMeasure(TAXABLE, d.SUM))), *keys)
         return total(runs, res)
     assert count(Filter(DATE_, d.MONTH, [2026, 10]), "R-0001", "R-0002") == (5000, D("7536875.00"))
     assert count(Filter(DATE_, d.QUARTER, [2026, 4]), "R-0001", "R-0002")[0] == 9000
@@ -172,7 +172,7 @@ def test_a108_text_filters_and_distinct_values(runs):
     assert len(values) == 10 and {n for _v, n in values} == {500}
 
     def count(f, key):
-        return total(runs, analyse(runs, Definition("tpl-a", [f], [], [Measure(None, d.COUNT)]), key))[0]
+        return total(runs, analyse(runs, Definition("tpl-a", [f], [], cards(FlatMeasure(d.ROWS, d.COUNT))), key))[0]
     assert count(Filter(CUST, d.CONTAINS, ["patel"]), "R-0001") == 500        # ignores case
     assert count(Filter(CUST, d.BLANK), "R-0003") == 7
     assert count(Filter(STATE, d.ONE_OF, ["Goa"]), "R-0003") == 25
@@ -193,24 +193,24 @@ def test_distinct_values_top_and_search(runs):
 @spec("A1-09", "ANA-4")
 def test_a109_number_filters_and_and(runs):
     res = analyse(runs, Definition("tpl-a", [Filter(RATE, d.EQUALS, ["18"]), Filter(STATE, d.ONE_OF, ["Maharashtra"])],
-                                   [], [Measure(None, d.COUNT), Measure(TAXABLE, d.SUM)]), "R-0001")
+                                   [], cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure(TAXABLE, d.SUM))), "R-0001")
     assert total(runs, res) == (250, D("373000.00"))
     res = analyse(runs, Definition("tpl-a", [Filter(TAXABLE, d.BETWEEN, ["1000", "1010.25"])], [Group(TAXABLE)],
-                                   [Measure(None, d.COUNT)]), "R-0001")
+                                   cards(FlatMeasure(d.ROWS, d.COUNT))), "R-0001")
     assert total(runs, res) == (100,)
     assert {r[1] for r in shown(runs, res)} == {D("1000.00"), D("1010.25")}
 
 
 @spec("A1-10", "T23", "T18")
 def test_a110_count_counts_non_blank_values(runs):
-    res = analyse(runs, Definition("tpl-a", [], [], [Measure(CUST, d.COUNT), Measure(INV, d.COUNT)]), "R-0003")
+    res = analyse(runs, Definition("tpl-a", [], [], cards(FlatMeasure(CUST, d.COUNT), FlatMeasure(INV, d.COUNT))), "R-0003")
     assert total(runs, res) == (1930, 1937)
 
 
 @spec("ANA-7")
 def test_row_cap_and_note(runs):
     con = runs[0].con
-    res = analyse(runs, Definition("tpl-a", [], [Group(DATE_)], [Measure(INV, d.COUNT)]), "R-0001")
+    res = analyse(runs, Definition("tpl-a", [], [Group(DATE_)], cards(FlatMeasure(INV, d.COUNT))), "R-0001")
     assert len(layer.rows(con, res, subtotals=False, limit=500, cap=10)) == 10
     assert layer.rows(con, res, subtotals=False, offset=10, cap=10) == []
     assert layer.count_rows(con, res, False) == 31
@@ -220,9 +220,9 @@ def test_row_cap_and_note(runs):
 @spec("ANA-8")
 def test_previous_result_dropped_after_the_new_one(runs):
     s = runs[0]
-    first = analyse(runs, Definition("tpl-a", [], [], [Measure(None, d.COUNT)]), "R-0001")
+    first = analyse(runs, Definition("tpl-a", [], [], cards(FlatMeasure(d.ROWS, d.COUNT))), "R-0001")
     second = run_job(s.runner, lambda ctx: analysis.run_analysis(
-        ctx, Definition("tpl-a", [], [], [Measure(None, d.COUNT)]), COLS, data(runs, "R-0002"), first))
+        ctx, Definition("tpl-a", [], [], cards(FlatMeasure(d.ROWS, d.COUNT))), COLS, data(runs, "R-0002"), first))
     assert first.table is None and total(runs, second) == (4000,)
     tables = {r[0] for r in s.con.execute("SELECT table_name FROM duckdb_tables() WHERE temporary").fetchall()}
     assert second.table in tables
@@ -268,7 +268,7 @@ def test_runo01_default_outputs_stored_with_the_run(runs):
         ("Oct-2026", D(12), D("1507375.00")), ("Oct-2026", D(18), D("1517625.00")),
         ("Oct-2026", D(28), D("1527875.00")), ("Oct-2026", None, D("7536875.00"))]
     assert len(shown(runs, o2)) == 5                    # month subtotal hidden when Show subtotals is off
-    assert [c.label for c in o2.columns] == ["Invoice Date", "GST Rate", "Sum of Taxable Value"]
+    assert [c.label for c in o2.columns] == ["Invoice Date", "GST Rate", "Taxable Value · Sum"]
     assert got[1].note is None and o2.note is None
     # DO-6 / C6-10: editing DO1 later doesn't touch the stored file, which is read with the definition used
     before = (st.path / "outputs" / "1.parquet").read_bytes()
@@ -315,28 +315,28 @@ def test_runo05_no_dates_in_this_run(runs):
 @spec("DO-3", "C3-19", "T23")
 def test_relative_dates_only_in_default_outputs(runs):
     s = runs[0]
-    fixed = Definition("tpl-a", [Filter(DATE_, d.YEAR, [2026])], [], [Measure(None, d.COUNT)])
+    fixed = Definition("tpl-a", [Filter(DATE_, d.YEAR, [2026])], [], cards(FlatMeasure(d.ROWS, d.COUNT)))
     with pytest.raises(DefinitionError, match="relative"):
         run_job(s.runner, lambda ctx: analysis.preview_output(ctx, fixed, COLS, data(runs, "R-0001")[0]))
     with pytest.raises(DefinitionError, match="default outputs only"):
         analyse(runs, DO2, "R-0001")
-    blank = Definition("tpl-a", [Filter(DATE_, d.NOT_BLANK)], [], [Measure(None, d.COUNT)])
+    blank = Definition("tpl-a", [Filter(DATE_, d.NOT_BLANK)], [], cards(FlatMeasure(d.ROWS, d.COUNT)))
     assert total(runs, preview(runs, blank, "R-0001")) == (5000,)
     for latest, expect in ((d.LATEST_QUARTER, 5000), (d.LATEST_YEAR, 5000)):
-        res = preview(runs, Definition("tpl-a", [Filter(DATE_, latest)], [], [Measure(None, d.COUNT)]), "R-0001")
+        res = preview(runs, Definition("tpl-a", [Filter(DATE_, latest)], [], cards(FlatMeasure(d.ROWS, d.COUNT))), "R-0001")
         assert total(runs, res) == (expect,)
 
 
 @spec("ANA-4", "ANA-6")
 def test_definition_checks():
-    bad = [Definition("t", [Filter(TAXABLE, d.CONTAINS, ["1"])], [], [Measure(None, d.COUNT)]),
-           Definition("t", [Filter(CUST, d.EQUALS, ["1"])], [], [Measure(None, d.COUNT)]),
-           Definition("t", [], [Group(STATE, "month")], [Measure(None, d.COUNT)]),
-           Definition("t", [], [], [Measure(CUST, d.SUM)]),
-           Definition("t", [], [], [Measure(None, d.SUM)]),
+    bad = [Definition("t", [Filter(TAXABLE, d.CONTAINS, ["1"])], [], cards(FlatMeasure(d.ROWS, d.COUNT))),
+           Definition("t", [Filter(CUST, d.EQUALS, ["1"])], [], cards(FlatMeasure(d.ROWS, d.COUNT))),
+           Definition("t", [], [Group(STATE, "month")], cards(FlatMeasure(d.ROWS, d.COUNT))),
+           Definition("t", [], [], cards(FlatMeasure(CUST, d.SUM))),
+           Definition("t", [], [], cards(FlatMeasure(d.ROWS, d.SUM))),
            Definition("t", [], [], []),
-           Definition("t", [Filter(DATE_, d.MONTH, [2026, 13])], [], [Measure(None, d.COUNT)]),
-           Definition("t", [Filter("c099", d.BLANK)], [], [Measure(None, d.COUNT)])]
+           Definition("t", [Filter(DATE_, d.MONTH, [2026, 13])], [], cards(FlatMeasure(d.ROWS, d.COUNT))),
+           Definition("t", [Filter("c099", d.BLANK)], [], cards(FlatMeasure(d.ROWS, d.COUNT)))]
     for x in bad:
         with pytest.raises(DefinitionError):
             d.check(x, COLS)
@@ -347,7 +347,7 @@ def test_definition_checks():
 # ---------------------------------------------------------------------------------------------- columns across runs
 @spec("MAP-11", "MAP-8", "T23", "ANA-1")
 def test_columns_across_runs_add_rename_remove(runs):
-    by_branch = Definition("tpl-a", [], [Group(BRANCH)], [Measure(None, d.COUNT), Measure(TAXABLE, d.SUM)])
+    by_branch = Definition("tpl-a", [], [Group(BRANCH)], cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure(TAXABLE, d.SUM)))
     res = analyse(runs, by_branch, "R-0004", "R-0005", columns=COLS_B)
     assert [(r[1], r[2]) for r in shown(runs, res)] == [("Nagpur", 1000), ("Nashik", 1000), ("Pune", 1000),
                                                          (None, 1000)]           # older run: (Null), last
@@ -378,3 +378,34 @@ def test_select_only(runs):
         with pytest.raises(layer.NotASelect):
             layer.select_only(con, sql)
     assert con.execute("SELECT count(*) FROM client").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------------------------- measures by column (A2-4)
+@spec("AC-MEA-6", "MEA-6")
+def test_mea6_ops_in_fixed_order_and_card_moves(runs):
+    taxable = MeasureCard(TAXABLE, [Op(d.MAX), Op(d.SUM)])            # Max ticked, then Sum
+    inv = MeasureCard(INV, [Op(d.COUNT)])
+    res = analyse(runs, Definition("tpl-a", [], [Group(STATE)], [inv, taxable]), "R-0001")
+    assert [c.label for c in res.measures] == ["Invoice No · Count", "Taxable Value · Sum", "Taxable Value · Max"]
+    assert shown(runs, res)[0][1:4] == ("Delhi", 1250, D("1903437.50"))
+    res = analyse(runs, Definition("tpl-a", [], [Group(STATE)], [taxable, inv]), "R-0001")   # card moved up
+    assert [c.label for c in res.measures] == ["Taxable Value · Sum", "Taxable Value · Max", "Invoice No · Count"]
+    row = shown(runs, res)[0]
+    assert (row[1], row[2], row[4]) == ("Delhi", D("1903437.50"), 1250)
+    assert total(runs, res)[0] == D("7536875.00") and total(runs, res)[2] == 5000
+
+
+@spec("AC-MEA-11", "MEA-11", "T39")
+def test_mea11_groups_without_measures(runs):
+    res = analyse(runs, Definition("tpl-a", [], [Group(GSTIN)], [], subtotals=True), "R-0001")
+    assert [c.role for c in res.columns] == ["group"] and total(runs, res) is None
+    got = layer.rows(runs[0].con, res, subtotals=True, limit=10 ** 6)
+    assert len(got) == 5000 == len({r[1] for r in got}) and {r[0] for r in got} == {1}    # each GSTIN once
+    assert layer.count_rows(runs[0].con, res, True) == 5000
+    two = analyse(runs, Definition("tpl-a", [], [Group(STATE), Group(RATE)], [], subtotals=True), "R-0001")
+    got = shown(runs, two, subtotals=True)
+    assert len(got) == 20 and {r[0] for r in got} == {2} and total(runs, two) is None        # no subtotal rows
+    assert [r[1:3] for r in got[:5]] == [("Delhi", D(0)), ("Delhi", D(5)), ("Delhi", D(12)), ("Delhi", D(18)),
+                                         ("Delhi", D(28))]
+    with pytest.raises(DefinitionError, match="Add a group level or a measure"):
+        analyse(runs, Definition("tpl-a", [], [], []), "R-0001")

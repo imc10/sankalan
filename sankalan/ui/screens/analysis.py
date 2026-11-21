@@ -268,6 +268,7 @@ class AnalysisScreen(DataScreen):
         if isinstance(self.grid, PagedGrid):
             self.grid.setFrameShape(QFrame.Shape.NoFrame)
             self.grid.horizontalHeader().sectionResized.connect(self._sync_total)
+            self.grid.horizontalHeader().rename_requested.connect(self._rename_requested)
             self.model.emphasis = lambda row: bool(self.outcome) and row[-1] < self.outcome.result.levels
         rl.addWidget(self.grid, 1)
         self.total = QTableWidget(1, 0, self.result_page)
@@ -492,7 +493,7 @@ class AnalysisScreen(DataScreen):
     # -------------------------------------------------------------------------------------------- template change
     def _has_settings(self) -> bool:
         b = self.builder
-        return bool(b.filters.rows or b.groups.rows or b.measures.rows or self.ticked_runs() or self.outcome)
+        return bool(b.filters.rows or b.groups.rows or b.measures.cards or self.ticked_runs() or self.outcome)
 
     def _confirm_clear(self) -> bool:
         if not self._has_settings():
@@ -596,6 +597,8 @@ class AnalysisScreen(DataScreen):
         if not run_ids:
             self.set_error(analyses.NO_RUNS)
             return False
+        if self.saved is None and self.builder.problem() is not None:     # under its section (Tech spec A2 9.2)
+            return False
         try:
             defn = self.definition()
             d.check(defn, self.data.columns)
@@ -642,6 +645,8 @@ class AnalysisScreen(DataScreen):
             cols.append(GridColumn(c.name, c.label, right=c.role == "measure"))
         if self.model is not None:
             self.model.set_columns(cols, analyses.ResultSource(o))
+            hover = [c.hover for c in o.result.columns]
+            self.grid.horizontalHeader().set_tooltips(lambda s: hover[s] if s < len(hover) else None)
             self.grid.apply_widths()
             self.grid.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             self.grid._sorted = None
@@ -657,6 +662,7 @@ class AnalysisScreen(DataScreen):
         self.total.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         QTimer.singleShot(0, self._sync_total)
         self._sync_total()
+        self.total.setVisible(bool(o.result.measures))          # no measures, no grand total (MEA-11, T39)
         self.summary.setText(o.summary())
         self.cap.setText(cap_note(o.count))
         self.cap.setVisible(o.capped)
@@ -682,9 +688,30 @@ class AnalysisScreen(DataScreen):
             self.result_stack.setCurrentWidget(self.result_page)
         greyed = self.outcome is not None and (self.stale or running)
         self.dim.setOpacity(0.4 if greyed else 1.0)
+        if isinstance(self.grid, PagedGrid):
+            # ✎ on the measure columns of an unsaved, current result (MEA-8)
+            o = self.outcome
+            ok = o is not None and self.saved is None and not greyed
+            self.grid.horizontalHeader().set_renamable(
+                (lambda s: s >= o.result.levels and s < len(o.result.columns)) if ok else None)
         self.stale_note.setVisible(self.outcome is not None and self.stale and not running)
         self.export_button.setVisible(True)
         self._update_buttons()
+
+    def _rename_requested(self, section: int, text: str) -> None:
+        """MEA-8: Enter in the header's box. A clash keeps the box open; a rename never runs again or greys."""
+        o, hh = self.outcome, self.grid.horizontalHeader()
+        if o is None or self.data is None:
+            hh.finish()
+            return
+        name = d.clean_name(text)
+        problem = analyses.measure_name_problem(o, section, name)
+        if problem:
+            hh.show_error(problem)
+            return
+        self.builder.rename(section - o.result.levels, name)
+        self.model.set_titles(analyses.rename_measure(o, section, name, self.data.columns))
+        hh.finish()
 
     @property
     def greyed(self) -> bool:
@@ -722,6 +749,8 @@ class AnalysisScreen(DataScreen):
     # -------------------------------------------------------------------------------------------- save (7.8)
     def save_dialog(self, modal: bool = False) -> SaveAnalysisDialog | None:
         if self.data is None or self.saved is not None:
+            return None
+        if self.builder.problem() is not None:
             return None
         try:
             defn = self.definition()

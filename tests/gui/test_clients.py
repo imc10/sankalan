@@ -54,8 +54,10 @@ def add_client(qtbot, w, name):
 def simple_template(con, client_id, name="Sales Register", outputs=1):
     cols = [Column("c001", "Invoice No"), Column("c002", "Amount", "Number")]
     t = Template("", client_id, name, columns=cols,
-                 outputs=[DefaultOutput(f"Out {i}", {"template_id": "", "filters": [], "groups": [],
-                                                     "measures": [{"column_id": None, "fn": "count", "label": None}],
+                 outputs=[DefaultOutput(f"Out {i}", {"definition_version": 2, "template_id": "", "filters": [],
+                                                     "groups": [],
+                                                     "measures": [{"column_id": "_rows",
+                                                                   "ops": [{"fn": "count", "name": None}]}],
                                                      "subtotals": False}) for i in range(outputs)])
     return q.create_template(con, t)
 

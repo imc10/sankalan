@@ -2,11 +2,17 @@
 
 A definition is structured JSON, compiled to SQL by ``sankalan.query.compiler``::
 
-    {"template_id": "...",
+    {"definition_version": 2,
+     "template_id": "...",
      "filters":  [{"column_id": "c002", "op": "month", "values": [2026, 10]}],
      "groups":   [{"column_id": "c002", "grain": "month"}, {"column_id": "c007"}],
-     "measures": [{"column_id": "c006", "fn": "sum", "label": "Taxable"}, {"column_id": null, "fn": "count"}],
+     "measures": [{"column_id": "_rows", "ops": [{"fn": "count", "name": null}]},
+                  {"column_id": "c006", "ops": [{"fn": "sum", "name": "Taxable"}, {"fn": "max", "name": null}]}],
      "subtotals": true}
+
+Measures are cards (Feature Spec A2 3.1, Tech spec A2 T49): a column, or Rows (``ROWS``), and its ticked operations,
+stored in the fixed order Sum, Count, Count distinct, Average, Min, Max (MEA-6). ``name: null`` is the default name
+(MEA-7). ``measures`` may be empty when there is a group level (MEA-11). Only version 2 is read (T40).
 
 Runs are never part of a definition (D33). Columns are referenced by stable ID, so a rename never breaks one.
 
@@ -27,8 +33,8 @@ group, "(Not a number)" or "(Not a date)" (TXT-10).
 
 Numbers in filter values are kept as text so JSON never turns them into binary floats.
 
-Measures: ``sum`` and ``avg`` (Number), ``min`` and ``max`` (Number, Date), ``count`` (non-blank values; with no
-column, rows), ``count_distinct`` (any column).
+Operations by type (MEA-3, D70): Number sum, count, avg, min, max; Date count, count_distinct, min, max; Text count,
+count_distinct; Rows count only.
 """
 from __future__ import annotations
 
@@ -59,12 +65,19 @@ FILTER_HELP = {NOT_NUMBER: "Cells with text such as NA or Nil instead of a numbe
 # date grains (ANA-5): calendar year
 DAY, GRAINS = "day", ("day", "month", "quarter", "year")
 
-# measures (ANA-6)
+# measures (Feature Spec A2 3.1)
+DEFINITION_VERSION = 2
+ROWS = "_rows"                                   # the Rows card (MEA-10)
+ROWS_NAME, ROWS_TYPE = "Rows", "All rows"
 SUM, COUNT, COUNT_DISTINCT, AVG, MIN, MAX = "sum", "count", "count_distinct", "avg", "min", "max"
-MEASURE_FNS = (SUM, COUNT, COUNT_DISTINCT, AVG, MIN, MAX)
+MEASURE_FNS = (SUM, COUNT, COUNT_DISTINCT, AVG, MIN, MAX)        # also the order within a card (MEA-6)
 FN_NAMES = {SUM: "Sum", COUNT: "Count", COUNT_DISTINCT: "Count distinct", AVG: "Average", MIN: "Min", MAX: "Max"}
-MEASURE_TYPES = {SUM: (NUMBER,), AVG: (NUMBER,), MIN: (NUMBER, DATE), MAX: (NUMBER, DATE),
-                 COUNT: (TEXT, NUMBER, DATE), COUNT_DISTINCT: (TEXT, NUMBER, DATE)}
+CHIP_NAMES = {SUM: "Sum", COUNT: "Count", COUNT_DISTINCT: "Distinct", AVG: "Avg", MIN: "Min", MAX: "Max"}
+CARD_OPS = {NUMBER: (SUM, COUNT, AVG, MIN, MAX), DATE: (COUNT, COUNT_DISTINCT, MIN, MAX),
+            TEXT: (COUNT, COUNT_DISTINCT), ROWS: (COUNT,)}                     # MEA-3; no Distinct on Number (D70)
+NAME_MAX = 100                                   # MEA-8
+HEADER_SEP = " · "
+NEED_GROUP_OR_MEASURE = "Add a group level or a measure"                     # MEA-11
 
 REMOVED_SUFFIX = " (removed)"
 NULL_LABEL = "(Null)"
@@ -120,13 +133,46 @@ class Group:
 
 
 @dataclass
-class Measure:
-    column_id: str | None           # None: Count of rows
-    fn: str
-    label: str | None = None        # the user's name for it (ANA-6); None = the default
+class Op:
+    fn: str                         # sum | count | count_distinct | avg | min | max
+    name: str | None = None         # the user's header (MEA-8); None = the default (MEA-7)
 
     def to_dict(self) -> dict:
-        return {"column_id": self.column_id, "fn": self.fn, "label": self.label}
+        return {"fn": self.fn, "name": self.name}
+
+
+@dataclass
+class MeasureCard:
+    column_id: str                  # a template column ID, or ROWS
+    ops: list[Op] = field(default_factory=list)
+
+    def sorted_ops(self) -> list[Op]:
+        """The ops in the fixed order (MEA-6), whatever order they were ticked."""
+        return sorted(self.ops, key=lambda o: MEASURE_FNS.index(o.fn) if o.fn in MEASURE_FNS else 99)
+
+    def to_dict(self) -> dict:
+        return {"column_id": self.column_id, "ops": [o.to_dict() for o in self.sorted_ops()]}
+
+
+@dataclass(frozen=True)
+class FlatMeasure:
+    """One result measure column: a card's column (or ROWS) and one of its ops, in result order."""
+    column_id: str
+    fn: str
+    name: str | None = None
+
+
+def flat_measures(definition: "Definition") -> list[FlatMeasure]:
+    """The measure columns in result order (MEA-6): cards in order, each card's ops in the fixed order."""
+    return [FlatMeasure(c.column_id, o.fn, o.name) for c in definition.measures for o in c.sorted_ops()]
+
+
+def cards(*flat: FlatMeasure) -> list[MeasureCard]:
+    """Cards from flat measures: one card per column, in order of first appearance."""
+    out: dict[str, MeasureCard] = {}
+    for m in flat:
+        out.setdefault(m.column_id, MeasureCard(m.column_id)).ops.append(Op(m.fn, m.name))
+    return list(out.values())
 
 
 @dataclass
@@ -134,20 +180,25 @@ class Definition:
     template_id: str = ""
     filters: list[Filter] = field(default_factory=list)
     groups: list[Group] = field(default_factory=list)
-    measures: list[Measure] = field(default_factory=list)
+    measures: list[MeasureCard] = field(default_factory=list)
     subtotals: bool = False
 
     def to_dict(self) -> dict:
-        return {"template_id": self.template_id, "filters": [f.to_dict() for f in self.filters],
+        return {"definition_version": DEFINITION_VERSION,
+                "template_id": self.template_id, "filters": [f.to_dict() for f in self.filters],
                 "groups": [g.to_dict() for g in self.groups], "measures": [m.to_dict() for m in self.measures],
                 "subtotals": bool(self.subtotals)}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Definition":
+        """Version 2 only (T49); there is no upgrade from older definitions (T40)."""
+        if d.get("definition_version") != DEFINITION_VERSION:
+            raise DefinitionError(f"definition version {d.get('definition_version')!r} is not supported")
         return cls(d.get("template_id", ""),
                    [Filter(f["column_id"], f["op"], copy.deepcopy(f.get("values") or [])) for f in d.get("filters", [])],
                    [Group(g["column_id"], g.get("grain")) for g in d.get("groups", [])],
-                   [Measure(m.get("column_id"), m["fn"], m.get("label")) for m in d.get("measures", [])],
+                   [MeasureCard(m["column_id"], [Op(o["fn"], o.get("name")) for o in m.get("ops") or []])
+                    for m in d.get("measures", [])],
                    bool(d.get("subtotals", False)))
 
     @property
@@ -165,15 +216,41 @@ def group_label(group: Group, col: Column) -> str:
     return column_label(col)
 
 
-def measure_label(measure: Measure, columns: dict[str, Column]) -> str:
-    """The measure's header: the user's name, else "Sum of Taxable Value", "Count of rows", ..."""
-    if measure.label:
-        return measure.label
-    if measure.column_id is None:
-        return "Count of rows"
-    col = columns.get(measure.column_id)
-    name = column_label(col) if col is not None else measure.column_id
-    return f"{FN_NAMES[measure.fn]} of {name}"
+def card_name(column_id: str, columns: dict[str, Column]) -> str:
+    """A card's column as named in headers: "Rows", or the column's name with "(removed)" for a removed column."""
+    if column_id == ROWS:
+        return ROWS_NAME
+    col = columns.get(column_id)
+    return column_label(col) if col is not None else column_id
+
+
+def default_name(column_id: str, fn: str, columns: dict[str, Column]) -> str:
+    """The default header (MEA-7): "Taxable Value · Sum", "Invoice No · Count distinct", "Rows · Count"."""
+    return f"{card_name(column_id, columns)}{HEADER_SEP}{FN_NAMES[fn]}"
+
+
+def card_ops(column_id: str, columns: dict[str, Column]) -> tuple[str, ...]:
+    """The ops a card offers (MEA-3)."""
+    if column_id == ROWS:
+        return CARD_OPS[ROWS]
+    col = columns.get(column_id)
+    return CARD_OPS[col.type] if col is not None else ()
+
+
+def no_op_message(column_id: str, columns: dict[str, Column]) -> str:
+    """MEA-4, shown under the card."""
+    return f"Tick at least one operation for {card_name(column_id, columns)}, or remove it"
+
+
+def name_taken_message(name: str) -> str:
+    """MEA-8, under the rename box."""
+    return f"Another column is already called {name}"
+
+
+def clean_name(name: str | None) -> str | None:
+    """A typed header: trimmed; blank means the default (None)."""
+    t = (name or "").strip()
+    return t or None
 
 
 # ---------------------------------------------------------------------------------------------- checks
@@ -245,18 +322,44 @@ def check(definition: Definition, columns: list[Column], *, output: bool = False
         c = col(g.column_id)
         if g.grain is not None and (c.type != DATE or g.grain not in GRAINS):
             raise DefinitionError(f"{g.grain!r} is not a grain for {c.name}")
-    if not definition.measures:
-        raise DefinitionError("Add at least one measure")
-    for m in definition.measures:
-        if m.fn not in MEASURE_FNS:
-            raise DefinitionError(f"unknown measure {m.fn!r}")
-        if m.column_id is None:
-            if m.fn != COUNT:
-                raise DefinitionError(f"{FN_NAMES[m.fn]} needs a column")
+    seen = set()
+    for card in definition.measures:
+        if card.column_id in seen:
+            raise DefinitionError(f"{card_name(card.column_id, by_id)} is on two measure cards")
+        seen.add(card.column_id)
+        if card.column_id != ROWS:
+            col(card.column_id)
+        allowed = card_ops(card.column_id, by_id)
+        fns = [o.fn for o in card.ops]
+        if len(set(fns)) != len(fns):
+            raise DefinitionError(f"an operation is ticked twice for {card_name(card.column_id, by_id)}")
+        for fn in fns:
+            if fn not in allowed:
+                raise DefinitionError(f"{FN_NAMES.get(fn, fn)} can't be used on {card_name(card.column_id, by_id)}")
+    problem = first_problem(definition, columns)
+    if problem is not None:
+        raise DefinitionError(problem[2])
+    taken = [column_label(by_id[g.column_id]).lower() for g in definition.groups]
+    for m in flat_measures(definition):
+        if m.name is None:
             continue
-        c = col(m.column_id)
-        if c.type not in MEASURE_TYPES[m.fn]:
-            raise DefinitionError(f"{FN_NAMES[m.fn]} can't be used on {c.type} column {c.name}")
+        if not 1 <= len(m.name) <= NAME_MAX or m.name != m.name.strip():
+            raise DefinitionError(f"A column name must be 1 to {NAME_MAX} characters")
+        if m.name.lower() in taken:
+            raise DefinitionError(name_taken_message(m.name))
+        taken.append(m.name.lower())
+
+
+def first_problem(definition: Definition, columns: list[Column]) -> tuple[str, int | None, str] | None:
+    """The first of the checks the screens show before Run, Save and Preview (Tech spec A2 9.2, checks 3 and 4):
+    ("measures", None, "Add a group level or a measure") or ("card", index, "Tick at least one operation for …")."""
+    if not definition.groups and not definition.measures:
+        return "measures", None, NEED_GROUP_OR_MEASURE
+    by_id = {c.id: c for c in columns}
+    for i, card in enumerate(definition.measures):
+        if not card.ops:
+            return "card", i, no_op_message(card.column_id, by_id)
+    return None
 
 
 def _ints(values: list, n: int) -> list:

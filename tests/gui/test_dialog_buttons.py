@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from conftest import commit_tpl_a_run, open_storage, settle_window, tpl_a_template
 from sankalan.model import definition as d
-from sankalan.model.definition import Group, Measure
+from sankalan.model.definition import Group, FlatMeasure, cards
 from sankalan.query import catalogue as q
 from sankalan.ui.dialogs import base
 from sankalan.ui.dialogs.base import Choice, ask
@@ -221,10 +221,9 @@ def dirty_outputs_tab(qtbot, win, tpla):
     settle(qtbot, win)
     tab = sc.outputs_tab
     tab.select(0)
-    label = tab.builder.measures.rows[0].label
-    saved = label.text()
-    label.setText("Edited label")
-    label.textEdited.emit("Edited label")
+    card = tab.builder.measures.cards[0]
+    saved = card.ticked()
+    card.tick(d.MAX)
     assert tab.dirty
     return sc, tab, saved
 
@@ -233,7 +232,7 @@ def test_template_bar_discard(win, qtbot, tpla):
     sc, tab, saved = dirty_outputs_tab(qtbot, win, tpla)
     QTest.mouseClick(tab.bar.discard, Qt.MouseButton.LeftButton)
     settle(qtbot, win)
-    assert not tab.dirty and tab.builder.measures.rows[0].label.text() == saved
+    assert not tab.dirty and tab.builder.measures.cards[0].ticked() == saved
 
 
 def test_template_switch_tab_discard(win, qtbot, tpla, clicker):
@@ -253,7 +252,7 @@ def test_template_leave_screen_discard(win, qtbot, tpla, clicker):
     assert clicker.seen[-1][0] == "Save your changes?"
     assert isinstance(win.current, ClientsScreen)
     outputs = q.load_template(tpla["s"].con, tpla["tid"]).outputs
-    assert outputs[0].definition["measures"][0].get("label") != "Edited label"
+    assert [o["fn"] for o in outputs[0].definition["measures"][0]["ops"]] == ["sum"]
 
 
 # ---------------------------------------------------------------------------------------------- Analysis
@@ -266,7 +265,7 @@ def test_unsaved_analysis_leave_without_saving(win, qtbot, tpla, clicker):
     settle(qtbot, win)
     sc.tick(["R-0001"])
     sc.builder.add_group(Group(STATE))
-    sc.builder.add_measure(Measure(TAXABLE, d.SUM))
+    sc.builder.add_measure(FlatMeasure(TAXABLE, d.SUM))
     assert sc.run(), sc.error.text()
     settle(qtbot, win)
     clicker.arm("Leave without saving")

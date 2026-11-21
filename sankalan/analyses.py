@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from sankalan import analysis, formats
@@ -25,6 +25,7 @@ from sankalan.model.run import run_label
 from sankalan.model.template import DATE, Column, Template
 from sankalan.query import catalogue as q
 from sankalan.query import convert, layer
+from sankalan.query import headers as hd
 
 ROW_CAP = layer.ROW_CAP            # ANA-7: the first 100,000 rows on screen
 DISTINCT_TOP = layer.DISTINCT_TOP  # ANA-4: the 1,000 most frequent values
@@ -267,6 +268,24 @@ def total_cells(outcome: Outcome) -> list[str]:
     return cells
 
 
+# ---------------------------------------------------------------------------------------------- rename (MEA-8)
+def measure_name_problem(outcome: Outcome, section: int, name: str | None) -> str | None:
+    """Why a typed header can't be used ("Another column is already called …"), or None."""
+    return hd.rename_problem(outcome.headers, section, name)
+
+
+def rename_measure(outcome: Outcome, section: int, name: str | None, columns: list[Column]) -> list[str]:
+    """Name the result's measure column ``section`` (None: the default) without running again; returns the new
+    headers. The name goes into the outcome's definition, so an export uses it (MEA-9)."""
+    flat = [o for c in outcome.definition.measures for o in c.sorted_ops()]
+    i = section - outcome.result.levels
+    if 0 <= i < len(flat):
+        flat[i].name = name
+    labels = hd.resolve_headers(outcome.definition, columns)
+    outcome.result.columns = [replace(c, label=label) for c, label in zip(outcome.result.columns, labels)]
+    return labels
+
+
 # ---------------------------------------------------------------------------------------------- locked settings (6.3)
 def describe_filter(f, columns: dict[str, Column]) -> str:
     col = columns.get(f.column_id)
@@ -306,8 +325,8 @@ def describe(definition: Definition, columns: list[Column]) -> dict[str, list[st
             name += f" by {GRAIN_WORDS[g.grain or 'day']}"
         groups.append(f"{i}. {name}")
     measures = []
-    for m in definition.measures:
-        default = d.measure_label(d.Measure(m.column_id, m.fn, None), by_id)
-        measures.append(f"{default} as {m.label}" if m.label else default)
-    return {"Filters": filters, "Group by": groups or ["None"], "Measures": measures,
+    for m in d.flat_measures(definition):          # "Invoice No: Count, shown as Invoices" (6.3)
+        line = f"{d.card_name(m.column_id, by_id)}: {d.FN_NAMES[m.fn]}"
+        measures.append(f"{line}, shown as {m.name}" if m.name else line)
+    return {"Filters": filters, "Group by": groups or ["None"], "Measures": measures or ["None"],
             "Subtotals": ["On" if definition.subtotals else "Off"]}

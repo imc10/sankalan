@@ -39,25 +39,28 @@ BUDGETS = {
     "tests/engine/test_unchecked.py": 10,               # A2-2: measured 8 s
     "tests/engine/test_validation.py": 5,
     # GUI (offscreen)
-    "tests/gui/test_analysis.py": 20,                  # A2-3: every Export dialog runs a size check, measured 19 s
+    "tests/gui/test_analysis.py": 23,                  # A2-4: + rename and checks tests (2 runs), measured 20.8 s
     "tests/gui/test_choose_sheets_screens.py": 12,       # A2-2: measured 8 s (on battery)
     "tests/gui/test_clients.py": 5,
     "tests/gui/test_dialog_buttons.py": 8,
     "tests/gui/test_export_dialog.py": 8,              # A2-3: measured 5 s
+    "tests/gui/test_measures.py": 5,                   # A2-4: measured 1 s
     "tests/gui/test_new_run.py": 16,                   # A2-3: settles for the Export dialog size check
     "tests/gui/test_new_template.py": 21,
     "tests/gui/test_shell.py": 11,
-    "tests/gui/test_template.py": 17,
+    "tests/gui/test_template.py": 19,                  # A2-4: + preview rename test, measured 19.4 s (wall)
     "tests/gui/test_unchecked_screens.py": 15,                 # A2-2: measured 11 s
     # packaging, security, unit
     "tests/packaging/test_installer.py": 9,
     "tests/packaging/test_layout.py": 5,
     "tests/security/test_offline.py": 5,
+    "tests/unit/test_definition_v2.py": 5,             # A2-4
     "tests/unit/test_excel_readers.py": 5,
     "tests/unit/test_export_plan.py": 5,
     "tests/unit/test_export_split.py": 5,              # A2-3: measured 2 s
     "tests/unit/test_fixture_pack.py": 8,              # A2-2: + TPL-N small generated twice
     "tests/unit/test_formats.py": 5,
+    "tests/unit/test_headers.py": 5,                   # A2-4
     "tests/unit/test_ingest_values.py": 5,
     "tests/unit/test_manage.py": 5,
     "tests/unit/test_paths.py": 5,

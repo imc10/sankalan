@@ -4,7 +4,7 @@ import pytest
 
 from conftest import settle_window, spec
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 from sankalan.model.rule import (ALLOWED_VALUES, DATE_RANGE, NOT_BLANK, NUMBER_RANGE, PATTERN, TEXT_LENGTH, UNIQUE,
                                  WARNING)
 from sankalan.model.template import SHEETS_ALL_VISIBLE, SHEETS_BY_NAME, SHEETS_FIRST_VISIBLE
@@ -414,10 +414,10 @@ def test_dry_run_counts_and_show(env, qtbot, fixtures_dir, answers):
 
 
 # ---------------------------------------------------------------------------------------------- 2.5 Default outputs
-DO1 = Definition("", [], [Group(STATE)], [Measure(TAXABLE, d.SUM, "Taxable"), Measure(TAX, d.SUM, "Tax"),
-                                           Measure(INV, d.COUNT, "Invoices")])
+DO1 = Definition("", [], [Group(STATE)], cards(FlatMeasure(TAXABLE, d.SUM, "Taxable"), FlatMeasure(TAX, d.SUM, "Tax"),
+                                           FlatMeasure(INV, d.COUNT, "Invoices")))
 DO2 = Definition("", [Filter(DATE_, d.LATEST_MONTH)], [Group(DATE_, "month"), Group(RATE)],
-                 [Measure(TAXABLE, d.SUM)], subtotals=True)
+                 cards(FlatMeasure(TAXABLE, d.SUM)), subtotals=True)
 
 
 def add_output(qtbot, wz, name, definition):
@@ -456,6 +456,14 @@ def test_outputs_review_and_save(env, qtbot, fixtures_dir):
     assert rows[:6] == [["Aug-2026", "0", "297,375.00"], ["Aug-2026", "5", "299,425.00"],
                         ["Aug-2026", "12", "301,475.00"], ["Aug-2026", "18", "303,525.00"],
                         ["Aug-2026", "28", "305,575.00"], ["Aug-2026", "Total", "1,507,375.00"]]
+    # 2.5 uses the measure cards; a preview rename names the measure without running again (MEA-8, T51)
+    assert [c.column_id for c in st.builder.measures.cards] == [TAXABLE]
+    st.rename_header(2, "Taxable")
+    assert st.table.horizontalHeaderItem(2).text() == "Taxable" and st.table.isEnabled()
+    assert st.outputs[1].definition["measures"][0]["ops"] == [{"fn": "sum", "name": "Taxable"}]
+    st.rename_header(2, "")
+    assert st.table.horizontalHeaderItem(2).text() == "Taxable Value · Sum"
+    assert st.outputs[1].definition["measures"][0]["ops"] == [{"fn": "sum", "name": None}]
     # C3-19: date filters are relative only, plus Blank, Not blank and Is not a date (T55)
     row = st.builder.filters.rows[0]
     assert [row.op.itemText(i) for i in range(row.op.count())] == [

@@ -16,6 +16,7 @@ from sankalan.model.template import DATE, NUMBER, DefaultOutput, Template
 from sankalan.ui import theme
 from sankalan.ui.screens.template import TemplateTab
 from sankalan.ui.widgets.builder import NEW_OUTPUT, DefinitionBuilder, definition_summary
+from sankalan.ui.widgets.header_rename import RenamableHeader
 from sankalan.ui.widgets.controls import SaveBar, heading, icon_button, note, panel, plus_button, primary
 from sankalan.ui.widgets.progress import ProgressPanel
 
@@ -152,6 +153,8 @@ class OutputsTab(TemplateTab):
         self.progress.hide()
         rl.addWidget(self.progress)
         self.table = QTableWidget(right)
+        self.table.setHorizontalHeader(RenamableHeader(self.table))      # ✎ on measure headers (MEA-8, T51)
+        self.table.horizontalHeader().rename_requested.connect(self._rename_requested)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setDefaultSectionSize(theme.ROW_HEIGHT)
@@ -225,6 +228,7 @@ class OutputsTab(TemplateTab):
         if self.preview_result is not None:
             self.preview_info.setText(STALE)
             self.table.setEnabled(False)
+            self.table.horizontalHeader().set_renamable(None)
 
     def add_output(self) -> None:
         self._store()
@@ -317,6 +321,8 @@ class OutputsTab(TemplateTab):
     def preview(self) -> None:
         if self.latest is None or not self._store() or self.selected < 0:
             return
+        if self.builder.problem() is not None:             # under its section (Tech spec A2 9.2)
+            return
         try:
             definition = Definition.from_dict(self.outputs[self.selected].definition)
             d.check(definition, self.template.columns, output=True)
@@ -382,6 +388,35 @@ class OutputsTab(TemplateTab):
                 self._put(r, c, text, p.kinds[c], bold)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        hovers = list(p.hovers)
+        hh.set_tooltips(lambda s: hovers[s] if s < len(hovers) else None)
+        hh.set_renamable(lambda s: p.groups <= s < len(p.headers))
+
+    def _rename_requested(self, section: int, text: str) -> None:
+        """MEA-8: a rename in the preview sets the name on this output and marks the tab changed; the preview is
+        not run again or greyed."""
+        p, hh = self.preview_result, self.table.horizontalHeader()
+        if p is None or not 0 <= self.selected < len(self.outputs):
+            hh.finish()
+            return
+        name = d.clean_name(text)
+        problem = manage.rename_problem(p, section, name)
+        if problem:
+            hh.show_error(problem)
+            return
+        self.builder.rename(section - p.groups, name)
+        self._store()
+        p.headers = manage.preview_headers(self.builder.definition(), self.template.columns)
+        self.table.setHorizontalHeaderLabels(p.headers)
+        self.set_dirty(True)
+        hh.finish()
+
+    def rename_header(self, section: int, text: str) -> None:
+        """Type a header name and press Enter (tests)."""
+        hh = self.table.horizontalHeader()
+        hh.start_edit(section)
+        hh.editor.setText(text)
+        hh.editor.returnPressed.emit()
 
     def _put(self, r: int, c: int, text: str, kind: tuple, font) -> None:
         item = QTableWidgetItem(text)

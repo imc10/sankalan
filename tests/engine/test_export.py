@@ -12,7 +12,7 @@ from conftest import load_files, open_storage, run_job, spec, temp_leftovers, tp
 from sankalan import analysis, exporting
 from sankalan.jobs.job import JobState
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 from sankalan.model.export import (DEFAULT_PATTERN, ExportOptions, csv_file_name, fill_pattern, safe_file_name)
 from sankalan.query import catalogue as q
 from sankalan.query import export as qx
@@ -207,18 +207,19 @@ def test_cancel_during_the_query(env, tmp_path):
     assert job.state == JobState.CANCELLED and list(tmp_path.iterdir()) == []
 
 
-@spec("ANA-9", "A1-12", "A1-05", "DO-7")
+@spec("ANA-9", "A1-12", "A1-05", "DO-7", "AC-MEA-5")
 def test_analysis_result_export(env, tmp_path):
     s, runs = env
     src = [runs["R-0001"][0].path / "data.parquet"]
-    defn = Definition("t", [], [Group("c005"), Group("c007")], [Measure("c006", d.SUM, "Taxable"),
-                                                                 Measure("c006", d.AVG)], True)
+    defn = Definition("t", [], [Group("c005"), Group("c007")], cards(FlatMeasure("c006", d.SUM, "Taxable"),
+                                                                 FlatMeasure("c006", d.AVG)), True)
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, defn, COLS, src))
     _raw, rows = read_csv(do_export(s, qx.result(s.con, res, subtotals=True), tmp_path / "a.csv").path)
-    assert rows[0] == ["State", "GST Rate", "Taxable", "Average of Taxable Value"]
+    assert rows[0] == ["State", "GST Rate", "Taxable", "Taxable Value · Average"]
     assert len(rows) == 1 + 20 + 4 + 1
     assert rows[1:7] == [["Delhi", "0", rows[1][2], rows[1][3]]] + rows[2:7] and rows[6][:2] == ["Delhi", "Total"]
     assert rows[-1][:3] == ["Grand total", "", "7536875.00"]
+    assert all(re.fullmatch(r"\d+\.\d\d", r[3]) for r in rows[1:])          # Average at 2 decimals (AC-MEA-5)
     mh = [r for r in rows if r[0] == "Maharashtra"]
     assert [(r[1], r[2]) for r in mh] == [("0", "352500.00"), ("5", "393500.00"), ("12", "383250.00"),
                                           ("18", "373000.00"), ("28", "362750.00"), ("Total", "1865000.00")]
@@ -228,7 +229,7 @@ def test_analysis_result_export(env, tmp_path):
     assert len(rows) == 1 + 20 + 1 and sums == sorted(sums, reverse=True) and rows[-1][0] == "Grand total"
     assert rows[1][:3] == ["Delhi", "28", "401187.50"]          # subtotals off: one list, sorted as a whole
     # the export is never capped at the screen's 100,000 rows: every row of a large result is written
-    days = Definition("t", [], [Group("c002", "day")], [Measure(None, d.COUNT)])
+    days = Definition("t", [], [Group("c002", "day")], cards(FlatMeasure(d.ROWS, d.COUNT)))
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, days, COLS, src))
     _raw, rows = read_csv(do_export(s, qx.result(s.con, res, subtotals=False), tmp_path / "c.csv").path)
     assert len(rows) == 1 + 31 + 1 and rows[1] == ["01-10-2026", "162"] and rows[-1] == ["Grand total", "5000"]
@@ -238,10 +239,10 @@ def test_analysis_result_export(env, tmp_path):
 def test_c606_export_all_outputs(env, tmp_path):
     s, runs = env
     st, _names = runs["R-0001"]
-    outs = [("State-wise sales", Definition("t", [], [Group("c005")], [Measure("c006", d.SUM, "Taxable")])),
+    outs = [("State-wise sales", Definition("t", [], [Group("c005")], cards(FlatMeasure("c006", d.SUM, "Taxable")))),
             ("Latest month by GST rate", Definition("t", [Filter("c002", d.LATEST_MONTH)],
                                                     [Group("c002", "month"), Group("c007")],
-                                                    [Measure("c006", d.SUM)], True))]
+                                                    cards(FlatMeasure("c006", d.SUM)), True))]
     run_job(s.runner, lambda ctx: analysis.write_outputs(ctx, outs, COLS, st.path / "data.parquet",
                                                           st.path / "outputs"))
     sources, names = [], []
@@ -258,7 +259,7 @@ def test_c606_export_all_outputs(env, tmp_path):
         "Acme Traders_Sales Register_R-0001_Latest month by GST rate.csv",
         "Acme Traders_Sales Register_R-0001_State-wise sales.csv"]
     _raw, rows = read_csv(got[1].path)
-    assert rows[0] == ["Invoice Date", "GST Rate", "Sum of Taxable Value"]
+    assert rows[0] == ["Invoice Date", "GST Rate", "Taxable Value · Sum"]
     assert rows[1:] == [["Oct-2026", "0", "1486875.00"], ["Oct-2026", "5", "1497125.00"],
                         ["Oct-2026", "12", "1507375.00"], ["Oct-2026", "18", "1517625.00"],
                         ["Oct-2026", "28", "1527875.00"], ["Oct-2026", "Total", "7536875.00"],
@@ -276,11 +277,11 @@ def test_header_quoting_and_null_group(env, tmp_path):
     cols = tpl_a_columns()
     cols[4].name = 'State, "region"'
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(
-        ctx, Definition("t", [Filter("c003", d.BLANK)], [Group("c005")], [Measure(None, d.COUNT)]), cols,
+        ctx, Definition("t", [Filter("c003", d.BLANK)], [Group("c005")], cards(FlatMeasure(d.ROWS, d.COUNT))), cols,
         [st.path / "data.parquet"]))
     out = do_export(s, qx.result(s.con, res, subtotals=False), tmp_path / "h.csv", ExportOptions(bom=False))
     raw = out.path.read_bytes()
-    assert raw.startswith(b'"State, ""region""",Count of rows\n')
+    assert raw.startswith('"State, ""region""",Rows · Count\n'.encode())
     assert raw.endswith(b"Grand total,0\n")
     assert exporting.header_line(["a;b", "c"], ";") == b'"a;b";c\n'
 
@@ -324,7 +325,7 @@ def test_result_export_labels_text_group(tpl_r_runs, tmp_path):
     s, tid = tpl_r_runs["s"], tpl_r_runs["tid"]
     cols = q.load_template(s.con, tid).columns
     data = s.folder.run_dir(tid, tpl_r_runs["runs"][1]) / "data.parquet"
-    defn = Definition("", [], [Group("c006")], [Measure(None, d.COUNT)])
+    defn = Definition("", [], [Group("c006")], cards(FlatMeasure(d.ROWS, d.COUNT)))
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, defn, cols, [data]))
     out = do_export(s, qx.result(s.con, res, subtotals=False, sort="g1", descending=True), tmp_path / "res.csv")
     _raw, rows = read_csv(out.path)
@@ -427,7 +428,7 @@ def test_result_with_subtotals_split_grand_total_last(tpl_r_runs, tmp_path):
     data = s.folder.run_dir(tid, tpl_r_runs["runs"][1]) / "data.parquet"
     by = {c.name: c.id for c in cols}
     defn = Definition("", [], [Group(by["Customer"]), Group(by["Invoice No"])],
-                      [Measure(by["Taxable Value"], d.SUM)], True)
+                      cards(FlatMeasure(by["Taxable Value"], d.SUM)), True)
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, defn, cols, [data]))
     outcome = analyses.Outcome(res, defn, 1, res.input_rows, layer.count_rows(s.con, res, True),
                                layer.grand_total(s.con, res), 0.0, True)
@@ -656,3 +657,13 @@ def test_estimate_is_close_to_the_written_size(data_source, tmp_path):
     assert (est.rows, est.parts, est.files, est.split) == ((2500,), (3,), 3, True)
     assert written * 0.95 <= est.bytes <= written * 1.25
     assert 0 < est.largest_chunk <= est.bytes and temp_leftovers(s.paths.temp) == []
+
+
+@spec("AC-MEA-11", "MEA-11", "T39")
+def test_result_without_measures_has_no_grand_total(env, tmp_path):
+    s, runs = env
+    src = [runs["R-0001"][0].path / "data.parquet"]
+    defn = Definition("t", [], [Group("c005")], [], True)
+    res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, defn, COLS, src))
+    _raw, rows = read_csv(do_export(s, qx.result(s.con, res, subtotals=True), tmp_path / "g.csv").path)
+    assert rows == [["State"], ["Delhi"], ["Gujarat"], ["Karnataka"], ["Maharashtra"]]

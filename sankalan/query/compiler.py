@@ -8,7 +8,7 @@ every ROLLUP level, marked by ``_depth``:
                      subtotals, 0 for the grand total
     g1 .. gn         group values, typed (DATE for a date group at any grain, truncated to the period's first day);
                      null in a rolled-up level, and also null for a text or "(Null)" group: the kind tells them apart
-    m1 .. mk         measures
+    m1 .. mk         measures, in MEA-6 order (``definition.flat_measures``); the Rows card is ``count(*)``
     k1 .. kn         group kinds (Tech spec A2 T42): 0 a value, 1 text kept in a Number or Date column ("(Not a
                      number)" / "(Not a date)"), 2 blank ("(Null)"); null in a rolled-up level. Grouping is
                      ``ROLLUP((k1, g1), …)``, so the text and the blank groups stay apart
@@ -17,6 +17,9 @@ Number and Date columns carry text companions ``cNNN_t`` (Tech spec A2 5.6): the
 filter (Blank, Not blank, Is not a number / date), Count or a group on that column needs it.
 
 Show subtotals only hides or shows rows (DO-7), so subtotals of Average and Count distinct are always correct.
+
+A result with group levels and no measures (MEA-11, T39) is a plain ``GROUP BY``: each group combination once, every
+row at ``_depth = n``, no subtotal or grand total rows.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from sankalan.model import definition as d
 from sankalan.model.definition import Definition, DefinitionError
 from sankalan.model.template import DATE, NUMBER, Column
 from sankalan.query.convert import _path, companion, has_companion, lit, sql_type
+from sankalan.query.headers import hover_texts, resolve_headers
 
 COUNT_TYPE = "count"
 
@@ -35,11 +39,12 @@ COUNT_TYPE = "count"
 @dataclass(frozen=True)
 class OutColumn:
     name: str                   # SQL name in the result: g1.., m1..
-    label: str                  # header (display name, measure label, "(removed)")
+    label: str                  # header (Tech spec A2 9.3: resolve_headers)
     role: str                   # "group" or "measure"
     type: str                   # Text / Number / Date, or "count" for Count and Count distinct
     decimals: int | None = None
     grain: str | None = None    # date groups
+    hover: str | None = None    # a measure's default form, "Invoice No · Count" (MEA-8)
 
 
 @dataclass(frozen=True)
@@ -87,7 +92,7 @@ def needs_companion(definition: Definition, col: Column) -> bool:
     if not has_companion(col):
         return False
     return (any(g.column_id == col.id for g in definition.groups)
-            or any(m.column_id == col.id and m.fn == d.COUNT for m in definition.measures)
+            or any(m.column_id == col.id and m.fn == d.COUNT for m in d.flat_measures(definition))
             or any(f.column_id == col.id and f.op in d.NO_VALUE_OPS for f in definition.filters))
 
 
@@ -186,8 +191,8 @@ def average_sql(v: str, decimals: int) -> str:
     return f"(CASE WHEN {n} = 0 THEN NULL ELSE CAST({text} AS DECIMAL(38,{decimals})) END)"
 
 
-def measure_sql(m: d.Measure, col: Column | None) -> str:
-    if m.column_id is None:
+def measure_sql(m: d.FlatMeasure, col: Column | None) -> str:
+    if m.column_id == d.ROWS:
         return "count(*)"
     v = col.id
     if m.fn == d.SUM:
@@ -207,7 +212,7 @@ def measure_sql(m: d.Measure, col: Column | None) -> str:
     raise DefinitionError(m.fn)
 
 
-def _measure_type(m: d.Measure, col: Column | None) -> tuple[str, int | None]:
+def _measure_type(m: d.FlatMeasure, col: Column | None) -> tuple[str, int | None]:
     if m.fn in (d.COUNT, d.COUNT_DISTINCT):
         return COUNT_TYPE, None
     return col.type, col.decimals
@@ -215,16 +220,20 @@ def _measure_type(m: d.Measure, col: Column | None) -> tuple[str, int | None]:
 
 # ---------------------------------------------------------------------------------------------- compile
 def out_columns(definition: Definition, by_id: dict[str, Column]) -> list[OutColumn]:
-    """The result's columns and headers: today's column names, so a renamed column shows its new name."""
+    """The result's columns and headers (``resolve_headers``): today's column names, so a renamed column shows its
+    new name in a default header."""
+    columns = list(by_id.values())
+    labels = resolve_headers(definition, columns)
+    hovers = hover_texts(definition, columns)
     out = []
     for i, g in enumerate(definition.groups, 1):
         col = by_id[g.column_id]
-        out.append(OutColumn(f"g{i}", d.group_label(g, col), "group", col.type, col.decimals,
+        out.append(OutColumn(f"g{i}", labels[i - 1], "group", col.type, col.decimals,
                              (g.grain or d.DAY) if col.type == DATE else None))
-    for i, m in enumerate(definition.measures, 1):
-        col = by_id.get(m.column_id) if m.column_id is not None else None
-        typ, dec = _measure_type(m, col)
-        out.append(OutColumn(f"m{i}", d.measure_label(m, by_id), "measure", typ, dec))
+    n = len(definition.groups)
+    for i, m in enumerate(d.flat_measures(definition), 1):
+        typ, dec = _measure_type(m, by_id.get(m.column_id))
+        out.append(OutColumn(f"m{i}", labels[n + i - 1], "measure", typ, dec, hover=hovers[n + i - 1]))
     return out
 
 
@@ -238,8 +247,9 @@ def compile_definition(con, definition: Definition, columns: list[Column], sourc
     present = present_columns(con, sources)
     src = source_sql(sources)
     used = []
+    flat = d.flat_measures(definition)
     for cid in ([f.column_id for f in definition.filters] + [g.column_id for g in definition.groups]
-                + [m.column_id for m in definition.measures if m.column_id is not None]):
+                + [m.column_id for m in flat if m.column_id != d.ROWS]):
         if cid not in used:
             used.append(cid)
     items = []
@@ -265,12 +275,17 @@ def compile_definition(con, definition: Definition, columns: list[Column], sourc
     out = out_columns(definition, by_id)
     group_exprs = [f"{group_sql(g, by_id[g.column_id])} AS g{i}, {kind_sql(by_id[g.column_id])} AS k{i}"
                    for i, g in enumerate(definition.groups, 1)]
-    measure_exprs = [f"{measure_sql(m, by_id.get(m.column_id) if m.column_id is not None else None)} AS m{i}"
-                     for i, m in enumerate(definition.measures, 1)]
+    measure_exprs = [f"{measure_sql(m, by_id.get(m.column_id))} AS m{i}" for i, m in enumerate(flat, 1)]
 
     base = f"SELECT {select} FROM {src} {where}"
     n = len(group_exprs)
-    if n:
+    if n and not measure_exprs:      # MEA-11, T39: each group combination once, no subtotal or grand total
+        gk = ", ".join(f"k{i}, g{i}" for i in range(1, n + 1))
+        gnames = ", ".join(f"g{i}" for i in range(1, n + 1))
+        knames = ", ".join(f"k{i}" for i in range(1, n + 1))
+        sql = (f"SELECT CAST({n} AS INTEGER) AS _depth, {gnames}, {knames} "
+               f"FROM (SELECT *, {', '.join(group_exprs)} FROM ({base})) GROUP BY {gk}")
+    elif n:
         gnames = ", ".join(f"g{i}" for i in range(1, n + 1))
         knames = ", ".join(f"k{i}" for i in range(1, n + 1))
         levels = ", ".join(f"(k{i}, g{i})" for i in range(1, n + 1))

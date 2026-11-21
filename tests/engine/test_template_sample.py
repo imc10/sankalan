@@ -7,7 +7,7 @@ import pytest
 from conftest import run_job, spec
 from sankalan import newtemplate as nt
 from sankalan.ingest import sample as smp
-from sankalan.model.definition import Definition, Group, Measure
+from sankalan.model.definition import Definition, Group, FlatMeasure, cards
 from sankalan.model.rule import UNIQUE, Rule
 from sankalan.model.template import DATE, NUMBER, TEXT, DefaultOutput, SourceSettings
 from sankalan.query import catalogue as q
@@ -138,7 +138,7 @@ def test_build_template_renumbers_in_order(storage, fixtures_dir):
     drafts[2], drafts[1] = drafts[1], drafts[2]          # Customer before Invoice Date
     drafts[3].include = False                            # GSTIN left out
     rules = [Rule("r1", "c003", UNIQUE, {"columns": ["c003", "c005"]}), Rule("r2", "c004", "VAL-1")]
-    outs = [DefaultOutput("By state", Definition("", [], [Group("c005")], [Measure("c006", "sum")]).to_dict())]
+    outs = [DefaultOutput("By state", Definition("", [], [Group("c005")], cards(FlatMeasure("c006", "sum"))).to_dict())]
     t = nt.build_template("cl", " Sales ", SourceSettings("name", ["Sales"]), drafts, rules, outs)
     assert [(c.id, c.name) for c in t.columns][:4] == [("c001", "Invoice No"), ("c002", "Customer"),
                                                       ("c003", "Invoice Date"), ("c004", "State")]

@@ -26,6 +26,7 @@ _PATHS = {
     "up": '<path d="M12 19V5M6 11l6-6 6 6"/>',
     "down": '<path d="M12 5v14M6 13l6 6 6-6"/>',
     "more": '<circle cx="5" cy="12" r="0.8"/><circle cx="12" cy="12" r="0.8"/><circle cx="19" cy="12" r="0.8"/>',
+    "edit": '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
 }
 
 

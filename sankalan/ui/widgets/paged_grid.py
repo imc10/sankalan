@@ -10,7 +10,7 @@ DD-MM-YYYY, whatever the Windows region. Rows and header are 40 px (GEN-05).
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any, Callable, Protocol, Sequence
 
@@ -24,6 +24,7 @@ from sankalan import formats
 from sankalan.jobs import JobContext
 from sankalan.ui import theme
 from sankalan.ui.jobs import JobBridge
+from sankalan.ui.widgets.header_rename import RenamableHeader
 
 PAGE_SIZE = 200
 TEXT, NUMBER, INTEGER, DATE, DATETIME = "text", "number", "integer", "date", "datetime"
@@ -103,6 +104,12 @@ class PagedModel(QAbstractTableModel):
         self.columns = list(columns)
         self.sort_spec = []
         self.set_source(source)
+
+    def set_titles(self, titles: list[str]) -> None:
+        """New header text only (a renamed result column, MEA-8): nothing is read again."""
+        self.columns = [replace(c, title=t) for c, t in zip(self.columns, titles)]
+        if self.columns:
+            self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, len(self.columns) - 1)
 
     def refresh(self) -> None:
         """Count again and drop every loaded page (after a change or a new sort)."""
@@ -357,6 +364,7 @@ class PagedGrid(QTableView):
 
     def __init__(self, model: PagedModel, parent=None):
         super().__init__(parent)
+        self.setHorizontalHeader(RenamableHeader(self))     # ✎ rename on chosen sections (T51); none by default
         self.setModel(model)
         self.setFont(theme.font(theme.GRID_TEXT_PX))
         vh = self.verticalHeader()

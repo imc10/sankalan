@@ -198,7 +198,8 @@ def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
                Column("c003", "Customer"), Column("c004", "Taxable Value", "Number", decimals=2, totals_check=True),
                Column("c005", "GST Rate", "Number", decimals=0)]
     rules = with_type_rules(columns, [Rule("r1", "c001", NOT_BLANK), Rule("r2", "c001", UNIQUE)])
-    by_rate = d.Definition("", [], [d.Group("c005")], [d.Measure("c004", d.SUM, "Taxable")])
+    by_rate = d.Definition("", [], [d.Group("c005")],
+                           [d.MeasureCard("c004", [d.Op(d.SUM, "Taxable")])])
     client = q.insert_client(con, "Self-test client")
     tid = q.create_template(con, Template("", client, "Self-test sales", columns=columns, rules=rules,
                                           outputs=[DefaultOutput("By GST rate", by_rate.to_dict())],

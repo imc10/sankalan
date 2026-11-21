@@ -1,4 +1,5 @@
-"""The analysis builder (ANA-4 to ANA-6, DO-1, DO-3): AND filters, group levels and measures, plus Show subtotals.
+"""The analysis builder (ANA-4, ANA-5, DO-1, DO-3, MEA-1 to MEA-11): AND filters, group levels and the Measures
+section (cards, ``measures.MeasuresSection``), plus Show subtotals.
 
 Shared by the template's Default outputs tab (3.2), the New template wizard (2.5, Phase 8) and the Analysis screen
 (6.2, Phase 10). With ``output=True`` date filters are relative only (latest month, quarter or year in the run) or
@@ -17,10 +18,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, Q
                                QSpinBox, QVBoxLayout, QWidget)
 
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, FlatMeasure, Group, MeasureCard, Op
 from sankalan.model.template import DATE, Column
 from sankalan.ui import theme
 from sankalan.ui.widgets.controls import heading, icon_button, plus_button
+from sankalan.ui.widgets.measures import MeasureCardWidget, MeasuresSection
 
 OP_LABELS = {
     d.LATEST_MONTH: "latest month in this run", d.LATEST_QUARTER: "latest quarter in this run",
@@ -38,16 +40,6 @@ def ops_for(column: Column, output: bool) -> list[str]:
     if column.type == DATE:
         return list(d.OUTPUT_DATE_OPS) if output else [o for o in d.FILTER_OPS[DATE] if o not in d.RELATIVE]
     return list(d.FILTER_OPS[column.type])
-
-
-def measure_choices(columns: list[Column]) -> list[tuple[str, str | None, str]]:
-    """(fn, column id, label) for every valid measure: "Count of rows", then per column in column order."""
-    out = [(d.COUNT, None, "Count of rows")]
-    for c in columns:
-        for fn in d.MEASURE_FNS:
-            if c.type in d.MEASURE_TYPES[fn]:
-                out.append((fn, c.id, f"{d.FN_NAMES[fn]} of {c.name}"))
-    return out
 
 
 def parse_typed_date(text: str) -> str | None:
@@ -287,39 +279,6 @@ class GroupRow(_Row):
         return Group(col.id, None if grain == "day" else grain)
 
 
-class MeasureRow(_Row):
-    def __init__(self, columns: list[Column], m: Measure | None = None, parent=None):
-        super().__init__(parent)
-        self.choices = measure_choices(columns)
-        self.measure = QComboBox(self)
-        self.measure.setAccessibleName("Measure")
-        for _fn, _cid, label in self.choices:
-            self.measure.addItem(label)
-        if m is not None:
-            for i, (fn, cid, _label) in enumerate(self.choices):
-                if (fn, cid) == (m.fn, m.column_id):
-                    self.measure.setCurrentIndex(i)
-                    break
-        self.label = QLineEdit(m.label or "" if m else "", self)
-        self.label.setAccessibleName("Measure name")
-        self._placeholder()
-        as_ = QLabel("as", self)
-        as_.setProperty("kind", "small")
-        self.lay.addWidget(self.measure, 4)
-        self.lay.addWidget(as_)
-        self.lay.addWidget(self.label, 3)
-        self.lay.addWidget(self._remove_button("measure"))
-        self.measure.currentIndexChanged.connect(lambda _i: (self._placeholder(), self.changed.emit()))
-        self.label.textEdited.connect(lambda _t: self.changed.emit())
-
-    def _placeholder(self) -> None:
-        self.label.setPlaceholderText(self.measure.currentText())
-
-    def value(self) -> Measure:
-        fn, cid, _label = self.choices[self.measure.currentIndex()]
-        return Measure(cid, fn, self.label.text().strip() or None)
-
-
 class _Section(QWidget):
     def __init__(self, title: str, add: str, parent=None):
         super().__init__(parent)
@@ -352,7 +311,8 @@ class DefinitionBuilder(QWidget):
         lay.setSpacing(20)
         self.filters = _Section("Filters (all must match)", "Add filter", self)
         self.groups = _Section("Group by", "Add level", self)
-        self.measures = _Section("Measures", "Add measure", self)
+        self.measures = MeasuresSection(self.columns, self)
+        self.measures.changed.connect(self._measures_changed)
         for s in (self.filters, self.groups, self.measures):
             lay.addWidget(s)
         self.subtotals = QCheckBox("Show subtotals", self)
@@ -361,7 +321,25 @@ class DefinitionBuilder(QWidget):
         lay.addStretch(1)
         self.filters.add.clicked.connect(lambda: self.add_filter())
         self.groups.add.clicked.connect(lambda: self.add_group())
-        self.measures.add.clicked.connect(lambda: self.add_measure())
+        self._subtotals_enabled()
+
+    def _measures_changed(self) -> None:
+        self._subtotals_enabled()
+        self.changed.emit()
+
+    def _subtotals_enabled(self) -> None:
+        """No measures, no subtotal rows (MEA-11, T39): Show subtotals is disabled."""
+        on = bool(self.measures.cards)
+        self.subtotals.setEnabled(on)
+        self.subtotals.setToolTip("" if on else "Add a measure to show subtotals")
+
+    def set_sections(self, *, filters: bool = True, groups: bool = True, measures: bool = True,
+                     subtotals: bool = True) -> None:
+        """Which sections show (the Rows view shows filters only, A2-5)."""
+        self.filters.setVisible(filters)
+        self.groups.setVisible(groups)
+        self.measures.setVisible(measures)
+        self.subtotals.setVisible(subtotals)
 
     # ------------------------------------------------------------------------------------------ rows
     def _add(self, section: _Section, row: _Row) -> _Row:
@@ -375,6 +353,7 @@ class DefinitionBuilder(QWidget):
         return row
 
     def _remove(self, section: _Section, row: _Row) -> None:
+        self.measures.clear_errors()
         section.rows.remove(row)
         section.rows_lay.removeWidget(row)
         row.deleteLater()
@@ -405,27 +384,45 @@ class DefinitionBuilder(QWidget):
 
     def add_group(self, g: Group | None = None, emit: bool = True) -> GroupRow:
         row = self._add(self.groups, GroupRow(self.columns, g, self))
+        self.measures.clear_errors()
         if emit:
             self.changed.emit()
         return row
 
-    def add_measure(self, m: Measure | None = None, emit: bool = True) -> MeasureRow:
-        row = self._add(self.measures, MeasureRow(self.columns, m, self))
+    def add_card(self, column_id: str, fns: tuple[str, ...] = (), emit: bool = True) -> MeasureCardWidget:
+        """A measure card with ``fns`` ticked (as + Add column, then ticking chips)."""
+        card = self.measures.add_card(column_id, [Op(fn) for fn in fns])
+        self._subtotals_enabled()
         if emit:
             self.changed.emit()
-        return row
+        return card
+
+    def add_measure(self, m: FlatMeasure, emit: bool = True) -> MeasureCardWidget:
+        """Tick one operation (with its name), adding the column's card when it has none."""
+        card = self.measures.card_for(m.column_id) or self.measures.add_card(m.column_id)
+        card.chips[m.fn].blockSignals(True)
+        card.chips[m.fn].setChecked(True)
+        card.chips[m.fn].blockSignals(False)
+        card.names[m.fn] = m.name
+        self._subtotals_enabled()
+        if emit:
+            self.changed.emit()
+        return card
 
     # ------------------------------------------------------------------------------------------ value
     def clear(self) -> None:
-        for s in (self.filters, self.groups, self.measures):
+        for s in (self.filters, self.groups):
             for r in list(s.rows):
                 s.rows_lay.removeWidget(r)
                 r.deleteLater()
             s.rows = []
+        self.measures.clear()
+        self._subtotals_enabled()
 
     def set_definition(self, definition: Definition, columns: list[Column] | None = None) -> None:
         if columns is not None:
             self.columns = [c for c in columns if not c.removed]
+            self.measures.columns = list(self.columns)
         self.template_id = definition.template_id
         with QSignalBlocker(self):
             self.clear()
@@ -433,26 +430,48 @@ class DefinitionBuilder(QWidget):
                 self.add_filter(f, emit=False)
             for g in definition.groups:
                 self.add_group(g, emit=False)
-            for m in definition.measures:
-                self.add_measure(m, emit=False)
+            with QSignalBlocker(self.measures):
+                self.measures.set_cards(definition.measures)
+            self._subtotals_enabled()
             self.subtotals.setChecked(definition.subtotals)
 
     def definition(self) -> Definition:
         """The settings as a definition. Raises ``DefinitionError`` for a value that can't be read (a date)."""
         return Definition(self.template_id, [r.value() for r in self.filters.rows],
-                          [r.value() for r in self.groups.rows], [r.value() for r in self.measures.rows],
+                          [r.value() for r in self.groups.rows], self.measures.value(),
                           self.subtotals.isChecked())
+
+    def problem(self) -> tuple[str, int | None, str] | None:
+        """Checks 3 and 4 (Tech spec A2 9.2), shown under their section; None when there is none."""
+        try:
+            defn = self.definition()
+        except d.DefinitionError:
+            return None
+        p = d.first_problem(defn, self.columns)
+        if p is not None:
+            self.measures.show_problem(*p)
+        return p
+
+    def rename(self, flat_index: int, name: str | None) -> None:
+        """A result header renamed (MEA-8): the name goes with the op while it stays ticked."""
+        flat = d.flat_measures(self.definition())
+        if 0 <= flat_index < len(flat):
+            m = flat[flat_index]
+            self.measures.set_name(m.column_id, m.fn, name)
 
     def summary(self) -> str:
         """"2 groups · 3 measures" for the outputs list."""
-        from sankalan.formats import count
-        return f"{count(len(self.groups.rows), 'group')} · {count(len(self.measures.rows), 'measure')}"
+        return _summary(len(self.groups.rows), sum(len(c.ticked()) for c in self.measures.cards))
+
+
+def _summary(groups: int, measures: int) -> str:
+    from sankalan.formats import count
+    return f"{count(groups, 'group')} · {count(measures, 'measure')}"
 
 
 def definition_summary(definition: dict) -> str:
-    from sankalan.formats import count
-    return (f"{count(len(definition.get('groups') or []), 'group')} · "
-            f"{count(len(definition.get('measures') or []), 'measure')}")
+    return _summary(len(definition.get("groups") or []),
+                    sum(len(c.get("ops") or []) for c in definition.get("measures") or []))
 
 
-NEW_OUTPUT = Definition("", [], [], [Measure(None, d.COUNT, None)], False)
+NEW_OUTPUT = Definition("", [], [], [MeasureCard(d.ROWS, [Op(d.COUNT)])], False)

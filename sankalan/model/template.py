@@ -182,11 +182,11 @@ def next_column_id(columns: list[Column]) -> str:
 
 
 def definition_columns(definition: dict) -> set[str]:
-    """Column IDs a definition uses in its filters, groups or measures."""
+    """Column IDs a definition uses in its filters, groups or measure cards (the Rows card uses none)."""
     out = set()
     for key in ("filters", "groups", "measures"):
         for item in definition.get(key) or []:
-            if item.get("column_id"):
+            if item.get("column_id") and item["column_id"] != "_rows":
                 out.add(item["column_id"])
     return out
 

@@ -394,14 +394,14 @@ def template(client_id: str):
     """TPL-R as a ``Template``: type rules on Taxable Value and Invoice Date set to Warning, Character pattern on
     Invoice No (Error), one default output "Latest month by State" (relative date filter, AC-TXT-9)."""
     from sankalan.model import definition as d
-    from sankalan.model.definition import Definition, Filter, Group, Measure
+    from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
     from sankalan.model.rule import IS_DATE, IS_NUMBER, PATTERN as PATTERN_RULE, WARNING, Rule, with_type_rules
     from sankalan.model.template import Column, DefaultOutput, SourceSettings, Template
     cols = [Column(i, name, typ, dec, fmt, totals_check=tot) for i, name, typ, dec, fmt, tot in COLUMNS]
     rules = [Rule("c006.type", "c006", IS_NUMBER, {}, WARNING), Rule("c002.type", "c002", IS_DATE, {}, WARNING),
              Rule("r1", "c001", PATTERN_RULE, {"pattern": PATTERN})]
     do1 = Definition("", [Filter("c002", d.LATEST_MONTH)], [Group("c005")],
-                     [Measure(None, d.COUNT), Measure("c006", d.SUM)])
+                     cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure("c006", d.SUM)))
     return Template("", client_id, "Sales Register R", SourceSettings(sheets="all"), cols,
                     with_type_rules(cols, rules), [DefaultOutput("Latest month by State", do1.to_dict())],
                     {"pattern": "{Client}_{Template}_{RunID}_{Output}", "delimiter": ",", "encoding": "utf-8-sig"})

@@ -13,7 +13,7 @@ from sankalan import analyses, manage, runs
 from sankalan.jobs import JobState
 from sankalan.model import definition as d
 from sankalan.model import export as ex
-from sankalan.model.definition import Definition, Group, Measure
+from sankalan.model.definition import Definition, Group, FlatMeasure, cards
 from sankalan.model.rule import IS_DATE, IS_NUMBER, NOT_BLANK, Rule
 from sankalan.query import catalogue as q
 from sankalan.query import convert
@@ -236,8 +236,8 @@ def test_analysis_over_runs_with_and_without_checks(tmp_path, tpl_n_small):
         b = commit_unchecked(s, sess, "Text values left out")
         assert q.run_details(s.con, b.run_id)["checks"] is True
         t = q.load_template(s.con, tid)
-        defn = Definition(tid, [], [Group(STATE)], [Measure(None, d.COUNT), Measure(TAXABLE, d.SUM),
-                                                    Measure(DATE_, d.COUNT)])
+        defn = Definition(tid, [], [Group(STATE)], cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure(TAXABLE, d.SUM),
+                                                    FlatMeasure(DATE_, d.COUNT)))
 
         def rows_of(*ids):
             def work(ctx):

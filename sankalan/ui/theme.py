@@ -181,6 +181,12 @@ QPushButton[kind="destructive"]:disabled {{ background: {DISABLED_BG}; color: {D
 QPushButton[kind="plain"] {{ border: 0; background: transparent; color: {TEAL_DARK}; font-weight: 500; }}
 QPushButton[kind="plain"]:hover {{ background: {TINT}; }}
 QPushButton[kind="plain"]:disabled {{ color: {DISABLED_TEXT}; }}
+QPushButton[kind="op"] {{ min-height: 24px; max-height: 24px; padding: 0 12px; border-radius: 13px;
+    font-size: {GRID_TEXT_PX}px; border: 1px solid {INPUT_BORDER}; background: {WHITE}; color: {MUTED_2}; }}
+QPushButton[kind="op"]:hover {{ background: {HEADER_BG}; }}
+QPushButton[kind="op"]:checked {{ border: 1px solid {TEAL}; background: {TINT}; color: {TEAL}; font-weight: 500; }}
+#MeasureCard {{ border: 1px solid {BORDER}; border-radius: 6px; background: {WHITE}; }}
+#MeasureCard[error="true"] {{ border: 1px solid {ERROR}; }}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox {{ min-height: 34px; border: 1px solid {INPUT_BORDER};
     border-radius: 6px; padding: 0 10px; background: {WHITE}; font-size: {BODY_PX}px;

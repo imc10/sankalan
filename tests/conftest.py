@@ -399,14 +399,14 @@ OVERRIDE_REASON = "Client confirmed errors; revised file next month"
 def tpl_a_template(client_id: str):
     """TPL-A with its two default outputs DO1 and DO2 (Test Cases, Reference templates)."""
     from sankalan.model import definition as d
-    from sankalan.model.definition import Definition, Filter, Group, Measure
+    from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
     from sankalan.model.rule import with_type_rules
     from sankalan.model.template import DefaultOutput, Template
     cols = tpl_a_columns()
-    do1 = Definition("", [], [Group("c005")], [Measure("c006", d.SUM, "Taxable"), Measure("c008", d.SUM, "Tax"),
-                                               Measure("c001", d.COUNT, "Invoices")])
+    do1 = Definition("", [], [Group("c005")], cards(FlatMeasure("c006", d.SUM, "Taxable"), FlatMeasure("c008", d.SUM, "Tax"),
+                                               FlatMeasure("c001", d.COUNT, "Invoices")))
     do2 = Definition("", [Filter("c002", d.LATEST_MONTH)], [Group("c002", "month"), Group("c007")],
-                     [Measure("c006", d.SUM)], subtotals=True)
+                     cards(FlatMeasure("c006", d.SUM)), subtotals=True)
     return Template("", client_id, "Sales Register", tpl_a_settings(), cols, with_type_rules(cols, tpl_a_rules()),
                     [DefaultOutput("State-wise sales", do1.to_dict()),
                      DefaultOutput("Latest month by GST rate", do2.to_dict())],

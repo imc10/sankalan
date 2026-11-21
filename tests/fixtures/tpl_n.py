@@ -198,10 +198,10 @@ def template(client_id: str):
     """TPL-N as a ``Template``: TPL-R's columns, no user rules, Check data before loading = No, all visible sheets,
     one default output "Taxable by State"."""
     from sankalan.model import definition as d
-    from sankalan.model.definition import Definition, Group, Measure
+    from sankalan.model.definition import Definition, Group, FlatMeasure, cards
     from sankalan.model.template import Column, DefaultOutput, SourceSettings, Template
     cols = [Column(i, name, typ, dec, fmt, totals_check=tot) for i, name, typ, dec, fmt, tot in tpl_r.COLUMNS]
-    do1 = Definition("", [], [Group("c005")], [Measure(None, d.COUNT), Measure("c006", d.SUM)])
+    do1 = Definition("", [], [Group("c005")], cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure("c006", d.SUM)))
     return Template("", client_id, "Purchase Register N", SourceSettings(sheets="all"), cols, [],
                     [DefaultOutput("Taxable by State", do1.to_dict())],
                     {"pattern": "{Client}_{Template}_{RunID}_{Output}", "delimiter": ",", "encoding": "utf-8-sig"},

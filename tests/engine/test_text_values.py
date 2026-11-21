@@ -10,7 +10,7 @@ import pytest
 
 from conftest import run_job, spec
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 from sankalan.model.rule import (ALLOWED_VALUES, DATE_RANGE, NOT_BLANK, NUMBER_RANGE, UNIQUE, Rule)
 from sankalan.query import catalogue as q
 from sankalan.query import convert, layer
@@ -44,7 +44,7 @@ def result(r, definition, *runs):
 
 
 def total(r, *measures, filters=(), runs=(1,)):
-    _rows, t = result(r, Definition("", list(filters), [], list(measures)), *runs)
+    _rows, t = result(r, Definition("", list(filters), [], cards(*measures)), *runs)
     return t
 
 
@@ -114,28 +114,28 @@ def test_totals_check_passes_with_text(r):
 @spec("AC-TXT-2", "TXT-9", "T13")
 def test_sum_avg_min_max_use_numbers_only(r):
     m = r["m"].run(1)
-    got = total(r, Measure(TAXABLE, d.SUM), Measure(TAXABLE, d.AVG), Measure(TAXABLE, d.MIN), Measure(TAXABLE, d.MAX))
+    got = total(r, FlatMeasure(TAXABLE, d.SUM), FlatMeasure(TAXABLE, d.AVG), FlatMeasure(TAXABLE, d.MIN), FlatMeasure(TAXABLE, d.MAX))
     avg = (Decimal(m.taxable_sum) / m.taxable_count).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     assert got == (Decimal(m.taxable_sum), avg, Decimal(m.taxable_min), Decimal(m.taxable_max))
     m2 = r["m"].run(2)
-    got = total(r, Measure(DATE_, d.MIN), Measure(DATE_, d.MAX), runs=(2,))
+    got = total(r, FlatMeasure(DATE_, d.MIN), FlatMeasure(DATE_, d.MAX), runs=(2,))
     assert got == (dt.date.fromisoformat(m2.date_min), dt.date.fromisoformat(m2.date_max))
 
 
 @spec("AC-TXT-3", "TXT-8", "TXT-9", "D70")
 def test_count_counts_text_distinct_does_not(r):
     m1, m2 = r["m"].run(1), r["m"].run(2)
-    assert total(r, Measure(TAXABLE, d.COUNT)) == (m1.taxable_count + 16,)
-    assert total(r, Measure(DATE_, d.COUNT), Measure(DATE_, d.COUNT_DISTINCT), runs=(2,)) == \
+    assert total(r, FlatMeasure(TAXABLE, d.COUNT)) == (m1.taxable_count + 16,)
+    assert total(r, FlatMeasure(DATE_, d.COUNT), FlatMeasure(DATE_, d.COUNT_DISTINCT), runs=(2,)) == \
         (m2.date_count + 5, m2.date_distinct)
-    assert total(r, Measure(None, d.COUNT)) == (2500,)
+    assert total(r, FlatMeasure(d.ROWS, d.COUNT)) == (2500,)
 
 
 # ---------------------------------------------------------------------------------------------- filters
 @spec("AC-TXT-4", "TXT-5", "TXT-6", "TXT-7", "TXT-8", "T55")
 def test_filters(r):
     m1, m2 = r["m"].run(1), r["m"].run(2)
-    rows = Measure(None, d.COUNT)
+    rows = FlatMeasure(d.ROWS, d.COUNT)
     assert total(r, rows, filters=[Filter(TAXABLE, d.NOT_NUMBER)]) == (16,)
     assert total(r, rows, filters=[Filter(DATE_, d.NOT_DATE)], runs=(2,)) == (5,)
     assert total(r, rows, filters=[Filter(TAXABLE, d.BLANK)]) == (m1.taxable_blank,)
@@ -169,16 +169,16 @@ def _groups(rows):
 @spec("AC-TXT-5", "TXT-10", "T42")
 def test_text_group_separate_from_null(r):
     m1, m2 = r["m"].run(1), r["m"].run(2)
-    rows, tot = result(r, Definition("", [], [Group(TAXABLE)], [Measure(None, d.COUNT)]), 1)
+    rows, tot = result(r, Definition("", [], [Group(TAXABLE)], cards(FlatMeasure(d.ROWS, d.COUNT))), 1)
     g = _groups(rows)
     assert g[d.TEXT_GROUP] == 16 and g[None] == m1.taxable_blank
     assert sum(g.values()) == tot[0] == 2500
     for grain in ("month", "year", "day"):
-        rows, tot = result(r, Definition("", [], [Group(DATE_, grain)], [Measure(None, d.COUNT)]), 2)
+        rows, tot = result(r, Definition("", [], [Group(DATE_, grain)], cards(FlatMeasure(d.ROWS, d.COUNT))), 2)
         g = _groups(rows)
         assert g[d.TEXT_GROUP] == 5 and g[None] == m2.date_blank and sum(g.values()) == 2437
     # two levels: the text group of the first level keeps its own subtotal
-    defn = Definition("", [], [Group(TAXABLE), Group(STATE)], [Measure(None, d.COUNT)], subtotals=True)
+    defn = Definition("", [], [Group(TAXABLE), Group(STATE)], cards(FlatMeasure(d.ROWS, d.COUNT)), subtotals=True)
 
     def work(ctx):
         res = layer.run_definition(ctx.cursor(), defn, r["cols"], [r["data"][1]])
@@ -196,7 +196,7 @@ def test_text_group_separate_from_null(r):
 @pytest.mark.parametrize("descending", [False, True])
 def test_sort_values_then_text_then_null(r, descending, subtotals):
     for col, grain, k in ((TAXABLE, None, 1), (DATE_, "month", 2), (DATE_, None, 2)):
-        defn = Definition("", [], [Group(col, grain), Group(STATE)], [Measure(None, d.COUNT)], subtotals=subtotals)
+        defn = Definition("", [], [Group(col, grain), Group(STATE)], cards(FlatMeasure(d.ROWS, d.COUNT)), subtotals=subtotals)
 
         def work(ctx):
             res = layer.run_definition(ctx.cursor(), defn, r["cols"], [r["data"][k]])
@@ -230,7 +230,7 @@ def test_latest_month_uses_real_dates_and_leaves_text_out(r):
     s = r["s"]
     m2 = r["m"].run(2)
     o = q.run_outputs(s.con, r["runs"][2])[0]
-    assert o.headers == ["State", "Count of rows", "Sum of Taxable Value"]
+    assert o.headers == ["State", "Rows · Count", "Taxable Value · Sum"]
     path = s.folder.run_dir(r["tid"], r["runs"][2]) / o.file
 
     def work(ctx):
@@ -290,3 +290,14 @@ def test_data_parquet_in_stored_order(r):
         assert bad == 0
     files = independent(r, "SELECT list(DISTINCT _src_sheet ORDER BY _src_sheet) FROM {f}", 3)
     assert files == ["", "Sales A", "Sales B"]                        # Source Sheet is blank for CSV rows
+
+
+# ---------------------------------------------------------------------------------------------- Rows card (A2-4)
+@spec("AC-MEA-10", "MEA-10")
+def test_rows_count_against_column_count(r):
+    m3 = r["m"].run(3)
+    assert m3.no_invoice_no == 400
+    assert total(r, FlatMeasure(d.ROWS, d.COUNT), FlatMeasure(INV, d.COUNT), runs=(3,)) == \
+        (m3.rows_loaded, m3.rows_loaded - 400)
+    rows, tot = result(r, Definition("", [], [Group(STATE)], cards(FlatMeasure(d.ROWS, d.COUNT))), 3)
+    assert len(rows) > 1 and sum(x[2] for x in rows) == tot[0] == m3.rows_loaded
