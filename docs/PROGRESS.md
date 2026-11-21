@@ -65,6 +65,10 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | A2 Choose sheets file types (SHT-2) | .xlsx, .xlsm, .xlsb and .xls (T46) | Confirmed 21-11-2026 | A2-3 |
 | A2 P8 / OA-5 text groups in sorts (TXT-11) | Values first in the chosen direction, then "(Not a number)" / "(Not a date)", then "(Null)", both directions | Confirmed 21-11-2026 | A2-1 |
 | A2 blank rows without checks (NCK-4) | Rows read includes blank rows; Rows left out "None"; "Blank rows skipped: N" line at Load, Commit and Run summary (T45) | Confirmed 21-11-2026 | A2-2 |
+| A2 small fixture figures (plan A2-O1) | TPL-R small: R-0001 Taxable Value text 10 "NA" / 5 "Nil" / 1 "12,000/-" (16); R-0002 Invoice Date 3 "NA" / 2 "31-02-2026" (5); 63 left out; R-0003 400 rows without Invoice No; rows searched 7,437. TPL-N small: 2 × 5,000 rows, 20 repeated, 68 / 12 text values, 3 blank rows. Full sizes as Feature Spec A2 §10.1 | Confirmed 21-11-2026 | A2-1, A2-2 |
+| A2 perf test-case IDs (plan A2-O2) | `A2-PERF-07`…`A2-PERF-14` in `test-cases.md` (v2.0 already uses PERF-07/PERF-08), feature ID in the Spec column | Confirmed 21-11-2026 | A2-6 |
+| A2 perf machine (plan A2-O3) | Dev PC with DuckDB pinned to 4 threads and 8 GB memory limit, 3 reader workers; the 16 GB 4-core laptop run stays a manual release step (T4) | Confirmed 21-11-2026 | A2-6 |
+| A2 pre-A2 comparison point (plan A2-O4) | Temporary git worktree at `25f4d98` for the PERF-1/PERF-2 and Probe before/after (R13, R14) | Confirmed 21-11-2026 | A2-6 |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -97,7 +101,7 @@ Newest first. One entry per session: date, phase, what was done, deviations from
 - **As the user asked:** no phase before A2-6 runs performance tests. The PERF-1/PERF-2 baselines that Tech spec
   §16 put in A2-0 move to A2-6: they are measured on a worktree at `25f4d98` (pre-A2) against the A2 build. Any
   missed target is shown to the user, who decides whether to proceed.
-- **Proposed, to confirm before the phase that needs them** (plan → Open items): small fixture figures (A2-O1); A2
+- **Confirmed by the user the same day** (plan → Settled items, and Decisions above): small fixture figures (A2-O1); A2
   perf test-case IDs `A2-PERF-07…14`, because `test-cases.md` already uses PERF-07/PERF-08 for v2.0 (A2-O2); dev PC
   pinned to 4 threads / 8 GB for perf (A2-O3); worktree at `25f4d98` for before/after (A2-O4).
 - Found while planning: start-up has no data-folder chooser today (`app._failed` closes the app), so the T40

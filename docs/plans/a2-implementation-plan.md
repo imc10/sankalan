@@ -91,7 +91,7 @@ of cells are blank, except Invoice No. Some text values contain commas, double q
 Each run has one `.xlsx` with two sheets and one or more CSV files, so stored order crosses files and sheets, and
 Source Sheet is blank for CSV rows.
 
-| Figure | Full (slow / perf) | Small (normal suite) **proposed** |
+| Figure | Full (slow / perf) | Small (normal suite) |
 | --- | --- | --- |
 | Rows per run (R-0001, R-0002, R-0003) | 2,500,000 each | 2,500 each |
 | R-0001 Taxable Value text: "NA" / "Nil" / "12,000/-" | 1,000 / 500 / 10 (1,510) | 10 / 5 / 1 (16) |
@@ -107,7 +107,7 @@ A module fixture commits R-0001…R-0003 through the real `RunSession` pipeline,
 
 TPL-R's 20 columns, Check data before loading = No, 2 CSV files.
 
-| Figure | Full | Small **proposed** |
+| Figure | Full | Small |
 | --- | --- | --- |
 | Rows per file | 500,000 | 5,000 |
 | Rows repeated exactly | 2,000 | 20 |
@@ -645,14 +645,16 @@ section).
 6. Update `docs/PROGRESS.md`: status, what changed, interpretations, deviations, Not verified, next. Then commit on
    `Feature-Updates` with the attribution lines.
 
-## Open items (to confirm before the phase that needs them)
+## Settled items
 
-| # | Item | Proposed | Needed by |
+Confirmed by the user on 21-11-2026 (also in `docs/PROGRESS.md` → Decisions).
+
+| # | Item | Decision | Needed by |
 | --- | --- | --- | --- |
-| A2-O1 | Small fixture figures (TPL-R 16 / 5 / 63 / 400 / 7,437; TPL-N 68 / 12 / 20 / 3) | As in Test data | A2-1, A2-2 |
-| A2-O2 | Test-case IDs for PERF-7…14: `test-cases.md` already has PERF-07 (Responsiveness) and PERF-08 (Disk use) for v2.0, which clash with A2's PERF-7 and PERF-8 | Name the A2 cases **A2-PERF-07…A2-PERF-14**, with the feature ID in the Spec column | A2-6 |
-| A2-O3 | Performance machine | Dev PC with DuckDB pinned to 4 threads and 8 GB; laptop run as a manual release step | A2-6 |
-| A2-O4 | Pre-A2 comparison point for R13/R14 | Worktree at `25f4d98` | A2-6 |
+| A2-O1 | Small fixture figures (TPL-R 16 / 5 / 63 / 400 / 7,437; TPL-N 68 / 12 / 20 / 3) | **Confirmed:** as in Test data | A2-1, A2-2 |
+| A2-O2 | Test-case IDs for PERF-7…14: `test-cases.md` already has PERF-07 (Responsiveness) and PERF-08 (Disk use) for v2.0, which clash with A2's PERF-7 and PERF-8 | **Confirmed:** name the A2 cases **A2-PERF-07…A2-PERF-14**, with the feature ID in the Spec column | A2-6 |
+| A2-O3 | Performance machine | **Confirmed:** dev PC with DuckDB pinned to 4 threads and 8 GB; laptop run as a manual release step | A2-6 |
+| A2-O4 | Pre-A2 comparison point for R13/R14 | **Confirmed:** worktree at `25f4d98` | A2-6 |
 
 ## Risks carried into the plan
 
