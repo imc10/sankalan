@@ -708,3 +708,37 @@ def test_mapping_run_only_and_release():
     plan.leave_null(INV, 0)                                     # the header goes back to the extras
     assert plan.first_undecided() == ("extra", 0, 0)
     assert plan.null_warnings(INV) == ['Default output "DO" will show these rows as (Null).']
+
+
+# ---------------------------------------------------------------------------------------------- A2-1
+@spec("T50", "MEA-9", "DO-6", "AC-TXT-8")
+def test_stored_output_headers_survive_a_column_rename(tmp_path, fixtures_dir):
+    """run_output.headers holds the headers at commit (T50): renaming a template column afterwards changes neither
+    the stored headers nor what the Run screen and its exports show; a new run uses the new name."""
+    from conftest import commit_tpl_a_run, tpl_a_template
+    from sankalan import runs
+    s = open_storage(tmp_path)
+    try:
+        acme = q.insert_client(s.con, "Acme Traders")
+        tid = q.create_template(s.con, tpl_a_template(acme))
+        r1 = commit_tpl_a_run(s, tid, fixtures_dir, "Sales_Oct.xlsx")
+        stored = q.run_outputs(s.con, r1.run_id)
+        assert [o.headers for o in stored] == [["State", "Taxable", "Tax", "Invoices"],
+                                              ["Invoice Date", "GST Rate", "Sum of Taxable Value"]]
+        t = q.load_template(s.con, tid)
+        for cid, new, old in ((STATE, "Region", "State"), (TAXABLE, "Taxable Amt", "Taxable Value")):
+            col = next(c for c in t.columns if c.id == cid)
+            col.name, col.aliases = new, [*col.aliases, old]     # the files keep the old headers
+        q.save_template(s.con, t)
+        assert [o.headers for o in q.run_outputs(s.con, r1.run_id)] == [o.headers for o in stored]
+        cols = q.load_template(s.con, tid).columns
+        o = stored[1]
+        path = s.folder.run_dir(tid, r1.run_id) / o.file
+        shown = run_job(s.runner, lambda ctx: runs.stored_output(ctx, o.definition, cols, path, headers=o.headers))
+        assert shown.headers == ["Invoice Date", "GST Rate", "Sum of Taxable Value"]
+        r2 = commit_tpl_a_run(s, tid, fixtures_dir, "Sales_Nov.xlsx")
+        assert [o.headers for o in q.run_outputs(s.con, r2.run_id)][1] == ["Invoice Date", "GST Rate",
+                                                                           "Sum of Taxable Amt"]
+        assert q.run_details(s.con, r1.run_id)["text_counts"] == {"c002": 0, "c006": 0, "c007": 0, "c008": 0}
+    finally:
+        s.close()

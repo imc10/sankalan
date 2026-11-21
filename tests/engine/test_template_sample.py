@@ -104,8 +104,14 @@ def test_type_detection(storage, fixtures_dir):
     det = [nt.detect(c.profile) for c in st.columns]
     assert [(x.type, x.date_format) for x in det] == [(TEXT, None), (NUMBER, None), (NUMBER, None),
                                                       (DATE, "DD-MM-YYYY"), (DATE, "DD/MM/YYYY"), (TEXT, None)]
-    assert det[1].note == "90.9% numbers" and not det[1].exact
-    assert det[3].note == "84.61% dates · DD-MM-YYYY"
+    assert det[1].note == "90.9% numbers · 9.09% aren't numbers and are kept as text" and not det[1].exact
+    assert det[3].note == "84.61% dates · DD-MM-YYYY · 15.38% aren't dates and are kept as text"
+    # AC-TXT-10 (Feature Spec A2 6.2, Tech spec A2 5.9): the share kept as text
+    assert nt.detect(Profile(total=100, filled=100, numbers=98)).note == (
+        "98% numbers · 2% aren't numbers and are kept as text")
+    assert nt.detect(Profile(total=100, filled=100, iso_shaped=0, shaped={"DD-MM-YYYY": 100},
+                             dates={"DD-MM-YYYY": 97})).note == (
+        "97% dates · DD-MM-YYYY · 3% aren't dates and are kept as text")
     assert nt.detect(Profile(total=10, filled=1, samples=["x"])).note == "90% blank"
     assert nt.detect(Profile(total=10, filled=0)).note == "100% blank"
     assert nt.percent(9998, 10000) == "99.98%" and nt.percent(99999, 100000) == "99.99%"

@@ -11,7 +11,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QLabel
 
-from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, settle_window, spec, tpl_a_template
 from sankalan import analyses, exporting
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, Filter, Group, Measure
@@ -28,10 +28,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=30_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(scope="module")
@@ -811,3 +808,68 @@ def test_analysis_export_with_subtotals(win, qtbot, tmp_path):
     lines = (tmp_path / "by state.csv").read_text(encoding="utf-8").splitlines()
     assert lines[0] == "State,GST Rate,Taxable" and len(lines) == 1 + 24 + 1
     assert "Maharashtra,Total,1865000.00" in lines and lines[-1] == "Grand total,,7536875.00"
+
+
+# ---------------------------------------------------------------------------------------------- A2-1: text values
+@pytest.fixture
+def rwin(app, qtbot, tpl_r_runs):
+    s = tpl_r_runs["s"]
+    w = MainWindow(JobBridge(s.runner), s)
+    w.resize(1366, 768)
+    w.show()
+    yield w
+    w.bridge.wait_all(30)
+    w.bridge.poll()
+    from sankalan.ui.dialogs import base
+    hook, base.answer_hook = base.answer_hook, (lambda _d: "leave")
+    try:
+        w.close()
+    finally:
+        base.answer_hook = hook
+    w.deleteLater()
+
+
+@spec("TXT-6", "TXT-7", "T55", "AC-TXT-1", "AC-TXT-5", "TXT-10")
+def test_text_filters_and_group_labels(rwin, qtbot, tpl_r_runs):
+    assert rwin.go("analysis")
+    settle(qtbot, rwin)
+    sc = rwin.current
+    sc.choose_template("Rao & Co", "Sales Register R")
+    settle(qtbot, rwin)
+    sc.tick(["R-0001", "R-0002"])
+    b = sc.builder
+    b.clear()
+    b.add_filter(Filter("c006", d.NOT_NUMBER))
+    row = b.filters.rows[0]
+    ops = [row.op.itemText(i) for i in range(row.op.count())]
+    assert ops == ["equals", "is between", "is blank", "is not blank", "is not a number"]
+    assert row.help.isVisibleTo(row) and row.help.text() == "Cells with text such as NA or Nil instead of a number"
+    i = row.op.findData(d.NOT_NUMBER)
+    assert row.op.itemData(i, Qt.ItemDataRole.ToolTipRole) == row.help.text()
+    row.op.setCurrentIndex(row.op.findData(d.EQUALS))
+    assert not row.help.isVisibleTo(row)
+    row.op.setCurrentIndex(i)
+    assert b.definition().filters[0].op == d.NOT_NUMBER and b.definition().filters[0].values == []
+    b.add_filter(Filter("c002", d.NOT_DATE))
+    date_row = b.filters.rows[1]
+    assert "is not a date" in [date_row.op.itemText(k) for k in range(date_row.op.count())]
+    assert date_row.help.text() == "Cells with text such as NA instead of a date"
+    # Summary grid: text groups labelled, separate from (Null); counts as the engine's
+    b.clear()
+    b.add_group(Group("c006"))
+    b.add_measure(Measure(None, d.COUNT))
+    run(qtbot, sc)
+    got = {r[0]: r[1] for r in rows(qtbot, sc)}
+    m1, m2 = tpl_r_runs["m"].run(1), tpl_r_runs["m"].run(2)
+    assert got["(Not a number)"] == "16" and got["(Null)"] == str(m1.taxable_blank + m2.taxable_blank)
+    b.clear()
+    b.add_group(Group("c002", "month"))
+    b.add_measure(Measure(None, d.COUNT))
+    run(qtbot, sc)
+    got = rows(qtbot, sc)
+    assert [r[0] for r in got] == ["Oct-2026", "Nov-2026", "(Not a date)", "(Null)"]
+    assert got[2][1] == "5"
+    assert analyses.describe(Definition("", [Filter("c006", d.NOT_NUMBER), Filter("c002", d.NOT_DATE)], [],
+                                        [Measure(None, d.COUNT)]),
+                             sc.data.template.columns)["Filters"] == ["Taxable Value is not a number",
+                                                                     "Invoice Date is not a date"]

@@ -11,6 +11,10 @@ can't write to the folder the user chose); ``sankalan.exporting`` then streams i
 | Left-out rows     | The same + Reason ("Invoice No: Character pattern; Taxable Value: Is a number")      |
 | Issue list        | File, Sheet, Row, Column, Value, Rule, Severity, Message (ISS-3)                     |
 | Output / analysis | Group columns + measures; subtotal rows when shown; the grand total last             |
+
+A Number or Date cell holding text exports the text as typed (Feature Spec A2 TXT-4; one expression, Tech spec A2
+5.3), quoted by DuckDB where CSV needs it. A run's data and left-out rows come in stored order (``ORDER BY
+_src_file, _src_row``, T32). Result exports label the text group "(Not a number)" / "(Not a date)" (TXT-10).
 """
 from __future__ import annotations
 
@@ -22,10 +26,11 @@ from sankalan.model.rule import RULE_NAMES, Rule
 from sankalan.model.template import DATE, NUMBER, Column, active
 from sankalan.query import layer
 from sankalan.query.compiler import COUNT_TYPE, OutColumn
-from sankalan.query.convert import _path, lit
+from sankalan.query.convert import _path, companion, has_companion, lit
 from sankalan.query.validate import present_columns
 
 SOURCE_COLUMNS = ("Source File", "Source Sheet", "Source Row", "Run ID")
+STORED_ORDER = "ORDER BY _src_file, _src_row"      # the order rows were loaded in (T32)
 ISSUE_HEADERS = ("File", "Sheet", "Row", "Column", "Value", "Rule", "Severity", "Message")
 REASON = "Reason"
 
@@ -36,12 +41,24 @@ class ExportQuery:
     sql: str
 
 
-def _text(col: Column, v: str) -> str:
+def _value_text(col: Column, v: str) -> str:
     if col.type == NUMBER:
         return f"CAST({v} AS VARCHAR)"          # DECIMAL(38,d) as text: the column's decimals, no grouping
     if col.type == DATE:
         return f"strftime({v}, '%d-%m-%Y')"
     return v
+
+
+def _text(col: Column, present: set[str]) -> str:
+    """One export column: the value in the export's form, else the text as typed (TXT-4). A column the file
+    doesn't have (added after the run) is empty."""
+    if col.id not in present:
+        return "NULL"
+    value = _value_text(col, col.id)
+    t = companion(col.id)
+    if has_companion(col) and t in present:
+        return f"coalesce({value}, {t})"
+    return value
 
 
 def _case(expr: str, mapping: dict, default: str) -> str:
@@ -59,7 +76,7 @@ def _file_name(file_names: dict[int, str]) -> str:
 def _row_columns(con, path: Path, columns: list[Column], file_names: dict[int, str], run_label: str):
     present = present_columns(con, path)
     cols = active(columns)
-    exprs = [_text(c, c.id) if c.id in present else "NULL" for c in cols]
+    exprs = [_text(c, present) for c in cols]
     exprs += [_file_name(file_names), "_src_sheet", "_src_row", lit(run_label)]
     return [c.name for c in cols] + list(SOURCE_COLUMNS), exprs
 
@@ -68,7 +85,7 @@ def run_data(con, data: Path, columns: list[Column], file_names: dict[int, str],
     """A run's rows (EXP-6). ``columns``: the template's columns; removed ones are left out, ones added after the
     run are empty."""
     headers, exprs = _row_columns(con, data, columns, file_names, run_label)
-    return ExportQuery(headers, f"SELECT {', '.join(exprs)} FROM read_parquet({_path(data)})")
+    return ExportQuery(headers, f"SELECT {', '.join(exprs)} FROM read_parquet({_path(data)}) {STORED_ORDER}")
 
 
 def reason_text(rules: list[Rule], columns: list[Column]) -> dict[str, str]:
@@ -84,7 +101,7 @@ def left_out(con, path: Path, columns: list[Column], file_names: dict[int, str],
     one = _case("x", reason_text(rules, columns), "x")
     reason = f"array_to_string(list_transform(string_split(_reason, ','), lambda x: {one}), '; ')"
     return ExportQuery(headers + [REASON],
-                       f"SELECT {', '.join(exprs + [reason])} FROM read_parquet({_path(path)})")
+                       f"SELECT {', '.join(exprs + [reason])} FROM read_parquet({_path(path)}) {STORED_ORDER}")
 
 
 # ---------------------------------------------------------------------------------------------- issue list
@@ -130,7 +147,9 @@ def result(res: layer.Result, *, subtotals: bool, sort: str | None = None, desce
     groups, measures = res.groups, res.measures
     exprs = []
     for i, g in enumerate(groups, 1):
-        exprs.append(f"(CASE WHEN _depth >= {i} THEN coalesce({_group_text(g)}, {lit(d.NULL_LABEL)}) "
+        label = (f"(CASE k{i} WHEN 1 THEN {lit(d.text_group_label(g.type))} WHEN 2 THEN {lit(d.NULL_LABEL)} "
+                 f"ELSE coalesce({_group_text(g)}, {lit(d.NULL_LABEL)}) END)")
+        exprs.append(f"(CASE WHEN _depth >= {i} THEN {label} "
                      f"WHEN _depth = 0 AND {i} = 1 THEN {lit(d.TOTAL_LABEL)} "
                      f"WHEN _depth = {i - 1} THEN {lit(d.SUBTOTAL_LABEL)} END)")
     exprs += [_measure_text(m) for m in measures]

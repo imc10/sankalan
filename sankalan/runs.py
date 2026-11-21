@@ -128,12 +128,14 @@ class IssueSource:
 
 # ---------------------------------------------------------------------------------------------- outputs (DO-6, DO-7)
 def stored_output(ctx: JobContext, definition: dict, columns: list[Column], path: Path, *,
-                  subtotals: bool | None = None, limit: int = manage.PREVIEW_ROWS) -> manage.Preview:
-    """A generated output read back as stored, never recalculated (DO-6, C6-10): headers, first rows, total."""
+                  subtotals: bool | None = None, limit: int = manage.PREVIEW_ROWS,
+                  headers: list[str] | None = None) -> manage.Preview:
+    """A generated output read back as stored, never recalculated (DO-6, C6-10): headers (those stored at commit,
+    T50, when given), first rows, total."""
     start = time.monotonic()
     defn = Definition.from_dict(definition)
     cur = ctx.cursor()
-    res = layer.open_output(defn, columns, Path(path), cur)
+    res = layer.open_output(defn, columns, Path(path), cur, headers)
     sub = defn.subtotals if subtotals is None else subtotals
     rows = layer.rows(cur, res, subtotals=sub, limit=limit)
     total = layer.grand_total(cur, res)
@@ -236,7 +238,7 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
         items = []
         for o in outs:
             res = layer.open_output(Definition.from_dict(o.definition), view.template.columns, view.run_dir / o.file,
-                                    con)
+                                    con, o.headers)
             sub = Definition.from_dict(o.definition).subtotals if request.subtotals is None else request.subtotals
             name = request.file_name if request.kind == "output" else _output_name(request, o.name)
             items.append((qx.result(res, subtotals=sub), name))

@@ -4,7 +4,7 @@ with the discarded runs in between, as in the Test Cases sheet (RUNF, RUNM, RUNV
 in the Job's thread (``WORKERS = 0``); the reader workers are covered by the ingestion tests."""
 import pytest
 
-from conftest import OVERRIDE_REASON, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, open_storage, settle_window, spec, tpl_a_template
 from sankalan.model.rule import ERROR as SEV_ERROR, WARNING as SEV_WARNING
 from sankalan.model.run import STATUS_OVERRIDE
 from sankalan.query import catalogue as q
@@ -21,10 +21,7 @@ PLENTY = 50 * 1024 ** 3
 
 
 def settle(qtbot, w, timeout=60_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(autouse=True)

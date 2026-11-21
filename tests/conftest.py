@@ -61,6 +61,37 @@ def make_paths(base: Path):
     return AppPaths(base / "LocalAppData" / "Sankalan", base / "Temp" / "Sankalan")
 
 
+def temp_leftovers(temp: Path) -> list[str]:
+    """What a Job left in the app's temp folder besides the open connection's own DuckDB spill files, which stay for
+    temporary tables kept between Jobs (SEC-4 as changed by BUG-1, T54)."""
+    from sankalan.db.storage import own_spill_file
+    return sorted(p.name for p in temp.iterdir() if not own_spill_file(p.name)) if temp.is_dir() else []
+
+
+def version_1_folder(tmp_path):
+    """A data folder as a test build left it: settings.json, a version-1 catalogue, a backup and a run folder."""
+    import hashlib
+
+    import duckdb
+    p = make_paths(tmp_path)
+    data = p.root / "Data"
+    (data / "catalogue-backups").mkdir(parents=True)
+    (data / "t" / "x" / "runs" / "y").mkdir(parents=True)
+    (data / "t" / "x" / "runs" / "y" / "data.parquet").write_bytes(b"PAR1")
+    p.settings_file.parent.mkdir(parents=True, exist_ok=True)
+    p.settings_file.write_text(json.dumps({"data_folder": str(data)}), encoding="utf-8")
+    c = duckdb.connect(str(data / "catalogue.duckdb"))
+    c.execute("CREATE TABLE schema_version (version INTEGER NOT NULL, upgraded_on TIMESTAMP NOT NULL)")
+    c.execute("INSERT INTO schema_version VALUES (1, current_localtimestamp())")
+    c.execute("CREATE TABLE client (id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL, created_on TIMESTAMP NOT NULL)")
+    c.close()
+
+    def snapshot():
+        return {str(f.relative_to(p.root)): (hashlib.sha256(f.read_bytes()).hexdigest() if f.is_file() else "dir")
+                for f in sorted(p.root.rglob("*")) if "Logs" not in f.parts}
+    return p, data, snapshot
+
+
 def open_storage(base: Path):
     from sankalan.db.storage import Storage
     s = Storage(make_paths(base), memory_limit="1GiB", threads=2)
@@ -176,6 +207,32 @@ def app(qapp):
     return qapp
 
 
+def settle_window(qtbot, w, timeout: int = 30_000, extra=None) -> None:
+    """Wait until the window is idle: its bridge tracks no Job, the shared runner is free, and no screen holds a
+    deferred quiet load. Tests share one runner between windows, so a Job started by an earlier test's window (its
+    teardown's "Read clients") can still hold the runner when this window's screen asks for a read. That read is
+    deferred and retried only on this window's own ``jobFinished``, which never comes for the other window's Job,
+    so the deferred reads are retried here once the runner is free. Settling also keeps a test from reading
+    ``storage.con`` on the main thread while a Job still holds the connection (DuckDB raises
+    ``ResourceInUseException`` rather than waiting)."""
+    import shiboken6
+    from sankalan.ui.screens.common import DataScreen
+
+    def idle():
+        if not shiboken6.isValid(w):
+            return True
+        w.bridge.poll()
+        runner = w.bridge.runner
+        if w.bridge._tracked or (runner is not None and runner.busy):
+            return False
+        for sc in w.findChildren(DataScreen):
+            if sc._pending:
+                sc._retry_pending()
+                return False
+        return extra() if extra is not None else True
+    qtbot.waitUntil(idle, timeout=timeout)
+
+
 @pytest.fixture
 def answers():
     """Answer ``ask()`` prompts without showing them: push keys onto the list; each prompt pops the first and
@@ -272,3 +329,82 @@ def commit_tpl_a_run(storage, template_id, fx, name, reason=None, comment=""):
     if job.error is not None:
         raise job.error
     return job.result
+
+
+# ---------------------------------------------------------------------------------------------- TPL-R (A2-1)
+def _tpl_r_files(tmp_path_factory, size):
+    import tpl_r
+    out = tmp_path_factory.mktemp(f"tpl_r_{size}")
+    m = tpl_r.generate(out, size)
+    tpl_r.verify(out, m)
+    return out, m
+
+
+@pytest.fixture(scope="session")
+def tpl_r_small(tmp_path_factory):
+    """TPL-R small (3 × 2,500 rows) generated once per session and verified: (folder, manifest)."""
+    import tpl_r
+    return _tpl_r_files(tmp_path_factory, tpl_r.SMALL)
+
+
+@pytest.fixture(scope="session")
+def tpl_r_full():
+    """TPL-R full (3 × 2,500,000 rows), for ``slow`` tests only: built once into tests/fixtures/_generated and kept
+    there, keyed by a hash of the generator, so later sessions reuse it."""
+    import hashlib
+
+    import tpl_r
+    key = hashlib.sha256(Path(tpl_r.__file__).read_bytes()).hexdigest()[:12]
+    out = ROOT / "tests" / "fixtures" / "_generated" / f"tpl_r_full_{key}"
+    if (out / f"tpl_r_{tpl_r.FULL}.json").is_file():
+        return out, tpl_r.load_manifest(out, tpl_r.FULL)
+    m = tpl_r.generate(out, tpl_r.FULL)
+    tpl_r.verify(out, m)
+    return out, m
+
+
+def commit_tpl_r_runs(storage, fx, manifest, workers=0) -> dict:
+    """TPL-R R-0001…R-0003 through the real pipeline: R-0002's Place of Supply added as a new column (MAP-11) and
+    committed with override (its 63 Character pattern errors left out); R-0003's file without Invoice No left as
+    null (MAP-6). Returns {"client", "tid", "runs": {1: run id, …}}."""
+    import tpl_r
+    from sankalan.query import catalogue as q
+    from sankalan.run.pipeline import RunSession
+    client = q.insert_client(storage.con, "Rao & Co")
+    tid = q.create_template(storage.con, tpl_r.template(client))
+    runs = {}
+    for k in (1, 2, 3):
+        sess = RunSession(storage.folder, q.load_template(storage.con, tid), workers=workers)
+        run_job(storage.runner, lambda ctx: sess.add_files(ctx, [fx / n for n in manifest.files[str(k)]]))
+        plan = sess.files_next()
+        if not plan.skip:
+            while not plan.complete:            # adding a column maps the same header in the other file-sheets
+                kind, a, b = plan.first_undecided()
+                if kind == "extra":
+                    plan.add_column(a, b, tpl_r.PLACE, "Text")
+                else:
+                    assert a == tpl_r.INV, (kind, a, b)
+                    plan.leave_null(a, b)
+            sess.mapping_next()
+        run_job(storage.runner, sess.validate)
+        reason = OVERRIDE_REASON if sess.validation.scan.errors else None
+        run_job(storage.runner, lambda ctx: sess.leave_validate(ctx, reason))
+        if sess.outputs:
+            run_job(storage.runner, sess.run_outputs)
+        run_job(storage.runner, lambda ctx: sess.check_totals(ctx, fault={}))
+        job = storage.runner.run("commit", lambda ctx: sess.commit(ctx, reason or "", free_bytes=10 * 1024 ** 3),
+                                 cancellable=False)
+        if job.error is not None:
+            raise job.error
+        runs[k] = job.result.run_id
+    return {"client": client, "tid": tid, "runs": runs}
+
+
+@pytest.fixture(scope="module")
+def tpl_r_runs(tmp_path_factory, tpl_r_small):
+    """A storage with TPL-R small R-0001…R-0003 committed (module scope; tests only read it)."""
+    fx, m = tpl_r_small
+    s = open_storage(tmp_path_factory.mktemp("tpl_r_runs"))
+    info = commit_tpl_r_runs(s, fx, m)
+    yield {"s": s, "fx": fx, "m": m, **info}
+    s.close()

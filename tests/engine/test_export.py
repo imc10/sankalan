@@ -2,16 +2,18 @@
 Cases sheet's."""
 import csv
 import io
+import re
 import threading
 
 import pytest
 
-from conftest import load_files, open_storage, run_job, spec, tpl_a_columns, tpl_a_rules, tpl_a_settings
+from conftest import load_files, open_storage, run_job, spec, temp_leftovers, tpl_a_columns, tpl_a_rules, tpl_a_settings
 from sankalan import analysis, exporting
 from sankalan.jobs.job import JobState
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, Filter, Group, Measure
 from sankalan.model.export import (DEFAULT_PATTERN, ExportOptions, csv_file_name, fill_pattern, safe_file_name)
+from sankalan.query import catalogue as q
 from sankalan.query import export as qx
 from sankalan.query import layer
 from sankalan.query.split import LEFT_OUT, split
@@ -74,7 +76,7 @@ def test_exp02_run_data_columns_and_formats(env, tmp_path):
     assert all("," not in r[5] and r[5].count(".") == 1 and len(r[5].split(".")[1]) == 2 for r in rows[1:])
     assert all(r[6].isdigit() for r in rows[1:])                                   # GST Rate: 0 decimals
     assert "1000.00" in {r[5] for r in rows[1:]}
-    assert not list(tmp_path.glob("*.part")) and not list(s.paths.temp.glob("*"))
+    assert not list(tmp_path.glob("*.part")) and temp_leftovers(s.paths.temp) == []
 
 
 @spec("EXP-02", "MAP-11")
@@ -114,7 +116,7 @@ def test_exp04_left_out_rows(env, tmp_path):
     assert out.rows == 63 and len(rows) == 64
     assert rows[0] == TEMPLATE_HEADERS + ["Source File", "Source Sheet", "Source Row", "Run ID", "Reason"]
     by_row = {int(r[10]): r for r in rows[1:]}
-    assert by_row[214][12] == "Taxable Value: Is a number" and by_row[214][5] == ""
+    assert by_row[214][12] == "Taxable Value: Is a number" and by_row[214][5] == "abc"   # text kept (TXT-4)
     assert by_row[705][12] == "Invoice No: Unique within the run"
     assert 704 not in by_row                                       # the first occurrence is kept (T18)
     assert by_row[102][12] == "Invoice No: Not blank"
@@ -187,7 +189,7 @@ def test_cancel_deletes_part_files(env, tmp_path, monkeypatch):
     release.set()
     job.wait(10)
     assert job.state == JobState.CANCELLED
-    assert list(tmp_path.iterdir()) == [] and list(s.paths.temp.iterdir()) == []
+    assert list(tmp_path.iterdir()) == [] and temp_leftovers(s.paths.temp) == []
 
 
 @spec("EXP-7")
@@ -275,3 +277,52 @@ def test_header_quoting_and_null_group(env, tmp_path):
     assert raw.startswith(b'"State, ""region""",Count of rows\n')
     assert raw.endswith(b"Grand total,0\n")
     assert exporting.header_line(["a;b", "c"], ";") == b'"a;b";c\n'
+
+
+# ---------------------------------------------------------------------------------------------- A2: text values, order
+def _tpl_r_export(r, k, tmp_path):
+    s, tid = r["s"], r["tid"]
+    rid = r["runs"][k]
+    cols = q.load_template(s.con, tid).columns
+    names = {f["file_index"]: f["file_name"] for f in q.run_details(s.con, rid)["files"]}
+    query = qx.run_data(s.con, s.folder.run_dir(tid, rid) / "data.parquet", cols, names, f"R-000{k}")
+    out = do_export(s, query, tmp_path / f"r{k}.csv")
+    return cols, read_csv(out.path)
+
+
+@spec("AC-TXT-1", "TXT-4", "EXP-3", "T32")
+def test_text_values_export_as_typed_in_stored_order(tpl_r_runs, tmp_path):
+    cols, (raw, rows) = _tpl_r_export(tpl_r_runs, 1, tmp_path)
+    head = rows[0]
+    ti, ni, fi, ri = (head.index(h) for h in ("Taxable Value", "Narration", "Source File", "Source Row"))
+    assert sorted(r[ti] for r in rows[1:] if r[ti] and not re.fullmatch(r"-?[0-9]+\.[0-9]{2}", r[ti])) == \
+        sorted(["NA"] * 10 + ["Nil"] * 5 + ["12,000/-"])
+    assert b'"12,000/-"' in raw                                         # quoted: it holds the delimiter
+    narr = [r[ni] for r in rows[1:]]
+    assert any('"urgent"' in v and "," in v for v in narr)              # quotes doubled by DuckDB, read back whole
+    assert any("\r\n" in v for v in narr) and any("\n" in v and "\r" not in v for v in narr)
+    # stored order: files in load order (xlsx sheets, then the CSV), rows ascending within each
+    files = tpl_r_runs["m"].files["1"]
+    keys = [(files.index(r[fi]) if r[fi] in files else -1, r[head.index("Source Sheet")], int(r[ri]))
+            for r in rows[1:]]
+    order = [(f, {"Sales A": 0, "Sales B": 1}.get(sh, 2), row) for f, sh, row in keys]
+    assert order == sorted(order) and len(rows) == 2501
+    _cols, (_raw2, rows2) = _tpl_r_export(tpl_r_runs, 2, tmp_path)
+    di = rows2[0].index("Invoice Date")
+    assert sorted(r[di] for r in rows2[1:] if r[di] in ("NA", "31-02-2026")) == ["31-02-2026"] * 2 + ["NA"] * 3
+    assert all(len(r[di]) == 10 and r[di][2] == "-" for r in rows2[1:] if r[di] not in ("", "NA", "31-02-2026"))
+
+
+@spec("TXT-10", "EXP-12")
+def test_result_export_labels_text_group(tpl_r_runs, tmp_path):
+    s, tid = tpl_r_runs["s"], tpl_r_runs["tid"]
+    cols = q.load_template(s.con, tid).columns
+    data = s.folder.run_dir(tid, tpl_r_runs["runs"][1]) / "data.parquet"
+    defn = Definition("", [], [Group("c006")], [Measure(None, d.COUNT)])
+    res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, defn, cols, [data]))
+    out = do_export(s, qx.result(res, subtotals=False, sort="g1", descending=True), tmp_path / "res.csv")
+    _raw, rows = read_csv(out.path)
+    assert rows[-3:] == [["(Not a number)", "16"], ["(Null)", str(tpl_r_runs["m"].run(1).taxable_blank)],
+                         ["Grand total", "2500"]]
+    assert rows[1][0] == "2014.75"                                      # values first, descending
+    run_job(s.runner, lambda ctx: layer.drop(ctx.cursor(), res))

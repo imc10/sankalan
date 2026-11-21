@@ -160,8 +160,10 @@ def _job(storage, name, work, cancellable=True):
     return j.result
 
 
-def _empty(folder: Path) -> bool:
-    return not folder.exists() or not any(folder.iterdir())
+def _empty(folder: Path, keep=None) -> bool:
+    """Nothing in ``folder`` but entries ``keep`` accepts (after a Job, the connection's own DuckDB spill files stay,
+    BUG-1, T54)."""
+    return not folder.exists() or not any(keep is None or not keep(p.name) for p in folder.iterdir())
 
 
 def check_engines(checks: Checks, sample: dict) -> None:
@@ -175,6 +177,7 @@ def check_engines(checks: Checks, sample: dict) -> None:
 def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
     """A run from Files to Commit, then an export of its data."""
     from sankalan.db import connection
+    from sankalan.db.storage import own_spill_file
     from sankalan.exporting import export
     from sankalan.model import definition as d
     from sankalan.model import export as ex
@@ -241,7 +244,8 @@ def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
     checks.add("CSV export", raw.startswith(b"\xef\xbb\xbf") and res.rows == sample["loaded"]
                and raw.count(b"\n") == sample["loaded"] + 1 and not list(out.glob("*.part")),
                f"{res.path.name}, {res.rows} rows")
-    checks.add("Staging and temp emptied", _empty(storage.folder.staging_root) and _empty(storage.paths.temp))
+    checks.add("Staging and temp emptied", _empty(storage.folder.staging_root)
+               and _empty(storage.paths.temp, keep=own_spill_file))
 
 
 def check_reopen(checks: Checks, paths) -> None:

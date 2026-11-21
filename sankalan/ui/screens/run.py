@@ -303,7 +303,8 @@ class OutputsTab(QWidget):
                 text += f" · {p.note}"
             self.info.setText(text)
 
-        self.screen.load("Read output", lambda ctx: runs.stored_output(ctx, o.definition, cols, path, subtotals=sub),
+        self.screen.load("Read output", lambda ctx: runs.stored_output(ctx, o.definition, cols, path, subtotals=sub,
+                                                                       headers=o.headers),
                          done)
 
 

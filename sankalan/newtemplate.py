@@ -11,7 +11,7 @@ Steps:
 1. ``inspect`` the picked file; ``check_name`` (unique within the client, C3-05).
 2. ``sheets_to_read`` for the chosen setting; ``stage`` reads the sample and profiles its columns (``detect``).
 3. Columns are drafted from the profiles (``draft_columns``).
-4. ``convert`` writes the sample's ``data.parquet`` / ``conversion_failures.parquet`` for the drafted columns, then
+4. ``convert`` writes the sample's ``data.parquet`` (with text companions) for the drafted columns, then
    ``dry_run`` counts each rule's failures and keeps the first 20 (VR-8).
 5. ``preview`` runs a default output on the sample (DO-8).
 6. ``build_template`` + ``save`` (``create_template``, version 1).
@@ -112,7 +112,6 @@ class StagedSample:
     limited: bool                       # the file holds more rows than were read
     columns: list[SourceColumn]
     data: Path | None = None            # after ``convert``
-    failures: Path | None = None
     converted_for: object = None        # the columns ``convert`` last ran for
 
     @property
@@ -229,6 +228,9 @@ def detect(p: qs.Profile) -> Detected:
     else:
         typ, fmt, ok = TEXT, None, p.filled
         note = "100% text"
+    if typ in (NUMBER, DATE) and ok < p.filled:     # the rest is kept as text (Feature Spec A2 6.2, Tech spec 5.9)
+        what = "numbers" if typ == NUMBER else "dates"
+        note += f" · {percent(p.filled - ok, p.filled)} aren't {what} and are kept as text"
     if blank_share >= Decimal("0.5"):
         note = f"{percent(p.total - p.filled, p.total)} blank"
     return Detected(typ, fmt, note, ok == p.filled)
@@ -295,14 +297,12 @@ def convert_sample(ctx: JobContext, staged: StagedSample, drafts: list[DraftColu
                              {d.column.id: staged.columns[d.source].positions[i] for d in cols})
              for i, p in enumerate(staged.parts)]
     data = staged.staging.path / convert.DATA
-    fails = staged.staging.path / convert.FAILURES
     staged.data = staged.converted_for = None
     cur = ctx.cursor()
     columns = [d.column for d in cols]
     convert.write_data(cur, parts, columns, staged.staging.id, data)
     ctx.check_cancelled()
-    convert.write_failures(cur, parts, columns, fails)
-    staged.data, staged.failures, staged.converted_for = data, fails, sig
+    staged.data, staged.converted_for = data, sig
 
 
 @dataclass
@@ -317,8 +317,7 @@ def dry_run(ctx: JobContext, staged: StagedSample, drafts: list[DraftColumn], ru
     sample's converted rows."""
     from sankalan.validation import scan
     convert_sample(ctx, staged, drafts)
-    counts, first = scan.dry_run(ctx, staged.data, staged.failures, included(drafts), rules,
-                                 {0: staged.file_name})
+    counts, first = scan.dry_run(ctx, staged.data, included(drafts), rules, {0: staged.file_name})
     return DryRun(counts, first, staged.rows)
 
 

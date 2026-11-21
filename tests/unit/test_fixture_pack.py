@@ -59,3 +59,16 @@ def test_f04_left_out_rows():
     """63 rows are left out: 60 with Error issues plus 3 later duplicates (n 702, 704, 706)."""
     assert len(generate.F04_LEFT_OUT) == 63
     assert generate.F04_LEFT_OUT[:3] == [101, 102, 103] and generate.F04_LEFT_OUT[-3:] == [702, 704, 706]
+
+
+@spec("A2-O1", "AC-BUG-1c")
+def test_tpl_r_small_generates_verifies_and_is_deterministic(tmp_path, tpl_r_small):
+    """TPL-R small (A2-1): the planted figures confirmed 21-11-2026, read back from the files; same bytes twice."""
+    import tpl_r
+    folder, m = tpl_r_small
+    assert m.run(1).taxable_text == {"NA": 10, "Nil": 5, "12,000/-": 1}
+    assert m.run(2).date_text == {"NA": 3, "31-02-2026": 2}
+    assert (m.run(2).left_out, m.run(3).no_invoice_no, m.rows_searched) == (63, 400, 7_437)
+    again = tpl_r.generate(tmp_path, tpl_r.SMALL)
+    tpl_r.verify(tmp_path, again)
+    assert _hashes(tmp_path) == _hashes(folder)

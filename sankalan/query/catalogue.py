@@ -221,18 +221,18 @@ def list_runs(con, template_id: str | None = None) -> list[RunRow]:
 def run_details(con, run_id: str) -> dict | None:
     """One committed run for the Run screen (RUN-2, RUN-12, C6): the run row with its JSON fields parsed, its files
     and its saved outputs. None when no such run."""
-    row = con.execute(f"SELECT {_RUN_COLS}, left_out_by_reason, errors, warnings, run_changes, totals FROM run "
-                      f"WHERE id = ?", [run_id]).fetchone()
+    row = con.execute(f"SELECT {_RUN_COLS}, left_out_by_reason, errors, warnings, run_changes, totals, checks, "
+                      f"text_counts FROM run WHERE id = ?", [run_id]).fetchone()
     if row is None:
         return None
     keys = [k.strip() for k in _RUN_COLS.split(",")] + ["left_out_by_reason", "errors", "warnings", "run_changes",
-                                                        "totals"]
+                                                        "totals", "checks", "text_counts"]
     out = dict(zip(keys, row))
-    for k in ("left_out_by_reason", "run_changes", "totals"):
+    for k in ("left_out_by_reason", "run_changes", "totals", "text_counts"):
         out[k] = json.loads(out[k])
     out["label"] = RunRow(*row[:len(_RUN_COLS.split(","))]).label
     fcols = ("file_index", "file_name", "path", "size", "modified", "sheet", "sha256", "header_row", "rows_read",
-             "hidden_rows", "sheets_skipped", "duplicate_decision")
+             "hidden_rows", "sheets_skipped", "duplicate_decision", "sheets_chosen")
     out["files"] = []
     for r in con.execute(f"SELECT {', '.join(fcols)} FROM run_file WHERE run_id = ? ORDER BY file_index",
                          [run_id]).fetchall():
@@ -244,9 +244,10 @@ def run_details(con, run_id: str) -> dict | None:
 
 
 def run_outputs(con, run_id: str) -> list[RunOutput]:
-    """A run's saved default outputs with the definition used for that run (DO-6), in order."""
-    return [RunOutput(r[0], r[1], json.loads(r[2]), r[3]) for r in con.execute(
-        "SELECT position, name, definition, file FROM run_output WHERE run_id = ? ORDER BY position",
+    """A run's saved default outputs with the definition used for that run (DO-6) and the headers stored at commit
+    (T50), in order."""
+    return [RunOutput(r[0], r[1], json.loads(r[2]), r[3], json.loads(r[4])) for r in con.execute(
+        "SELECT position, name, definition, file, headers FROM run_output WHERE run_id = ? ORDER BY position",
         [run_id]).fetchall()]
 
 
@@ -277,20 +278,23 @@ def insert_run(con, run_id: str, run: NewRun) -> int:
         con.execute("UPDATE run_id_counter SET last_number = ? WHERE template_id = ?", [number, run.template_id])
     else:
         con.execute("INSERT INTO run_id_counter VALUES (?, ?)", [run.template_id, number])
-    con.execute("INSERT INTO run VALUES (?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+    con.execute("INSERT INTO run VALUES (?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
         run_id, run.template_id, number, run.template_version, _now(), run.status, run.comment, run.rows_read,
         run.rows_loaded, run.rows_left_out, json.dumps(run.left_out_by_reason), run.errors, run.warnings,
-        json.dumps(run.run_changes, ensure_ascii=False), json.dumps(run.totals, ensure_ascii=False)])
+        json.dumps(run.run_changes, ensure_ascii=False), json.dumps(run.totals, ensure_ascii=False),
+        bool(run.checks), json.dumps({k: int(v) for k, v in run.text_counts.items()})])
     for f in run.files:
-        con.execute("INSERT INTO run_file VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        con.execute("INSERT INTO run_file VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             run_id, f.file_index, f.file_name, f.path, f.size, f.modified, f.sheet, f.sha256, f.header_row,
-            f.rows_read, f.hidden_rows, json.dumps(f.sheets_skipped, ensure_ascii=False), f.duplicate_decision])
+            f.rows_read, f.hidden_rows, json.dumps(f.sheets_skipped, ensure_ascii=False), f.duplicate_decision,
+            bool(f.sheets_chosen)])
     for c in run.issue_counts:
         con.execute("INSERT INTO run_issue_count VALUES (?, ?, ?, ?, ?, ?)",
                     [run_id, c.rule, c.file_index, c.sheet, c.errors, c.warnings])
     for o in run.outputs:
-        con.execute("INSERT INTO run_output VALUES (?, ?, ?, ?, ?)",
-                    [run_id, o.position, o.name, json.dumps(o.definition, ensure_ascii=False), o.file])
+        con.execute("INSERT INTO run_output VALUES (?, ?, ?, ?, ?, ?)",
+                    [run_id, o.position, o.name, json.dumps(o.definition, ensure_ascii=False), o.file,
+                     json.dumps(list(o.headers), ensure_ascii=False)])
     return number
 
 

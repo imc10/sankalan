@@ -617,3 +617,74 @@ def test_app_start_failure_is_reported(app, qtbot, tmp_path, monkeypatch, answer
     assert answers.asked[-1] == (APP_NAME, ["Close"])
     assert not sk.window.isVisible()
     sk.shutdown()
+
+
+# ---------------------------------------------------------------------------------------------- A2-1: version-1 folders
+def _start_refused(app, qtbot, tmp_path, monkeypatch, answers, picked=None):
+    from sankalan import app as app_mod
+    from sankalan.ui.dialogs import data_folder_refused as dfr
+    from conftest import version_1_folder
+    p, data, snapshot = version_1_folder(tmp_path)
+    before = snapshot()
+    chosen = []
+    monkeypatch.setattr(dfr, "CHOOSER", lambda parent, start, title: (chosen.append(title), picked)[1])
+    sk = app_mod.SankalanApp(p, instance_key=f"Sankalan.test.v1.{id(tmp_path)}")
+    return sk, p, data, snapshot, before, chosen
+
+
+@spec("T40", "D77")
+def test_version_1_folder_refused_close_changes_nothing(app, qtbot, tmp_path, monkeypatch, answers):
+    sk, p, data, snapshot, before, _chosen = _start_refused(app, qtbot, tmp_path, monkeypatch, answers)
+    answers.extend(["close"])
+    assert sk.start()
+    qtbot.addWidget(sk.window)
+    qtbot.waitUntil(lambda: sk.failed, timeout=10_000)
+    assert answers.asked[0] == ("Sankalan", ["Close", "Create new folder…", "Choose folder…"])
+    assert not sk.window.isVisible()
+    sk.shutdown()
+    assert snapshot() == before                       # the folder and settings.json exactly as they were
+
+
+@spec("T40", "D77")
+def test_version_1_folder_refused_create_new_folder_opens_it(app, qtbot, tmp_path, monkeypatch, answers):
+    import json
+    where = tmp_path / "Elsewhere"
+    where.mkdir()
+    sk, p, data, snapshot, before, chosen = _start_refused(app, qtbot, tmp_path, monkeypatch, answers, str(where))
+    answers.extend(["create"])
+    assert sk.start()
+    qtbot.addWidget(sk.window)
+    qtbot.waitUntil(lambda: sk.window.current is not None, timeout=20_000)
+    assert chosen == ["Choose where to create the new data folder"]
+    new = where / "Sankalan Data"
+    assert json.loads(p.settings_file.read_text(encoding="utf-8")) == {"data_folder": str(new)}
+    assert sk.storage.folder.path == new and (new / "catalogue.duckdb").is_file()
+    assert sk.window.current.title == "Clients" and not sk.failed
+    sk.window.close()
+    sk.shutdown()
+    old = {k: v for k, v in before.items() if k.startswith("Data")}
+    assert {k: v for k, v in snapshot().items() if k.startswith("Data")} == old     # the refused folder untouched
+
+
+@spec("T40")
+def test_version_1_folder_choose_refuses_a_full_folder_then_accepts_a_data_folder(app, qtbot, tmp_path, monkeypatch,
+                                                                                   answers):
+    from conftest import open_storage
+    other = tmp_path / "Other"
+    open_storage(other).close()                        # a version-2 data folder elsewhere
+    other_data = make_paths(other).root / "Data"
+    full = tmp_path / "Full"
+    full.mkdir()
+    (full / "notes.txt").write_text("x", encoding="utf-8")
+    picks = iter([str(full), str(other_data)])
+    sk, p, data, snapshot, before, chosen = _start_refused(app, qtbot, tmp_path, monkeypatch, answers)
+    from sankalan.ui.dialogs import data_folder_refused as dfr
+    monkeypatch.setattr(dfr, "CHOOSER", lambda parent, start, title: next(picks))
+    answers.extend(["choose", "choose"])
+    assert sk.start()
+    qtbot.addWidget(sk.window)
+    qtbot.waitUntil(lambda: sk.window.current is not None, timeout=20_000)
+    assert len(answers.asked) == 2                     # the full folder was refused with the reason, then asked again
+    assert sk.storage.folder.path == other_data
+    sk.window.close()
+    sk.shutdown()

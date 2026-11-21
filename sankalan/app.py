@@ -3,18 +3,21 @@
 Start-up: a second copy hands over to the first and exits (DEP-05). The window shows at once with "Opening your
 data…" while ``Storage.open()`` (backup, schema, recovery: all DuckDB work) runs on a background thread, so the UI
 thread never touches DuckDB. Shutdown waits for the Job runner, then closes the connection and empties
-%TEMP%\\Sankalan.
+%TEMP%\\Sankalan. A data folder made by a test build (catalogue version 1) is refused untouched; the user chooses or
+creates another folder, which then opens the same way (T40).
 """
 from __future__ import annotations
 
 import sys
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from sankalan import APP_NAME, log
 from sankalan import paths as app_paths
+from sankalan.db.catalogue import CatalogueFromTestBuild
 from sankalan.db.storage import Storage
 from sankalan.jobs import POLL_INTERVAL_MS
 from sankalan.ui import theme
@@ -109,11 +112,26 @@ class SankalanApp:
         self.window.show_status("")
         self.window.open_area("clients")
 
-    def _failed(self, _error) -> None:
+    def _failed(self, error) -> None:
+        if isinstance(error, CatalogueFromTestBuild) and self._choose_other_folder():
+            return
         self.failed = True
-        ask(self.window, APP_NAME, OPEN_FAILED, [("ok", "Close", "primary")])
+        if not isinstance(error, CatalogueFromTestBuild):
+            ask(self.window, APP_NAME, OPEN_FAILED, [("ok", "Close", "primary")])
         self.window._may_close = True
         self.window.close()
+
+    def _choose_other_folder(self) -> bool:
+        """T40: the folder made by a test build stays as it was; open the folder the user chooses or creates
+        instead (on the background thread, like every start). False when the user closes."""
+        from sankalan.ui.dialogs import data_folder_refused
+        refused = Path(app_paths.load_settings(self.paths)["data_folder"])
+        if data_folder_refused.ask_for_folder(self.window, self.paths, refused) is None:
+            return False
+        self.window.show_status(OPENING)
+        self.opener = StorageOpener(self.storage, self._opened, self._failed)
+        self.opener.start()
+        return True
 
     def shutdown(self) -> None:
         if self.opener is not None:

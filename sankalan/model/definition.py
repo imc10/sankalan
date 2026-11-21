@@ -14,11 +14,15 @@ Filter operators by column type (ANA-4, DO-3):
 
 ======== =========================================================================================================
 Date     ``year`` [Y] · ``quarter`` [Y, Q] · ``month`` [Y, M] · ``between`` [from, to] (ISO, inclusive, either may
-         be null) · ``blank`` · ``not_blank`` · relative (default outputs only): ``latest_month``,
-         ``latest_quarter``, ``latest_year``
+         be null) · ``blank`` · ``not_blank`` · ``not_date`` (holds text, TXT-7) · relative (default outputs only):
+         ``latest_month``, ``latest_quarter``, ``latest_year``
 Text     ``one_of`` [values] (exact) · ``contains`` [text] (ignores case, T23) · ``blank`` · ``not_blank``
 Number   ``equals`` [x] · ``between`` [min, max] (either may be null), both at the column's decimal places ·
-         ``blank`` · ``not_blank``
+         ``blank`` · ``not_blank`` · ``not_number`` (holds text, TXT-6)
+
+Number and Date columns keep text that doesn't convert (Feature Spec A2 TXT-1): value filters and Sum, Avg, Min, Max
+use the values only; Blank means neither a value nor text; Count counts both (TXT-8). Grouping puts text in one
+group, "(Not a number)" or "(Not a date)" (TXT-10).
 ======== =========================================================================================================
 
 Numbers in filter values are kept as text so JSON never turns them into binary floats.
@@ -39,14 +43,18 @@ from sankalan.model.template import DATE, NUMBER, TEXT, Column
 YEAR, QUARTER, MONTH, BETWEEN, BLANK, NOT_BLANK = "year", "quarter", "month", "between", "blank", "not_blank"
 LATEST_MONTH, LATEST_QUARTER, LATEST_YEAR = "latest_month", "latest_quarter", "latest_year"
 ONE_OF, CONTAINS, EQUALS = "one_of", "contains", "equals"
+NOT_NUMBER, NOT_DATE = "not_number", "not_date"            # the cell holds text (TXT-6, TXT-7, T55)
 RELATIVE = (LATEST_MONTH, LATEST_QUARTER, LATEST_YEAR)
+NO_VALUE_OPS = (BLANK, NOT_BLANK, NOT_NUMBER, NOT_DATE)
 FILTER_OPS = {
-    DATE: (YEAR, QUARTER, MONTH, BETWEEN, BLANK, NOT_BLANK) + RELATIVE,
+    DATE: (YEAR, QUARTER, MONTH, BETWEEN, BLANK, NOT_BLANK, NOT_DATE) + RELATIVE,
     TEXT: (ONE_OF, CONTAINS, BLANK, NOT_BLANK),
-    NUMBER: (EQUALS, BETWEEN, BLANK, NOT_BLANK),
+    NUMBER: (EQUALS, BETWEEN, BLANK, NOT_BLANK, NOT_NUMBER),
 }
-# Default outputs: date filters are relative only (DO-3, C3-19); Blank / Not blank stay available.
-OUTPUT_DATE_OPS = RELATIVE + (BLANK, NOT_BLANK)
+# Default outputs: date filters are relative only (DO-3, C3-19); Blank / Not blank / Is not a date stay available.
+OUTPUT_DATE_OPS = RELATIVE + (BLANK, NOT_BLANK, NOT_DATE)
+FILTER_HELP = {NOT_NUMBER: "Cells with text such as NA or Nil instead of a number",
+               NOT_DATE: "Cells with text such as NA instead of a date"}
 
 # date grains (ANA-5): calendar year
 DAY, GRAINS = "day", ("day", "month", "quarter", "year")
@@ -60,6 +68,29 @@ MEASURE_TYPES = {SUM: (NUMBER,), AVG: (NUMBER,), MIN: (NUMBER, DATE), MAX: (NUMB
 
 REMOVED_SUFFIX = " (removed)"
 NULL_LABEL = "(Null)"
+NOT_NUMBER_LABEL = "(Not a number)"      # the group of text values in a Number column (TXT-10)
+NOT_DATE_LABEL = "(Not a date)"
+
+
+class _TextGroup:
+    """A group value standing for every text value of a Number or Date column (kind 1, Tech spec A2 T42): shown as
+    "(Not a number)" or "(Not a date)"."""
+    _one = None
+
+    def __new__(cls):
+        if cls._one is None:
+            cls._one = super().__new__(cls)
+        return cls._one
+
+    def __repr__(self) -> str:
+        return "TEXT_GROUP"
+
+
+TEXT_GROUP = _TextGroup()
+
+
+def text_group_label(col_type: str) -> str:
+    return NOT_DATE_LABEL if col_type == DATE else NOT_NUMBER_LABEL
 NO_DATES_NOTE = "No dates in this run"
 TOTAL_LABEL = "Grand total"
 SUBTOTAL_LABEL = "Total"

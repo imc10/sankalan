@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, settle_window, spec, tpl_a_template
 from sankalan import formats
 from sankalan.model import definition as d
 from sankalan.model import export as ex
@@ -21,10 +21,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=20_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(scope="module")
@@ -214,7 +211,7 @@ def test_output_checks(screen, qtbot):
     f = tab.builder.add_filter()
     f.column.setCurrentIndex(f.column.findData(DATE_))
     ops = [f.op.itemData(i) for i in range(f.op.count())]
-    assert ops == [d.LATEST_MONTH, d.LATEST_QUARTER, d.LATEST_YEAR, d.BLANK, d.NOT_BLANK]     # DO-3 / C3-19
+    assert ops == [d.LATEST_MONTH, d.LATEST_QUARTER, d.LATEST_YEAR, d.BLANK, d.NOT_BLANK, d.NOT_DATE]  # DO-3, T55
     assert isinstance(f, FilterRow)
     tab.discard()
 

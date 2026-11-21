@@ -2,7 +2,7 @@
 The sample is read in the Job's thread (``WORKERS = 0``); the reader workers are covered by the ingestion tests."""
 import pytest
 
-from conftest import spec
+from conftest import settle_window, spec
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, Filter, Group, Measure
 from sankalan.model.rule import (ALLOWED_VALUES, DATE_RANGE, NOT_BLANK, NUMBER_RANGE, PATTERN, TEXT_LENGTH, UNIQUE,
@@ -20,10 +20,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=30_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked and not getattr(w.current, "_dry_again", False)
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout, extra=lambda: not getattr(w.current, "_dry_again", False))
 
 
 @pytest.fixture(autouse=True)
@@ -297,7 +294,21 @@ def test_text_dates_offer_formats(env, qtbot, fixtures_dir):
     fmt = cs.widget(3, DATE_FORMAT)
     assert fmt.isEnabled() and [fmt.itemText(i) for i in range(fmt.count())] == ["DD-MM-YYYY", "DD/MM/YYYY"]
     assert rows[5][6].startswith("00123")                          # leading zeros: Text, as typed
-    assert rows[1][5] == "90.9% numbers"                            # 12abc
+    assert rows[1][5] == "90.9% numbers · 9.09% aren't numbers and are kept as text"     # 12abc
+
+
+@spec("AC-TXT-10", "TXT-1")
+def test_type_note_states_the_text_share(env, qtbot, tmp_path):
+    """A sample with 2% text in a Number column (Feature Spec A2 6.2)."""
+    rows = ["Code,Amount,Doc Date"] + [f"A{i},{'NA' if i in (10, 60) else str(100 + i) + '.50'},"
+                                         f"{'31-02-2026' if i < 3 else f'{(i % 28) + 1:02d}-11-2026'}"
+                                         for i in range(100)]
+    (tmp_path / "Text_Share.csv").write_text("".join(r + "\n" for r in rows), encoding="utf-8")
+    wz = open_wizard(qtbot, env, name="Text share", sample="Text_Share.csv", fx=tmp_path)
+    to_step(qtbot, wz, COLUMNS)
+    got = wz.columns_step.rows()
+    assert got[1][2] == "Number" and got[1][5] == "98% numbers · 2% aren't numbers and are kept as text"
+    assert got[2][2] == "Date" and got[2][5] == "97% dates · DD-MM-YYYY · 3% aren't dates and are kept as text"
 
 
 @spec("C3-12", "TPL-3")
@@ -445,11 +456,11 @@ def test_outputs_review_and_save(env, qtbot, fixtures_dir):
     assert rows[:6] == [["Aug-2026", "0", "297,375.00"], ["Aug-2026", "5", "299,425.00"],
                         ["Aug-2026", "12", "301,475.00"], ["Aug-2026", "18", "303,525.00"],
                         ["Aug-2026", "28", "305,575.00"], ["Aug-2026", "Total", "1,507,375.00"]]
-    # C3-19: date filters are relative only
+    # C3-19: date filters are relative only, plus Blank, Not blank and Is not a date (T55)
     row = st.builder.filters.rows[0]
     assert [row.op.itemText(i) for i in range(row.op.count())] == [
         "latest month in this run", "latest quarter in this run", "latest year in this run", "is blank",
-        "is not blank"]
+        "is not blank", "is not a date"]
     # C3-18: a name is required
     st.name.setText("  ")
     st._edited()

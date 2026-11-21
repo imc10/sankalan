@@ -41,6 +41,7 @@ from sankalan.query import catalogue as q
 from sankalan.query import convert, layer
 from sankalan.query import totals as totals_q
 from sankalan.query.split import LEFT_OUT, left_out_breakdown, split
+from sankalan.query.textvalues import text_counts
 from sankalan.validation import scan
 
 COMMENT_MAX = 500                       # RUN-13
@@ -431,7 +432,6 @@ class RunSession:
         ctx.set_stage("Committing")
         con = ctx.cursor()
         run = self._new_run(con, comment)
-        (self.staging.path / convert.FAILURES).unlink(missing_ok=True)   # issues.parquet keeps the text (Phase 3)
         result = self._mapping_result
 
         def save_template_changes(c) -> None:
@@ -474,7 +474,10 @@ class RunSession:
             comment=comment, run_changes=changes, totals={t.column_id: t.to_dict() for t in self.totals or []},
             files=files, issue_counts=[IssueCount(c.rule, c.file_index, c.sheet, c.errors, c.warnings)
                                        for c in sc.counts],
-            outputs=[RunOutput(o.position, o.name, o.definition, o.file) for o in self.outputs])
+            outputs=[RunOutput(o.position, o.name, o.definition, o.file,
+                               layer.headers(Definition.from_dict(o.definition), self.columns))
+                     for o in self.outputs],
+            checks=True, text_counts=text_counts(con, st / convert.DATA, self.columns))
 
     # ------------------------------------------------------------------------------------------ leaving
     def drop_staging(self) -> None:

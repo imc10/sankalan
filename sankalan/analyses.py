@@ -32,7 +32,8 @@ NEW_NAME = "New analysis"
 NO_RUNS = "Tick at least one run."
 MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
                "November", "December")
-FILTER_WORDS = {d.BLANK: "is blank", d.NOT_BLANK: "is not blank"}
+FILTER_WORDS = {d.BLANK: "is blank", d.NOT_BLANK: "is not blank", d.NOT_NUMBER: "is not a number",
+                d.NOT_DATE: "is not a date"}
 GRAIN_WORDS = {"day": "Day", "month": "Month", "quarter": "Quarter", "year": "Year"}
 
 

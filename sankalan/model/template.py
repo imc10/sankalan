@@ -78,6 +78,11 @@ def active(columns: list[Column]) -> list[Column]:
     return [c for c in columns if not c.removed]
 
 
+def typed(columns: list[Column]) -> list[Column]:
+    """The active Number and Date columns: the ones whose text is kept in a companion column (Tech spec A2 5.1)."""
+    return [c for c in active(columns) if c.type in (NUMBER, DATE)]
+
+
 # ---------------------------------------------------------------------------------------------- the whole template
 class TemplateError(ValueError):
     """A template change that isn't allowed; the message is plain enough to show (TPL-9, MAP-11, MAP-12)."""

@@ -19,7 +19,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
-| — | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Not started | | Plan: `docs/plans/a2-implementation-plan.md` (6 phases; replaces Tech spec A2 §16's A2-0…A2-10). Starts by fixing the two known test failures |
+| A2-1 | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Done | `Feature-Updates` (A2-1 commit) | All 12 steps. Convert writes in two statements (memory, see log). AC-TXT-1 Rows-view half is A2-5 |
 | — | A2-2 — Template without checks (F), then Choose sheets (D) | Not started | | Cut line: F alone |
 | — | A2-3 — Export in parts (C): engine and dialogs | Not started | | |
 | — | A2-4 — Measures by column (B): engine and UI | Not started | | |
@@ -84,15 +84,97 @@ before the phase that relies on them; mark them **Confirmed** with the date when
   `tests/conftest.py::collect_garbage` now collects after every test (suite ~95 s). In the app only the data-folder
   move closes one connection and opens another: Phase 12 should check the old connection object is released at
   once (no cycle) or collect right after the move, before the next Job.
-- (17-11-2026) `tests/gui/test_analysis.py` fails 1–2 tests per run, varying (`test_list_and_search`,
-  `test_rename_and_name_uniqueness`, `test_saved_analysis_rename_and_delete_from_its_screen`,
-  `test_save_from_the_leave_prompt`), also on the Phase 11 commit: the test reads `storage.con` on the main thread
-  while a Job is still on the shared connection, and DuckDB 2.0 raises `ResourceInUseException` instead of waiting.
-  Test-side race (the app never queries on the UI thread); fix by settling the bridge before direct catalogue reads.
+- (Fixed 21-11-2026, A2-1) The GUI test races (`test_analysis.py`, `test_dialog_buttons.py`, …): see the A2-1 log.
 
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 21-11-2026 — A2-1: Groundwork and Feature E (text in Number and Date columns), catalogue v2, BUG-1
+- **Step 0, green baseline.** `test_many_issues_first_10000_then_discard` did **not** fail this session: it passed
+  in its module, in `tests/gui`, and in three repeated GUI runs (it can't run alone: it relies on R-0001/R-0002
+  committed by earlier tests in its module). No product bug found. The races that did show were in the tests'
+  `settle()`: it waited only for the window's own bridge, but tests share one Job runner between windows, so a Job
+  from the previous test's window (its teardown "Read clients") could hold the runner; the new screen's quiet read
+  was then deferred and retried only on its own bridge's `jobFinished`, which never came, and settle returned early
+  (`KeyError` in the builder, `IndexError` in Outputs, the `test_analysis.py` `ResourceInUseException`). New
+  `conftest.settle_window`: waits for the shared runner too and retries deferred reads; every GUI module uses it.
+  GUI suite 3 runs out of 3 green afterwards.
+- **Test tiers:** marker `slow` in `pytest.ini`, deselected by default (`addopts -m "not slow and not perf"`); run
+  with `pytest -m slow`. `generate.py` writes TPL-R small every time and TPL-R full with `--full`.
+- **TPL-R** (`tests/fixtures/tpl_r.py`): figures as plan A2-O1; each run one .xlsx (sheets Sales A, Sales B) plus
+  CSV files; R-0002 adds Place of Supply (c021); R-0003's `TPLR_R3_NoInvoiceNo.csv` has no Invoice No. `verify()`
+  reads the files back with calamine / csv; the manifest holds per-run figures computed in Python (the oracle).
+  Fixtures `tpl_r_small` (session), `tpl_r_full` (cached in `tests/fixtures/_generated/tpl_r_full_<hash>`, ~1.3 GB),
+  `tpl_r_runs` (module storage with R-0001…R-0003 committed through `RunSession`: Add as new column, override,
+  Leave as null).
+- **Catalogue version 2** (T40): `_V2` is the whole schema (`run.checks`, `run.text_counts`,
+  `run_file.sheets_chosen`, `run_output.headers`); `MIGRATIONS = {2: _V2}`. `catalogue.check_file` reads the
+  version with a read-only connection **before** the backup and before any folder is created;
+  `CatalogueFromTestBuild` for version 1. `ui/dialogs/data_folder_refused.py`: the §12.2 message with Close /
+  Create new folder… / Choose folder…; the chosen folder is written to `settings.json` and opened on the background
+  thread as at every start (refused again → asked again). Commit writes `checks = true`, `sheets_chosen = false`,
+  `text_counts` (commit Job, `query/textvalues.text_counts`) and `headers` (today's headers, `layer.headers`);
+  `layer.open_output` / `runs.stored_output` show the stored headers (T50).
+- **BUG-1** (T54): `paths.empty_folder(keep=)`, `Storage._job_end` keeps `duckdb_temp_<pid>_*`; open and close empty
+  everything. SEC-4 leftover checks (tests' `temp_leftovers`, `selftest.py`) allow only those files. **Reproduced
+  by hand and kept as a test:** a 2,000,000-row temp table at a 128 MiB limit, then a sort into a second table in
+  the next Job: the old clean-up fails with "Failed to delete file …duckdb_temp_<pid>_0_storage_S32K-0.tmp" and
+  then "Cannot open file …block…"; the fix passes. (A plain create-then-read did *not* fail on the old code:
+  Windows lets DuckDB keep reading a deleted file through its open handle.)
+- **Convert** (§5.1, §5.2): two-level `part_select` with `cNNN_t` companions; `conversion_failures.parquet`,
+  `write_failures`, `failure_counts`, `read_failures` and `StagedSample.failures` removed; `LoadResult.text_counts`
+  replaces `failures`; `convert_values` returns `(value, text)`; `read_text_values` for tests. **Deviation (how,
+  not what):** `write_data` writes `data.parquet.unsorted` and then sorts it into `data.parquet` (T32) in a second
+  statement. The fused `COPY (… UNION ALL … ORDER BY …)` ran **out of memory** on one full TPL-R run (2.5M rows ×
+  20 columns + companions) at 1 GiB / 2 threads; two statements took 32 s + 5 s within the limit. The laptop's
+  ratio (8 GB for a 10M-row load) is similar, so this protects PERF-1/PERF-14 loads too; A2-6 measures it.
+- **Validation** (§5.4): type rules read the companions (one issue per text cell); Not blank is
+  `c IS NULL AND c_t IS NULL`; Unique key parts are the value as shown or the text (two "NA" are duplicates);
+  `_bad` / `fl` / `fr` CTEs gone; same SQL for the wizard's dry run and Test rules on latest run (which now finds
+  type failures in committed text). Split unchanged (`SELECT d.*` keeps companions and sorts).
+- **Query layer** (§5.6): filter ops `not_number` / `not_date` (T55, also in default outputs); typed Blank / Not
+  blank; Count = `count(c) + count(c_t)`; companions selected only when a group, Count or Blank / Not blank /
+  Is not a … filter needs them; kind columns `k1…kn` with `ROLLUP((k1, g1), …)`, stored in outputs; `order_by`
+  sorts kind first (P8; a group sort flips only the value); `layer.rows` returns `definition.TEXT_GROUP` for kind 1,
+  shown "(Not a number)" / "(Not a date)" by `formats.result_cell` and labelled in result exports.
+- **Display and export** (§5.3): `formats.cell_text` / `right_aligned` (used by the Rows view in A2-5); export
+  `_text` = `coalesce(<formatted c>, c_t)`; run data and left-out exports `ORDER BY _src_file, _src_row`.
+- **UI:** the builder offers Is not a number / Is not a date with the help text under the op picker (and as the
+  item tooltip); `analyses.describe` "Taxable Value is not a number"; the wizard's type note adds "· 2% aren't
+  numbers and are kept as text" (§5.9).
+- **Tests (new):** `test_bug1.py` (AC-BUG-1a, the old-code failure, AC-BUG-1b), `test_text_values.py` (AC-TXT-2…9,
+  T56, storage, order), `test_stored_order.py` (`slow`: AC-BUG-1c, stored order, export order), catalogue v2 and
+  the version-1 refusal (hashes unchanged), start-up refusal in `test_shell.py` (Close / Create new folder / a full
+  folder refused then a data folder chosen), companions and sorted write in `test_convert_sql.py`, TPL-R exports
+  (AC-TXT-1 export half, quoting, stored order, kind labels), stored headers after a column rename
+  (`test_run_pipeline.py`), `cell_text`, AC-TXT-10 (engine and wizard), filters' help text and grid labels on
+  TPL-R (`test_analysis.py`). **Changed:** old-interface tests (`failures` → `text_counts`, `read_failures` →
+  `read_text_values`, a hand-built companion instead of a failures file), F04's left-out export now shows "abc"
+  (the text kept), the wizard's type notes carry the text share, default-output date ops include "is not a date",
+  catalogue upgrade tests at version 3. No expected figure changed.
+- **Interpretations** (change if wrong):
+  - Choose folder… in the refusal dialog also accepts an existing data folder (one with `catalogue.duckdb`),
+    otherwise Change…'s checks; Create new folder… creates `Sankalan Data` (or `Sankalan Data 2`, …) inside the
+    folder picked. Close exits without touching anything (no error box: the message was the refusal).
+  - `run_output.headers` stores today's headers (`Sum of Taxable Value`); A2-4 switches the producer.
+  - Count distinct on a Number column is still allowed (refusing it is MEA-3, A2-4).
+  - Unique within the run still skips a row when **any** key part is blank, as the code did (Tech spec 5.4 says
+    "only when every key part is null, as today", which contradicts today's code); text now counts as filled.
+- **Suite:** 505 passed, 2 skipped (build-only), 2 deselected (`slow`) in 2 min 28 s. `slow` once:
+  `test_stored_order.py` 2 passed in 9 min (full TPL-R built, 3 × 2.5M-row runs committed with 3 reader workers at
+  1 GiB / 2 threads). Its first run found a full-size-only generator bug (Invoice No `INV-<run><n:06d>` gained an
+  8th digit from row 1,000,000 and failed the pattern rule, so the override left 1.5M rows out); now 7 digits for n
+  and pattern `INV-99999999`, and `verify()` checks every Invoice No against it.
+- **Hang seen once:** a GUI test that fails before discarding its edits leaves a real "Save your changes?" modal
+  open on the next navigation, and the suite then waits forever (it happened with `test_output_checks`, whose
+  expected ops lacked "is not a date"). If a run stops progressing, look at the first failure before it.
+- **Rendered offscreen at 1366×768 and looked at:** the filter rows with help text (first layout had the help
+  overlapping the op picker; the row is now a grid with the help on its own line), the text groups in the Summary
+  grid, the refusal prompt.
+- **Not verified:** the app by hand (see the commit report); 125% / 150% scaling of the filter help line; the
+  laptop's memory behaviour of the two-step Convert (A2-6).
+- **Next:** A2-2 (Feature F, then Feature D).
 
 ### 21-11-2026 — A2 implementation plan (no code)
 - New `docs/plans/a2-implementation-plan.md`: Tech spec A2 §16's eleven phases grouped into six (A2-1…A2-6), each

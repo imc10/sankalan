@@ -141,7 +141,7 @@ def test_runv10_save_rule_change_to_template(storage):
 @spec("C3-16", "VR-8", "T16", "T17")
 def test_c316_dry_run_counts_and_show(f04):
     s, st, res, names = f04
-    counts, first = run_job(s.runner, lambda ctx: scan.dry_run(ctx, res.data, res.failures_file, tpl_a_columns(),
+    counts, first = run_job(s.runner, lambda ctx: scan.dry_run(ctx, res.data, tpl_a_columns(),
                                                                 tpl_a_rules(), names))
     assert counts == F04_BY_RULE
     assert len(first["r7"]) == 20 and [x[2] for x in first["r7"]] == list(range(802, 822))

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import datetime as dt
 
-from PySide6.QtCore import QSignalBlocker, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QSpinBox, QVBoxLayout, QWidget)
 
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, Filter, Group, Measure
@@ -27,6 +27,7 @@ OP_LABELS = {
     d.LATEST_YEAR: "latest year in this run", d.BLANK: "is blank", d.NOT_BLANK: "is not blank",
     d.ONE_OF: "is one of", d.CONTAINS: "contains", d.EQUALS: "equals", d.BETWEEN: "is between",
     d.YEAR: "year is", d.QUARTER: "quarter is", d.MONTH: "month is",
+    d.NOT_NUMBER: "is not a number", d.NOT_DATE: "is not a date",
 }
 GRAIN_LABELS = {"day": "Day", "month": "Month", "quarter": "Quarter", "year": "Year"}
 MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -110,19 +111,34 @@ class FilterRow(_Row):
         self.column = self._combo([(c.name, c.id) for c in columns], f.column_id if f else None, "Filter column")
         self.op = QComboBox(self)
         self.op.setAccessibleName("Filter condition")
+        self.help = QLabel("", self)                 # the op's help text, under the op picker (Tech spec A2 5.8)
+        self.help.setProperty("kind", "small")
+        self.help.setWordWrap(True)
+        self.help.hide()
         self.values = QWidget(self)
         self.values_lay = QHBoxLayout(self.values)
         self.values_lay.setContentsMargins(0, 0, 0, 0)
         self.values_lay.setSpacing(6)
-        self.lay.addWidget(self.column, 3)
-        self.lay.addWidget(self.op, 3)
-        self.lay.addWidget(self.values, 4)
-        self.lay.addWidget(self._remove_button("filter"))
+        # a grid inside the row: the pickers on the first line, the help text on its own line under the op picker
+        # (spanning the value column too, which these ops leave empty)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(2)
+        grid.addWidget(self.column, 0, 0)
+        grid.addWidget(self.op, 0, 1)
+        grid.addWidget(self.values, 0, 2)
+        grid.addWidget(self._remove_button("filter"), 0, 3)
+        grid.addWidget(self.help, 1, 1, 1, 2)
+        for col, stretch in ((0, 3), (1, 3), (2, 4)):
+            grid.setColumnStretch(col, stretch)
+        self.lay.addLayout(grid)
         self.edits: list[QWidget] = []
         self._fill_ops(f.op if f else None)
         self._fill_values(f.values if f else [])
         self.column.currentIndexChanged.connect(self._column_changed)
-        self.op.currentIndexChanged.connect(lambda _i: (self._fill_values([]), self.changed.emit()))
+        self.op.currentIndexChanged.connect(lambda _i: (self._show_help(), self._fill_values([]),
+                                                        self.changed.emit()))
 
     @property
     def col(self) -> Column:
@@ -138,8 +154,16 @@ class FilterRow(_Row):
             self.op.clear()
             for o in ops_for(self.col, self.output):
                 self.op.addItem(OP_LABELS[o], o)
+                if o in d.FILTER_HELP:
+                    self.op.setItemData(self.op.count() - 1, d.FILTER_HELP[o], Qt.ItemDataRole.ToolTipRole)
             i = self.op.findData(current)
             self.op.setCurrentIndex(i if i >= 0 else 0)
+        self._show_help()
+
+    def _show_help(self) -> None:
+        text = d.FILTER_HELP.get(self.op.currentData(), "")
+        self.help.setText(text)
+        self.help.setVisible(bool(text))
 
     def _line(self, text: str = "", placeholder: str = "") -> QLineEdit:
         e = QLineEdit(text, self.values)

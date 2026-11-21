@@ -7,8 +7,14 @@ every ROLLUP level, marked by ``_depth``:
     _depth INTEGER   number of group levels the row is grouped by: the group count for a detail row, 1 .. n-1 for
                      subtotals, 0 for the grand total
     g1 .. gn         group values, typed (DATE for a date group at any grain, truncated to the period's first day);
-                     null in a rolled-up level, and also null for a "(Null)" group: ``_depth`` tells them apart
+                     null in a rolled-up level, and also null for a text or "(Null)" group: the kind tells them apart
     m1 .. mk         measures
+    k1 .. kn         group kinds (Tech spec A2 T42): 0 a value, 1 text kept in a Number or Date column ("(Not a
+                     number)" / "(Not a date)"), 2 blank ("(Null)"); null in a rolled-up level. Grouping is
+                     ``ROLLUP((k1, g1), …)``, so the text and the blank groups stay apart
+
+Number and Date columns carry text companions ``cNNN_t`` (Tech spec A2 5.6): the compiler reads one only where a
+filter (Blank, Not blank, Is not a number / date), Count or a group on that column needs it.
 
 Show subtotals only hides or shows rows (DO-7), so subtotals of Average and Count distinct are always correct.
 """
@@ -21,7 +27,7 @@ from pathlib import Path
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, DefinitionError
 from sankalan.model.template import DATE, NUMBER, Column
-from sankalan.query.convert import _path, lit, sql_type
+from sankalan.query.convert import _path, companion, has_companion, lit, sql_type
 
 COUNT_TYPE = "count"
 
@@ -69,6 +75,29 @@ def column_expr(col: Column, present: set[str]) -> str:
     return col.id if col.id in present else f"CAST(NULL AS {sql_type(col)})"
 
 
+def companion_expr(col: Column, present: set[str]) -> str:
+    """The column's text companion, or a null when none of the runs has it."""
+    t = companion(col.id)
+    return t if t in present else "CAST(NULL AS VARCHAR)"
+
+
+def needs_companion(definition: Definition, col: Column) -> bool:
+    """Whether the compiled query reads ``col``'s companion: a group, Count, or a Blank / Not blank / Is not a
+    number / date filter on it (Tech spec A2 5.6)."""
+    if not has_companion(col):
+        return False
+    return (any(g.column_id == col.id for g in definition.groups)
+            or any(m.column_id == col.id and m.fn == d.COUNT for m in definition.measures)
+            or any(f.column_id == col.id and f.op in d.NO_VALUE_OPS for f in definition.filters))
+
+
+def kind_sql(col: Column) -> str:
+    """The group kind (T42): 0 a value, 1 text kept in a Number or Date column, 2 blank."""
+    if has_companion(col):
+        return (f"(CASE WHEN {col.id} IS NOT NULL THEN 0 WHEN {companion(col.id)} IS NOT NULL THEN 1 ELSE 2 END)")
+    return f"(CASE WHEN {col.id} IS NOT NULL THEN 0 ELSE 2 END)"
+
+
 # ---------------------------------------------------------------------------------------------- pieces
 def _date(x: dt.date) -> str:
     return f"DATE {lit(x.isoformat())}"
@@ -101,11 +130,14 @@ def latest_period(op: str, latest: dt.date) -> tuple[dt.date, int]:
 
 
 def filter_sql(f: d.Filter, col: Column, latest: dt.date | None = None) -> str:
+    """The condition for one filter. Value filters test the value only, so text never matches (TXT-5, TXT-7);
+    Blank on a Number or Date column means neither a value nor text (TXT-8)."""
     v, x = col.id, f.values
-    if f.op == d.BLANK:
-        return blank(v)
-    if f.op == d.NOT_BLANK:
-        return f"NOT {blank(v)}"
+    if f.op in (d.BLANK, d.NOT_BLANK):
+        cond = f"({v} IS NULL AND {companion(v)} IS NULL)" if has_companion(col) else blank(v)
+        return cond if f.op == d.BLANK else f"NOT {cond}"
+    if f.op in (d.NOT_NUMBER, d.NOT_DATE) and has_companion(col):
+        return f"({companion(v)} IS NOT NULL)"
     if col.type == DATE:
         if f.op == d.YEAR:
             return _period(dt.date(int(x[0]), 1, 1), 12, v)
@@ -161,6 +193,8 @@ def measure_sql(m: d.Measure, col: Column | None) -> str:
     if m.fn == d.SUM:
         return f"sum({v})"
     if m.fn == d.COUNT:
+        if has_companion(col):        # values and text: every non-blank cell (TXT-8); never both filled
+            return f"(count({v}) + count({companion(v)}))"
         return f"count({v})"          # null = blank, so only non-blank values count (T23)
     if m.fn == d.COUNT_DISTINCT:
         return f"count(DISTINCT {v})"
@@ -208,7 +242,12 @@ def compile_definition(con, definition: Definition, columns: list[Column], sourc
                 + [m.column_id for m in definition.measures if m.column_id is not None]):
         if cid not in used:
             used.append(cid)
-    select = ", ".join(f"{column_expr(by_id[c], present)} AS {c}" for c in used) or "1 AS _one"
+    items = []
+    for c in used:
+        items.append(f"{column_expr(by_id[c], present)} AS {c}")
+        if needs_companion(definition, by_id[c]):
+            items.append(f"{companion_expr(by_id[c], present)} AS {companion(c)}")
+    select = ", ".join(items) or "1 AS _one"
 
     note = None
     conds = []
@@ -224,7 +263,8 @@ def compile_definition(con, definition: Definition, columns: list[Column], sourc
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
 
     out = out_columns(definition, by_id)
-    group_exprs = [f"{group_sql(g, by_id[g.column_id])} AS g{i}" for i, g in enumerate(definition.groups, 1)]
+    group_exprs = [f"{group_sql(g, by_id[g.column_id])} AS g{i}, {kind_sql(by_id[g.column_id])} AS k{i}"
+                   for i, g in enumerate(definition.groups, 1)]
     measure_exprs = [f"{measure_sql(m, by_id.get(m.column_id) if m.column_id is not None else None)} AS m{i}"
                      for i, m in enumerate(definition.measures, 1)]
 
@@ -232,9 +272,11 @@ def compile_definition(con, definition: Definition, columns: list[Column], sourc
     n = len(group_exprs)
     if n:
         gnames = ", ".join(f"g{i}" for i in range(1, n + 1))
+        knames = ", ".join(f"k{i}" for i in range(1, n + 1))
+        levels = ", ".join(f"(k{i}, g{i})" for i in range(1, n + 1))
         depth = f"{n} - (" + " + ".join(f"grouping(g{i})" for i in range(1, n + 1)) + ")"
-        sql = (f"SELECT CAST({depth} AS INTEGER) AS _depth, {gnames}, {', '.join(measure_exprs)} "
-               f"FROM (SELECT *, {', '.join(group_exprs)} FROM ({base})) GROUP BY ROLLUP ({gnames})")
+        sql = (f"SELECT CAST({depth} AS INTEGER) AS _depth, {gnames}, {', '.join(measure_exprs)}, {knames} "
+               f"FROM (SELECT *, {', '.join(group_exprs)} FROM ({base})) GROUP BY ROLLUP ({levels})")
     else:
         sql = f"SELECT CAST(0 AS INTEGER) AS _depth, {', '.join(measure_exprs)} FROM ({base})"
     if note is not None:

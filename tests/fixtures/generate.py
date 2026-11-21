@@ -3,6 +3,9 @@
     python tests\\fixtures\\generate.py                      # F01-F21 into tests\\fixtures\\_generated, then verify
     python tests\\fixtures\\generate.py --out C:\\SankalanTest\\Fixtures
     python tests\\fixtures\\generate.py --perf [--perf-rows N] # also P01 (12 x 10M-row CSV) and P02 (10 x 1M-row .xlsx)
+    python tests\\fixtures\\generate.py --full                    # also TPL-R full (3 x 2,500,000 rows; A2 slow tests)
+
+TPL-R small (A2, ``tpl_r.py``) is written to ``<out>\\tpl_r\\small`` on every run; ``--full`` adds ``tpl_r\\full``.
 
 Every file is deterministic except F06 (encryption uses a random salt). The expected figures below are copied
 from docs/specs/test-cases.md > Fixtures and are the acceptance oracle: `verify()` reads each file back the way the
@@ -766,12 +769,19 @@ def main(argv=None) -> int:
     ap.add_argument("--perf", action="store_true", help="also build P01/P02 (about 30 GB; takes a long time)")
     ap.add_argument("--perf-rows", type=int, default=None, help="rows per P01 file (default 10,000,000); "
                                                                 "P02 uses a tenth")
+    ap.add_argument("--full", action="store_true", help="also build TPL-R full (3 x 2,500,000 rows) for slow tests")
     args = ap.parse_args(argv)
     if not args.verify_only:
         generate(args.out)
         print(f"F01-F29 written to {args.out}")
     verify(args.out)
     print("F01-F29 verified against the Fixtures tab")
+    import tpl_r
+    for size in (tpl_r.SMALL,) + ((tpl_r.FULL,) if args.full else ()):
+        folder = args.out / "tpl_r" / size
+        m = tpl_r.load_manifest(folder, size) if args.verify_only else tpl_r.generate(folder, size)
+        tpl_r.verify(folder, m)
+        print(f"TPL-R {size} written and verified in {folder}")
     if args.perf:
         rows = args.perf_rows or 10_000_000
         generate_perf(args.out / "perf", rows_csv=rows, rows_xlsx=max(1, rows // 10))

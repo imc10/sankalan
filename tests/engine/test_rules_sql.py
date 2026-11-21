@@ -26,7 +26,7 @@ ROWS = [
     (1, "T", 2, "ÄBC-12", "0.00", "18", "2026-10-01", "P1"),
     (1, "T", 3, "ab ", "15.00", "12", "2026-10-01", None),
 ]
-FAILURES = [(0, "S", 6, "c002", "12abc")]          # row 6 Amount typed "12abc": stored null, not blank
+FAILURES = [(0, "S", 6, "c002", "12abc")]          # row 6 Amount typed "12abc": null, its text in c002_t
 
 
 def _q(v):
@@ -38,14 +38,18 @@ def staged(storage):
     st = storage.folder.new_staging()
     vals = ", ".join(f"({f}, {_q(s)}, {r}, {_q(a)}, {_q(b)}, {_q(c)}, {_q(d)}, {_q(e)})"
                      for f, s, r, a, b, c, d, e in ROWS)
+    text = {(f, r, c): v for f, _s, r, c, v in FAILURES}
+
+    def t(f, r, c):
+        return _q(text.get((f, r, c)))
+    tv = ", ".join(f"({f}, {r}, {t(f, r, 'c002')}, {t(f, r, 'c003')}, {t(f, r, 'c004')})"
+                   for f, _s, r, *_x in ROWS)
     storage.con.execute(f"""COPY (SELECT 'x' AS run_id, CAST(f AS INTEGER) AS _src_file, s AS _src_sheet,
-        CAST(r AS BIGINT) AS _src_row, a AS c001, CAST(b AS DECIMAL(38,2)) AS c002, CAST(c AS DECIMAL(38,0)) AS c003,
-        CAST(d AS DATE) AS c004, e AS c005 FROM (VALUES {vals}) t(f, s, r, a, b, c, d, e))
+        CAST(r AS BIGINT) AS _src_row, a AS c001, CAST(b AS DECIMAL(38,2)) AS c002, CAST(t2 AS VARCHAR) AS c002_t,
+        CAST(c AS DECIMAL(38,0)) AS c003, CAST(t3 AS VARCHAR) AS c003_t, CAST(d AS DATE) AS c004,
+        CAST(t4 AS VARCHAR) AS c004_t, e AS c005
+        FROM (VALUES {vals}) t(f, s, r, a, b, c, d, e) JOIN (VALUES {tv}) x(f, r, t2, t3, t4) USING (f, r))
         TO '{(st.path / 'data.parquet').as_posix()}' (FORMAT parquet)""")
-    fv = ", ".join(f"({f}, {_q(s)}, {r}, {_q(c)}, {_q(v)})" for f, s, r, c, v in FAILURES)
-    storage.con.execute(f"""COPY (SELECT CAST(f AS INTEGER) AS _src_file, s AS _src_sheet, CAST(r AS BIGINT)
-        AS _src_row, c AS column_id, v AS value FROM (VALUES {fv}) t(f, s, r, c, v))
-        TO '{(st.path / 'conversion_failures.parquet').as_posix()}' (FORMAT parquet)""")
     return storage, st
 
 
@@ -60,7 +64,7 @@ def _fails(staged, *rules, columns=COLS):
 @spec("VAL-1", "VAL-2", "T14")
 def test_not_blank_and_is_a_number(staged):
     got, rows = _fails(staged, Rule("r1", "c002", NOT_BLANK), Rule("r2", "c005", NOT_BLANK))
-    assert got["r1"] == []                          # row 6 failed conversion: not blank, only Is a number
+    assert got["r1"] == []                          # row 6 is text: not blank, only Is a number (TXT-13)
     assert got["c002.type"] == [(0, 6)]
     assert got["r2"] == [(0, 5), (1, 3)]
     assert got["c004.type"] == [] and got["c003.type"] == []

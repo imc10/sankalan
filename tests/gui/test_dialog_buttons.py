@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from conftest import commit_tpl_a_run, open_storage, tpl_a_template
+from conftest import commit_tpl_a_run, open_storage, settle_window, tpl_a_template
 from sankalan.model import definition as d
 from sankalan.model.definition import Group, Measure
 from sankalan.query import catalogue as q
@@ -33,10 +33,7 @@ STATE, TAXABLE = "c005", "c006"
 
 
 def settle(qtbot, w, timeout=30_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(autouse=True)
