@@ -19,17 +19,12 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
-| — | A2-0 — Fixtures, catalogue v2, BUG-1, baselines | Not started | | Feature Spec A2 build (replaces A1, never started): phases in `docs/specs/technical-spec-a2.md` section 16; a detailed A2 plan is still to be written |
-| — | A2-1 — Text companions (Feature E) and stored order | Not started | | |
-| — | A2-2 — Templates without checks (Feature F) | Not started | | |
-| — | A2-3 — Choose sheets (Feature D) | Not started | | Independent of A2-1/A2-2/A2-4…9 |
-| — | A2-4 — Export engine | Not started | | |
-| — | A2-5 — Export dialogs | Not started | | |
-| — | A2-6 — Measures v2 engine | Not started | | |
-| — | A2-7 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
-| — | A2-8 — Rows view engine | Not started | | |
-| — | A2-9 — Rows view UI | Not started | | |
-| — | A2-10 — Docs, test sheet, performance suite | Not started | | |
+| — | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Not started | | Plan: `docs/plans/a2-implementation-plan.md` (6 phases; replaces Tech spec A2 §16's A2-0…A2-10). Starts by fixing the two known test failures |
+| — | A2-2 — Template without checks (F), then Choose sheets (D) | Not started | | Cut line: F alone |
+| — | A2-3 — Export in parts (C): engine and dialogs | Not started | | |
+| — | A2-4 — Measures by column (B): engine and UI | Not started | | |
+| — | A2-5 — Rows view (A): engine and UI | Not started | | |
+| — | A2-6 — Docs, full-size checks, performance suite | Not started | | Only phase that runs `perf` tests; any PERF miss goes to the user before proceeding |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
@@ -94,6 +89,21 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 21-11-2026 — A2 implementation plan (no code)
+- New `docs/plans/a2-implementation-plan.md`: Tech spec A2 §16's eleven phases grouped into six (A2-1…A2-6), each
+  with the spec sections to read, steps, new and changed tests, acceptance criteria (every AC of Feature Spec A2
+  §10 assigned to a phase) and a cut line. Phase table above replaced. CLAUDE.md spec map points to the plan.
+- **As the user asked:** no phase before A2-6 runs performance tests. The PERF-1/PERF-2 baselines that Tech spec
+  §16 put in A2-0 move to A2-6: they are measured on a worktree at `25f4d98` (pre-A2) against the A2 build. Any
+  missed target is shown to the user, who decides whether to proceed.
+- **Proposed, to confirm before the phase that needs them** (plan → Open items): small fixture figures (A2-O1); A2
+  perf test-case IDs `A2-PERF-07…14`, because `test-cases.md` already uses PERF-07/PERF-08 for v2.0 (A2-O2); dev PC
+  pinned to 4 threads / 8 GB for perf (A2-O3); worktree at `25f4d98` for before/after (A2-O4).
+- Found while planning: start-up has no data-folder chooser today (`app._failed` closes the app), so the T40
+  refusal needs a small new dialog (A2-1 step 3).
+- Suite not run: docs-only change; code is unchanged since `25f4d98` (suite state in the entry below).
+- **Next:** A2-1.
 
 ### 21-11-2026 — Technical Spec A2 (no code)
 - Feature Spec A2 (21-11-2026; replaces A1 and the UX changes note) copied to `docs/specs/feature-spec-a2.md`.

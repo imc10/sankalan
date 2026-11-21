@@ -21,7 +21,8 @@ local per-template dataset (DuckDB + Parquet) that can be analysed and exported 
 | Acceptance figures, fixtures F00–F21/P01–P02, screen→test coverage | `docs/specs/test-cases.md` | 191 cases. Expected numbers are the oracle for automated tests |
 | Feature-Updates: Rows view, measures by column, export in parts, choose sheets, text in Number/Date columns, templates without checks, BUG-1 (ROW, MEA, EXP-8–14, SHT, TXT, NCK) | `docs/specs/feature-spec-a2.md` | Behaviour and acceptance criteria. Replaces Feature Spec A1 |
 | How to build A2 (T32–T67) | `docs/specs/technical-spec-a2.md` | **Wins over Feature Spec A2** where they differ (its section 15.1). Replaces Technical Spec A1 |
-| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | A2 phases: Technical Spec A2 section 16 (A1 plan superseded) |
+| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | V2 phases 0–12 |
+| A2 phases A2-1…A2-6: steps, tests, acceptance | `docs/plans/a2-implementation-plan.md` | Replaces Technical Spec A2 section 16's build order (A1 plan superseded) |
 | Status, decisions, session log | `docs/PROGRESS.md` | Update at the end of every session |
 
 ## Hard rules (break none of these)
