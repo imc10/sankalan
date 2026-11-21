@@ -19,14 +19,17 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
-| — | A1-0 — Fixtures, markers, baselines | Not started | | Feature Spec A1 build: plan in `docs/plans/a1-implementation-plan.md` |
-| — | A1-1 — Stored order and the export engine | Not started | | |
-| — | A1-2 — Export dialogs | Not started | | |
-| — | A1-3 — Measures v2 engine and catalogue version 2 | Not started | | |
-| — | A1-4 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
-| — | A1-5 — Rows view engine | Not started | | |
-| — | A1-6 — Rows view UI | Not started | | |
-| — | A1-7 — Docs, test sheet, performance suite | Not started | | |
+| — | A2-0 — Fixtures, catalogue v2, BUG-1, baselines | Not started | | Feature Spec A2 build (replaces A1, never started): phases in `docs/specs/technical-spec-a2.md` section 16; a detailed A2 plan is still to be written |
+| — | A2-1 — Text companions (Feature E) and stored order | Not started | | |
+| — | A2-2 — Templates without checks (Feature F) | Not started | | |
+| — | A2-3 — Choose sheets (Feature D) | Not started | | Independent of A2-1/A2-2/A2-4…9 |
+| — | A2-4 — Export engine | Not started | | |
+| — | A2-5 — Export dialogs | Not started | | |
+| — | A2-6 — Measures v2 engine | Not started | | |
+| — | A2-7 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
+| — | A2-8 — Rows view engine | Not started | | |
+| — | A2-9 — Rows view UI | Not started | | |
+| — | A2-10 — Docs, test sheet, performance suite | Not started | | |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
@@ -60,7 +63,13 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts | Confirmed 17-11-2026 | Phase 4 |
 | EXP-04 Reason text | "Column: Rule" per Error rule that caused it, in rule order, joined by `; ` (e.g. "Invoice No: Character pattern; Taxable Value: Is a number"). `left_out.parquet` `_reason` holds the rule IDs comma-separated | Confirmed 17-11-2026 | Phase 4 |
 | Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
-| Input formats (D38, IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
+| Input formats (D81, was D38; renumbered 21-11-2026 because Feature Spec A2 uses D38–D60, Tech spec A2 T67; IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
+| A2 grand total in result exports (EXP-12) | Stays the last row, as on screen; when split, last row of the last part (Tech spec A2 T38) | Confirmed 21-11-2026 | A2-4 |
+| A2 Summary with no measures (MEA-11) | No subtotal or grand total rows; Show subtotals disabled (T39) | Confirmed 21-11-2026 | A2-6 |
+| A2 old data folders (D77) | Catalogue schema version 2 created whole; a version-1 (test build) catalogue is refused at start-up, no upgrade code (T40) | Confirmed 21-11-2026 | A2-0 |
+| A2 Choose sheets file types (SHT-2) | .xlsx, .xlsm, .xlsb and .xls (T46) | Confirmed 21-11-2026 | A2-3 |
+| A2 P8 / OA-5 text groups in sorts (TXT-11) | Values first in the chosen direction, then "(Not a number)" / "(Not a date)", then "(Null)", both directions | Confirmed 21-11-2026 | A2-1 |
+| A2 blank rows without checks (NCK-4) | Rows read includes blank rows; Rows left out "None"; "Blank rows skipped: N" line at Load, Commit and Run summary (T45) | Confirmed 21-11-2026 | A2-2 |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -85,6 +94,29 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 21-11-2026 — Technical Spec A2 (no code)
+- Feature Spec A2 (21-11-2026; replaces A1 and the UX changes note) copied to `docs/specs/feature-spec-a2.md`.
+  New `docs/specs/technical-spec-a2.md` (T32–T56, T67) replaces Technical Spec A1. The A1 specs and A1 plan are marked
+  superseded; CLAUDE.md's spec map points to A2. Phase table: A1-0…A1-7 replaced by A2-0…A2-10.
+- **Answered by the user (21-11-2026):** work from A2 alone (A2's T28–T31 refer to a Tech Spec v1.0 copy not in the
+  repo, so new decisions start at T32; repo D38 → D81); grand total stays last in result exports; no total rows when
+  a Summary has no measures; version-1 data folders refused, no upgrade; Choose sheets on all four Excel kinds; P8
+  confirmed; "Blank rows skipped" line for runs without checks; spec kept as a repo file only.
+- **Spikes S8 (dev PC, DuckDB 2.0.0, 10M rows):** Convert's `UNION ALL` write does **not** keep load order (A2 8.7
+  relied on it), so Convert sorts and stored-order reads add `ORDER BY` (T32); first 100,000 rows of a run in one
+  `ORDER BY … LIMIT` 0.9–2.2 s; ordered export +22%; `ROLLUP((k, g))` works; spill files are `duckdb_temp_<pid>_*`.
+- **Corrections to Feature Spec A2** are listed in Tech spec A2 section 15.1 (chunks in `%TEMP%`, two-drive disk check,
+  grand total last, no-measure totals, `conversion_failures.parquet` retired, one Sheet not found row per file, …).
+- **Not done:** the detailed A2 implementation plan; the live Feature Spec A2 / test sheet are not updated with 15.1;
+  the A2 canvas artboards (4.1b, 4.1c, 6.4–6.6, 7.9, 2.4b, 4.3b, 4.5b) are not in `docs/specs/ui-screens`.
+- **Suite (docs-only change, code as `674c678`):** 465 passed, 2 skipped, 5 failed in 35 min (normally ~95 s; the PC
+  was slow). Rerun of the 5: three `test_dialog_buttons.py` tests passed (timing flakes, as under Known issues);
+  `test_new_template_cancel_discard[True]` failed once ("pick" returned False) and passed on the next run;
+  `tests/gui/test_new_run.py::test_many_issues_first_10000_then_discard` fails every time, also with these changes
+  stashed: after "Leave and discard this run?", `q.list_runs` returns `[]` instead of R-0001, R-0002. Not
+  investigated: look at it before A2-2, which changes the run wizard.
+- **Next:** write the A2 implementation plan from Tech spec A2 section 16, then start A2-0.
 
 ### 20-11-2026 — .xls and .xlsb input (D38)
 - **Decision:** after a spike (Excel 16 saved one workbook in every format it offers; read with python-calamine

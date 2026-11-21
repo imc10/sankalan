@@ -1,5 +1,7 @@
 # Sankalan — Feature Spec A1: Rows view, Measures by column, Export in parts
 
+> **Superseded** by Feature Spec A2 (`docs/specs/feature-spec-a2.md`, 21-11-2026). Kept for history; do not build from it.
+
 20-11-2026 · Chetan Mundhada · Live doc: https://claude.ai/artifact/XPkLZi1qkLeKqzwgLgxioa (this file is a copy; the live doc is the source of truth)
 
 ## 1. Purpose and scope
