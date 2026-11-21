@@ -42,6 +42,7 @@ class Progress:
     elapsed: float              # seconds
     cancellable: bool
     error_class: str | None
+    detail: str | None = None   # a line under the stage, e.g. "part 2 of 3" (T53)
 
 
 class JobContext:
@@ -56,6 +57,7 @@ class JobContext:
     def set_stage(self, stage: str, rows_total: int | None = None) -> None:
         with self._job._lock:
             self._job._stage = stage
+            self._job._detail = None
             self._job._rows_done = 0 if rows_total is not None else None
             self._job._rows_total = rows_total
 
@@ -64,6 +66,11 @@ class JobContext:
             self._job._rows_done = done
             if total is not None:
                 self._job._rows_total = total
+
+    def set_detail(self, detail: str | None) -> None:
+        """A line shown under the stage, e.g. "part 2 of 3" (T53); a new stage clears it."""
+        with self._job._lock:
+            self._job._detail = detail or None
 
     def add_rows(self, n: int) -> None:
         with self._job._lock:
@@ -115,6 +122,7 @@ class Job:
         self._finished = threading.Event()
         self._state = JobState.RUNNING
         self._stage = ""
+        self._detail: str | None = None
         self._rows_done: int | None = None
         self._rows_total: int | None = None
         self._started = time.monotonic()
@@ -157,7 +165,7 @@ class Job:
 
     def progress(self) -> Progress:
         with self._lock:
-            done, total = self._rows_done, self._rows_total
+            done, total, detail = self._rows_done, self._rows_total, self._detail
             cursors = list(self._cursors)
             fraction = (done / total) if (done is not None and total) else None
         if fraction is None:
@@ -173,7 +181,7 @@ class Job:
         return Progress(self._state, self._stage, done, total,
                         None if fraction is None else max(0.0, min(1.0, fraction)), end - self._started,
                         self.cancellable and not self._state.finished,
-                        type(self.error).__name__ if self.error is not None else None)
+                        type(self.error).__name__ if self.error is not None else None, detail)
 
     def wait(self, timeout: float | None = None) -> bool:
         return self._finished.wait(timeout)

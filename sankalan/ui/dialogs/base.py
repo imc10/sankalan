@@ -63,6 +63,7 @@ class Choice(Dialog):
                  width: int = 480):
         super().__init__(title, parent, width)
         self.choice: str | None = None
+        self.message = text
         if text:
             self.text(text)
         for i, (key, label, kind) in enumerate(options):

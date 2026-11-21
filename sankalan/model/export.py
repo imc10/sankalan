@@ -107,8 +107,8 @@ class ExportRequest:
     """What the Export dialog (7.4) opens with (EXP-4, C4-18): the template's export defaults with the
     name pattern resolved for this export. ``kind``: data | issues | left_out | output | outputs (every output of
     the run, one file each) | analysis. ``output``: the output's position for ``output``; ``subtotals``: as shown;
-    ``items``: set by a screen whose data isn't a committed run yet (the Validate step's issue list, RUNV-07): Job
-    work returning the queries and file names. ``sankalan.runs.export_items`` resolves every other request."""
+    ``items``: set by a screen whose data isn't a committed run (the Validate step's issue list, RUNV-07; an analysis
+    result): Job work returning the export sources and file names. ``sankalan.runs.export_items`` resolves every other request."""
     kind: str
     template_id: str
     run_id: str | None
@@ -119,7 +119,7 @@ class ExportRequest:
     output: int | None = None
     subtotals: bool | None = None
     values: dict | None = None          # Client, Template, RunID for the per-output names of Export all outputs
-    items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportQuery, file name)]
+    items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportSource, file name)]
     what: str = ""                      # "R-0013 data", "State-wise sales": the dialog's "Export R-0013 data"
     rows: int | None = None             # rows the file will hold, when the screen knows ("9,344,350 rows · CSV file")
 

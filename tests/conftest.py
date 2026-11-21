@@ -312,8 +312,10 @@ def settle_window(qtbot, w, timeout: int = 30_000, extra=None) -> None:
     deferred and retried only on this window's own ``jobFinished``, which never comes for the other window's Job,
     so the deferred reads are retried here once the runner is free. Settling also keeps a test from reading
     ``storage.con`` on the main thread while a Job still holds the connection (DuckDB raises
-    ``ResourceInUseException`` rather than waiting)."""
+    ``ResourceInUseException`` rather than waiting). An open Export dialog's size check (a quiet Job that retries
+    while the runner is busy) counts as a pending read too."""
     import shiboken6
+    from sankalan.ui.dialogs.export_dialog import ExportDialog
     from sankalan.ui.screens.common import DataScreen
 
     def idle():
@@ -327,6 +329,10 @@ def settle_window(qtbot, w, timeout: int = 30_000, extra=None) -> None:
             if sc._pending:
                 sc._retry_pending()
                 return False
+        for dlg in w.findChildren(ExportDialog):
+            if shiboken6.isValid(dlg) and dlg._checking:
+                dlg.check_size()
+                return False
         return extra() if extra is not None else True
     qtbot.waitUntil(idle, timeout=timeout)
 
@@ -334,16 +340,18 @@ def settle_window(qtbot, w, timeout: int = 30_000, extra=None) -> None:
 @pytest.fixture
 def answers():
     """Answer ``ask()`` prompts without showing them: push keys onto the list; each prompt pops the first and
-    is recorded in ``answers.asked`` as (title, text, [option keys])."""
+    is recorded in ``answers.asked`` as (title, [button labels]) and its message in ``answers.texts``."""
     from sankalan.ui.dialogs import base
 
     class Answers(list):
         asked = []
+        texts = []
 
     a = Answers()
 
     def hook(dlg):
         a.asked.append((dlg.windowTitle(), [b.text() for b in dlg.buttons.values()]))
+        a.texts.append(dlg.message)
         return a.pop(0) if a else None
 
     base.answer_hook = hook

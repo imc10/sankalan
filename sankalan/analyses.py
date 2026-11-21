@@ -214,8 +214,9 @@ def export_items(outcome: Outcome, sort: str | None, descending: bool):
     """Job work for the Export dialog (ANA-9): the full result as shown (subtotals, sort), grand total last."""
     from sankalan.query import export as qx
 
-    def items(_ctx):
-        return [(qx.result(outcome.result, subtotals=outcome.subtotals, sort=sort, descending=descending), "")]
+    def items(ctx):
+        return [(qx.result(ctx.cursor(), outcome.result, subtotals=outcome.subtotals, sort=sort,
+                           descending=descending), "")]
     return items
 
 

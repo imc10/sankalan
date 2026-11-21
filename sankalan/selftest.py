@@ -237,12 +237,12 @@ def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     def export_work(ctx):
-        (query, name), = export_items(ctx, storage.folder, req)
-        return export(ctx, storage.paths.temp, query, out / name, req.options)
+        (source, name), = export_items(ctx, storage.folder, req)
+        return export(ctx, storage.paths.temp, [source], out, [name], req.options)[0]
     res = _job(storage, "Export", export_work)
     raw = res.path.read_bytes()
     checks.add("CSV export", raw.startswith(b"\xef\xbb\xbf") and res.rows == sample["loaded"]
-               and raw.count(b"\n") == sample["loaded"] + 1 and not list(out.glob("*.part")),
+               and raw.count(b"\n") == sample["loaded"] + 1 and not list(out.glob("*.partial")),
                f"{res.path.name}, {res.rows} rows")
     checks.add("Staging and temp emptied", _empty(storage.folder.staging_root)
                and _empty(storage.paths.temp, keep=own_spill_file))

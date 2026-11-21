@@ -550,8 +550,8 @@ class ValidateStep(QWidget):
         info = wz.start_info
         req = ex.prefill("issues", info.template.export, template_id=info.template.id, client=info.client_name,
                          template=info.template.name, run_label=wz.run_label)
-        req = ex.ExportRequest(**{**req.__dict__, "items": lambda _ctx: [(qx.issue_list(issues, names, col_names),
-                                                                           req.file_name)]})
+        req = ex.ExportRequest(**{**req.__dict__, "items": lambda ctx: [
+            (qx.issue_list(ctx.cursor(), issues, names, col_names), req.file_name)]})
         return wz.window_.go("export", request=req)
 
 

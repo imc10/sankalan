@@ -21,7 +21,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
 | A2-1 | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Done | `Feature-Updates` (A2-1 commit) | All 12 steps. Convert writes in two statements (memory, see log). AC-TXT-1 Rows-view half is A2-5 |
 | A2-2 | A2-2 — Template without checks (F), then Choose sheets (D) | Done | `Feature-Updates` (A2-2 commit) | Both parts. Slow TPL-N full test passes. New run wizard's min height with Mapping skipped is a known issue (below) |
-| — | A2-3 — Export in parts (C): engine and dialogs | Not started | | |
+| A2-3 | A2-3 — Export in parts (C): engine and dialogs | Done | `Feature-Updates` (A2-3 commit) | All 7 steps. Full-size split test lives in `test_stored_order.py` (reuses its committed runs) |
 | — | A2-4 — Measures by column (B): engine and UI | Not started | | |
 | — | A2-5 — Rows view (A): engine and UI | Not started | | |
 | — | A2-6 — Docs, full-size checks, performance suite | Not started | | Only phase that runs `perf` tests; any PERF miss goes to the user before proceeding |
@@ -55,7 +55,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Confirmed 16-11-2026 | Phase 1 |
 | Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
 | Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
-| Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts | Confirmed 17-11-2026 | Phase 4 |
+| Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts. **A2-3:** chunks (no header) in `%TEMP%\Sankalan`, parts written as `<name>.partial` and renamed in by the finish step (Tech spec A2 T33, T35) | Confirmed 17-11-2026 | Phase 4 |
 | EXP-04 Reason text | "Column: Rule" per Error rule that caused it, in rule order, joined by `; ` (e.g. "Invoice No: Character pattern; Taxable Value: Is a number"). `left_out.parquet` `_reason` holds the rule IDs comma-separated | Confirmed 17-11-2026 | Phase 4 |
 | Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
 | Input formats (D81, was D38; renumbered 21-11-2026 because Feature Spec A2 uses D38–D60, Tech spec A2 T67; IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
@@ -96,6 +96,87 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 21-11-2026 — A2-3: Feature C (export in parts), engine and dialogs
+- **Progress detail (T53).** `JobContext.set_detail()`, `Progress.detail` (a new stage clears it), and a muted line
+  under the stage in `ProgressPanel` (hidden while cancelling).
+- **Splitter** (`sankalan/exporting_split.py`, Tech spec A2 8.5): `Splitter(open_part, header, bom, part_rows, *,
+  tick, block)`, `.feed(path) -> records`, `.close() -> records per part`, `.abandon()`. One scan for both paths:
+  `bytes.count(b"\n")` up to the next quote (or the block end), `bytes.find` to step to the exact record end when
+  the part fills inside the block; quote state carried across blocks. A chunk that ends inside quotes or in the
+  middle of a record raises `SplitError` (→ "Export check failed"). A new part is opened only when more data comes,
+  so N = k × part size gives k parts; no rows give one part with the header.
+- **Plan** (8.3): `exporting.PART_ROWS = 1_000_000`, `plan(rows, file_name, part_rows)`, `part_count`, `stem`.
+- **Sources** (8.1): `query.export.Chunk(select, rows, order)` (`sql` adds the ORDER BY; the size sample reads
+  `select` unsorted) and `ExportSource(headers, chunks, rows, label)`. `run_data`, `left_out` and `issue_list` count N
+  from the Parquet file, `result` counts visible rows + grand total (now takes `con` and `label`). `ExportQuery` and
+  `export_many` are gone: `runs.export_items` / `analyses.export_items` / the Validate step return
+  `[(ExportSource, name)]` and `exporting.export` takes a list of sources.
+- **Estimate** (8.4, T34): `exporting.estimate(ctx, temp, sources, options, part_rows) -> Estimate` (COPY of up to
+  10,000 rows per source, × N × 1.05, + header/BOM per part; largest chunk for the temp drive);
+  `space_problem(est, folder, temp)` (no DuckDB: `shutil.disk_usage`, margins max(1 GB, 10%), needs added on one
+  drive; destination and temp-drive wordings).
+- **Export** (8.2): `export(ctx, temp, sources, folder, names, options, *, replace, part_rows, estimate_,
+  missing_rows) -> [ExportResult(paths, rows)]`. Existing names not in `replace` → `ExportExists(paths)` before
+  anything; Check (space → `NotEnoughSpace`; T36 open-for-append → `FileInUse` "… is open in another program.
+  Close it, then export again."); per chunk COPY to `%TEMP%\Sankalan\<job>-<k>.csv`, split into `.partial` parts,
+  chunk deleted; count checks (`ExportCheckFailed` "Export check failed: wrote X of N rows"); finish not cancellable
+  (`.replaced` swap, restore on any error). Clean-up on any exception and through `ctx.on_abort`. Test hooks:
+  `part_rows`, `missing_rows`, `SPLIT_BLOCK`, `PROGRESS_EVERY_S`, `_after_block`, `_before_finish`, `_open_write`,
+  `_rename`.
+- **Dialog** (7.4/7.5, 8.6): "Checking size" quiet Job on open (retried every 250 ms while the runner is busy;
+  Export disabled until it returns, `export()` refuses meanwhile); summary "N rows · CSV file" / "N rows · 3 CSV
+  files · about X" / "N rows · one CSV file per output"; parts line under the file name (follows name edits); disk
+  message above the buttons, re-read on folder change with no Job; overwrite confirmation lists every planned file
+  that exists ("Replace 3 files?", up to 10 then "and N more") and passes `replace`; progress detail; split banner
+  "Exported 2,500 rows to 3 files" with Open folder on the folder; cancel banner "Export cancelled. No files were
+  written; files that would have been replaced are unchanged."; disk-full message. Part size hook
+  `export_dialog.part_rows_hook` (tests only).
+- **Tests (new):** `unit/test_export_split.py` (planted quotes / `\r\n` / delimiters on and around part boundaries
+  at block sizes 1…8 MB, random records, exact multiples, unbalanced quote, ticks), `unit/test_export_plan.py`,
+  `gui/test_export_dialog.py` (6), `engine/test_export_big.py` (`slow`), `test_jobs.py::test_set_detail_reaches_progress`,
+  and in `engine/test_export.py`: every kind split on small TPL-R (AC-EXP-8b, 9a, 9b byte-identical to the one-file
+  export), AC-EXP-12 (T38), cancel in extract / part 2 of 3 / before finish with SHA-256 of replaced files and an
+  untouched `_part04of04` (AC-EXP-14a, AC-EXP-10), forced finish failure, count mismatch and disk full (AC-EXP-14b),
+  a file held open the way Excel holds it (`CreateFileW` share-read; T36), free space (EXP-13), estimate within
+  −5…+25% of the written size. `test_stored_order.py` gains the full-size 3-part export of R-0002.
+  **Changed:** callers of the old interface, `.part` → `.partial`, the cancel banner, the overwrite prompt for Export
+  all outputs (now asked before the Job, listing both files), GUI tests settle for the size check
+  (`settle_window` waits for an open Export dialog's check). No expected figure changed.
+- **Deviations (where, not what):** the full-size TPL-R split test is in `test_stored_order.py`, not
+  `test_export_big.py`, so it reuses that module's three committed full runs instead of committing them again
+  (~3 min); `test_export_big.py` holds the 1,000,000 / 1,000,001-row cases (rows from DuckDB's `range`). Budgets:
+  `test_export.py` 12 → 16 s (9 new tests), `test_analysis.py` 17 → 20 s and `test_new_run.py` 14 → 16 s (every
+  Export dialog now runs a size check, and the tests settle for it); new files added.
+- **Interpretations** (change if wrong):
+  - Free-space margins follow T34 exactly, so **every export needs at least about 2 GB free** when the folder and
+    `%TEMP%` are on the same drive (1 GB margin each), even a 5 KB one. The packaged self-test's export needs it too.
+  - Progress detail: "part K of M" for a split file; Export all outputs says "file K of M" (counting every file of
+    every output); no detail for a single unsplit file.
+  - Summary: the size ("about X") is shown only when something is split; Export all outputs reads "N rows · one CSV
+    file per output" (rows of all outputs added) unless an output splits ("N rows · 5 CSV files · about X").
+  - The size check uses the delimiter and encoding at open (a later change alters the estimate by bytes only). If it
+    fails, its message shows and Export is enabled (the export Job estimates again and reports the same problem).
+  - Overwrite confirmation: one file keeps "Replace “name”?"; several read "Replace 3 files?" with the list. Export
+    all outputs now asks before starting (it used to ask after the Job found the first existing file).
+  - Disk full while writing: "The drive C: became full, so the export stopped. No files were written; files that
+    would have been replaced are unchanged. Free up space or choose a folder on another drive." The progress note
+    reads "Cancelling deletes the files written so far."
+  - The issue list keeps today's order (no ORDER BY; it is written in file, row, rule order), as Tech spec 8.1 says.
+- **Flaky test fixed (test only):** one full run failed `test_analysis.py::test_save_from_the_leave_prompt` with a
+  DuckDB error: it read `storage.con` on the main thread straight after opening Clients, whose "Read clients" quiet
+  Job held the connection (the A2-1 race pattern). It now settles first; the file passed 3 runs out of 3.
+- **Suite:** 571 passed, 2 skipped (build-only), 5 deselected (`slow`) in about 2 min 45 s (budget 190 s). `slow` once:
+  `test_export_big.py` 1 passed (2 s); `test_stored_order.py` 3 passed in 3 min 29 s (commits 181 s, the new 3-part
+  export of R-0002 15 s; budget 250 s).
+- **Rendered offscreen at 1366×768 and looked at:** 7.4 with the summary and parts line, the disk message with
+  Export disabled, 7.5 with "part 2 of 3", the split banner with Open folder. The dialog is about 430 px tall, so it
+  fits 1280×640.
+- **Not verified:** the app by hand; opening the parts in Excel 365 (AC-EXP-9a's Excel half, A2-6 as planned); a
+  real full disk and a real second drive (both simulated); 125% / 150% scaling of the parts line (long names without
+  spaces wrap only at spaces); export speed at 10M rows (PERF, A2-6).
+- **Next:** A2-4 (Feature B, measures by column).
+
 
 ### 21-11-2026 — A2-2: Feature F (template without checks), then Feature D (choose sheets)
 - **Fixtures.** `tests/fixtures/tpl_n.py` (TPL-N): TPL-R's 20 columns, checks No, two CSV files. Small: 2 × 5,000

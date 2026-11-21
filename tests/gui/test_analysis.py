@@ -375,6 +375,7 @@ def test_result_capped_on_screen_export_has_every_row(win, qtbot, monkeypatch, t
     assert sc.total_row() == ["Grand total", "5,000"]
     assert sc.export()
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     assert dlg.title.text() == "Export Analysis" and dlg.info.text() == "5,001 rows · CSV file"
     assert dlg.name.text() == "Acme Traders_Sales Register_Analysis.csv"
     dlg.folder.setText(str(tmp_path))
@@ -459,6 +460,7 @@ def test_save_from_the_leave_prompt(win, qtbot, answers, monkeypatch):
     monkeypatch.setattr(analysis_screen, "save_hook", save)
     answers.append("save")
     assert win.open_area("clients")
+    settle(qtbot, win)                         # the Clients screen's read holds the connection until it ends
     s = win.storage
     assert "Rows in November" in q.saved_analysis_names(s.con, sc.data.template.id).values()
 
@@ -629,7 +631,9 @@ def export_dialog_for(qtbot, win, tpla, kind, label) -> export_dialog.ExportDial
     assert win.go("run", run_id=tpla["runs"][label], template_id=tpla["tid"])
     settle(qtbot, win)
     assert win.current.export(kind)
-    return win.export_dialog
+    dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)            # the size check (EXP-13)
+    return dlg
 
 
 @spec("EXP-01", "EXP-2", "EXP-3", "EXP-4", "C4-18")
@@ -649,6 +653,7 @@ def test_export_dialog_contents(win, qtbot, tpla):
 
 
 def do_export(qtbot, win, dlg, folder, name=None, delimiter=None, bom=None):
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     export_dialog.folder_hook = lambda _d: str(folder)
     try:
         dlg.change.click()
@@ -744,7 +749,7 @@ def test_export_progress_cancel_and_open_folder(win, qtbot, tpla, tmp_path, monk
     def hold():
         waiting.set()
         release.wait(10)
-    monkeypatch.setattr(exporting, "_after_chunk", hold)
+    monkeypatch.setattr(exporting, "_after_block", hold)
     dlg = export_dialog_for(qtbot, win, tpla, "data", "R-0002")
     export_dialog.folder_hook = lambda _d: str(tmp_path)
     dlg.change.click()
@@ -761,9 +766,10 @@ def test_export_progress_cancel_and_open_folder(win, qtbot, tpla, tmp_path, monk
     dlg.progress.cancel_button.click()
     release.set()
     settle(qtbot, win)
-    assert list(tmp_path.iterdir()) == []                 # neither the file nor a .part
-    assert win.current.banners()[-1].plain_text == "Export cancelled. The part-written file was deleted."
-    monkeypatch.setattr(exporting, "_after_chunk", lambda: None)
+    assert list(tmp_path.iterdir()) == []                 # neither the file nor a .partial
+    assert win.current.banners()[-1].plain_text == export_dialog.CANCELLED == (
+        "Export cancelled. No files were written; files that would have been replaced are unchanged.")
+    monkeypatch.setattr(exporting, "_after_block", lambda: None)
     opened = []
     from sankalan.ui.widgets import banner as banner_mod
     monkeypatch.setattr(banner_mod, "open_folder", lambda p: opened.append(p))
@@ -780,9 +786,10 @@ def test_export_all_outputs_by_pattern(win, qtbot, tpla, tmp_path, answers):
     settle(qtbot, win)
     assert win.current.export("outputs")
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     assert dlg.title.text() == "Export all outputs of R-0001"
     assert dlg.name.accessibleName() == "Name pattern" and dlg.name.text() == "{Client}_{Template}_{RunID}_{Output}"
-    assert dlg.info.text() == "one CSV file per output"
+    assert dlg.info.text() == "12 rows · one CSV file per output"
     assert do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
     assert sorted(p.name for p in tmp_path.iterdir()) == ["R-0001_Latest month by GST rate.csv",
                                                           "R-0001_State-wise sales.csv"]
@@ -790,9 +797,12 @@ def test_export_all_outputs_by_pattern(win, qtbot, tpla, tmp_path, answers):
     # again: the files exist, so Export asks before replacing them (EXP-4)
     assert win.current.export("outputs")
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     answers.append("cancel")
-    assert do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
-    assert answers.asked[-1] == ("Replace “R-0001_State-wise sales.csv”?", ["Cancel", "Replace"])
+    assert not do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
+    assert answers.asked[-1] == ("Replace 2 files?", ["Cancel", "Replace"])            # every file listed (EXP-10)
+    assert answers.texts[-1] == ("These files are already in the folder:\nR-0001_State-wise sales.csv\n"
+                                 "R-0001_Latest month by GST rate.csv\nReplacing them can't be undone.")
     assert dlg.form.isVisible() and dlg.isVisible()
     dlg.reject()
 

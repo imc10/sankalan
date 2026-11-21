@@ -221,9 +221,10 @@ def _output_name(request: ex.ExportRequest, name: str) -> str:
                             RunID=v.get("RunID", ""), Output=name)
 
 
-def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest) -> list[tuple[qx.ExportQuery, str]]:
-    """The queries and file names an Export request writes (run data, left-out rows, issue list, one output, all
-    outputs). Requests from screens whose data isn't committed yet carry their own ``items``."""
+def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest) -> list[tuple[qx.ExportSource, str]]:
+    """The sources and file names an Export request writes (run data, left-out rows, issue list, one output, all
+    outputs: one source each, Tech spec A2 8.1). Requests from screens whose data isn't committed yet (the Validate
+    step's issue list) or that aren't a run (an analysis result) carry their own ``items``."""
     if request.items is not None:
         return request.items(ctx)
     if request.run_id is None:
@@ -243,7 +244,7 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
         return [(qx.left_out(con, path, view.template.columns, view.file_names, label, view.rules),
                  request.file_name)]
     if request.kind == "issues":
-        return [(qx.issue_list(view.issues, view.file_names, view.column_names), request.file_name)]
+        return [(qx.issue_list(con, view.issues, view.file_names, view.column_names), request.file_name)]
     if request.kind in ("output", "outputs"):
         outs = view.run["outputs"]
         if request.kind == "output":
@@ -256,7 +257,7 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
                                     con, o.headers)
             sub = Definition.from_dict(o.definition).subtotals if request.subtotals is None else request.subtotals
             name = request.file_name if request.kind == "output" else _output_name(request, o.name)
-            items.append((qx.result(res, subtotals=sub), name))
+            items.append((qx.result(con, res, subtotals=sub, label=o.name), name))
         return items
     raise RunProblem(f"Unknown export {request.kind!r}.")
 

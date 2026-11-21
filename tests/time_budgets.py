@@ -26,7 +26,7 @@ BUDGETS = {
     "tests/engine/test_connection.py": 5,
     "tests/engine/test_convert_sql.py": 5,
     "tests/engine/test_datafolder.py": 5,
-    "tests/engine/test_export.py": 12,
+    "tests/engine/test_export.py": 16,                 # A2-3: + 9 export-in-parts tests, measured 12 s
     "tests/engine/test_ingest_load.py": 14,
     "tests/engine/test_ingest_probe.py": 5,
     "tests/engine/test_jobs.py": 5,
@@ -39,11 +39,12 @@ BUDGETS = {
     "tests/engine/test_unchecked.py": 10,               # A2-2: measured 8 s
     "tests/engine/test_validation.py": 5,
     # GUI (offscreen)
-    "tests/gui/test_analysis.py": 17,
+    "tests/gui/test_analysis.py": 20,                  # A2-3: every Export dialog runs a size check, measured 19 s
     "tests/gui/test_choose_sheets_screens.py": 12,       # A2-2: measured 8 s (on battery)
     "tests/gui/test_clients.py": 5,
     "tests/gui/test_dialog_buttons.py": 8,
-    "tests/gui/test_new_run.py": 14,
+    "tests/gui/test_export_dialog.py": 8,              # A2-3: measured 5 s
+    "tests/gui/test_new_run.py": 16,                   # A2-3: settles for the Export dialog size check
     "tests/gui/test_new_template.py": 21,
     "tests/gui/test_shell.py": 11,
     "tests/gui/test_template.py": 17,
@@ -53,13 +54,16 @@ BUDGETS = {
     "tests/packaging/test_layout.py": 5,
     "tests/security/test_offline.py": 5,
     "tests/unit/test_excel_readers.py": 5,
+    "tests/unit/test_export_plan.py": 5,
+    "tests/unit/test_export_split.py": 5,              # A2-3: measured 2 s
     "tests/unit/test_fixture_pack.py": 8,              # A2-2: + TPL-N small generated twice
     "tests/unit/test_formats.py": 5,
     "tests/unit/test_ingest_values.py": 5,
     "tests/unit/test_manage.py": 5,
     "tests/unit/test_paths.py": 5,
     # slow tier (`pytest -m slow`): the full TPL-R is built once (~5 min) and then cached in tests/fixtures/_generated
-    "tests/engine/test_stored_order.py": 250,          # measured 198 s (3 x 2.5M-row runs committed)
+    "tests/engine/test_stored_order.py": 250,          # measured 198 s; 209 s with A2-3's 3-part export
+    "tests/engine/test_export_big.py": 10,             # A2-3: measured 2 s
     "tests/engine/test_unchecked_full.py": 30,         # A2-2: measured 16 s on battery (generation not counted)
 }
 

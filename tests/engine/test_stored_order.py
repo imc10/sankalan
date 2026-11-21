@@ -53,8 +53,8 @@ def test_data_parquet_ascending_and_export_in_the_same_order(full, tmp_path):
     cols = q.load_template(s.con, tid).columns
     names = {f["file_index"]: f["file_name"] for f in q.run_details(s.con, rid)["files"]}
     query = qx.run_data(s.con, s.folder.run_dir(tid, rid) / "data.parquet", cols, names, "R-0001")
-    out = run_job(s.runner, lambda ctx: exporting.export(ctx, s.paths.temp, query, tmp_path / "r1.csv",
-                                                         ExportOptions()))
+    out, = run_job(s.runner, lambda ctx: exporting.export(ctx, s.paths.temp, [query], tmp_path, ["r1.csv"],
+                                                          ExportOptions(), part_rows=10 ** 9))
     assert out.rows == 2_500_000
     files = full["m"].files["1"]
     with open(out.path, encoding="utf-8-sig", newline="") as f:
@@ -69,3 +69,36 @@ def test_data_parquet_ascending_and_export_in_the_same_order(full, tmp_path):
             prev = key
             n += 1
     assert n == 2_500_000
+
+
+@spec("AC-EXP-8b", "AC-EXP-9a", "AC-EXP-9b", "EXP-9", "T37")
+def test_full_size_run_export_splits_into_three_parts(full, tmp_path):
+    """A2-3: R-0002's data (2,499,937 rows) at the real part size: 3 parts of at most 1,048,576 records (Excel's
+    limit), each with the BOM and header, continuing the stored order across the cuts."""
+    s, tid = full["s"], full["tid"]
+    rid = full["runs"][2]
+    cols = q.load_template(s.con, tid).columns
+    names = {f["file_index"]: f["file_name"] for f in q.run_details(s.con, rid)["files"]}
+    query = qx.run_data(s.con, s.folder.run_dir(tid, rid) / "data.parquet", cols, names, "R-0002")
+    out, = run_job(s.runner, lambda ctx: exporting.export(ctx, s.paths.temp, [query], tmp_path, ["R2.csv"],
+                                                          ExportOptions()))
+    assert [p.name for p in out.paths] == ["R2_part01of03.csv", "R2_part02of03.csv", "R2_part03of03.csv"]
+    files = full["m"].files["2"]
+    counts, prev, header = [], None, None
+    for path in out.paths:
+        raw = path.open("rb").read(3)
+        assert raw == b"\xef\xbb\xbf"
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            r = csv.reader(f)
+            head = next(r)
+            assert header is None or head == header
+            header = head
+            fi, si, ri = head.index("Source File"), head.index("Source Sheet"), head.index("Source Row")
+            n = 0
+            for rec in r:
+                key = (files.index(rec[fi]), {"Sales A": 0, "Sales B": 1}.get(rec[si], 2), int(rec[ri]))
+                assert prev is None or key > prev, (prev, key)
+                prev = key
+                n += 1
+        counts.append(n)
+    assert counts == [1_000_000, 1_000_000, 499_937] and max(counts) <= 1_048_576
