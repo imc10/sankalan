@@ -35,6 +35,103 @@ def pytest_sessionfinish(session, exitstatus):
         Path(path).write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------------------------- time budgets
+# Each test file has an expected completion time (tests/time_budgets.py). More than 10% over it stops the run at once;
+# a test that hangs is stopped at the same limit by a faulthandler watchdog that prints every thread's stack and ends
+# the process. The one-off building of shared test data (fixture pack, TPL-R) doesn't count against the file that
+# happens to build it. Off with SANKALAN_NO_TIME_BUDGET=1 (debugging only).
+import time as _time  # noqa: E402
+
+import time_budgets as _tb  # noqa: E402
+
+_BUDGET_ON = os.environ.get("SANKALAN_NO_TIME_BUDGET") != "1"
+_clock = {"file": None, "start": 0.0, "excluded": 0.0, "suite": None, "limit": None, "out": None}
+WATCHDOG_GRACE = 10.0         # s past the limit: a test that ends late gets the TIME BUDGET stop, a hang the dump
+WATCHDOG_FILE = ROOT / "tests" / "fixtures" / "_generated" / "watchdog.txt"   # used only if pytest's stderr isn't
+
+
+def _watchdog_out(config):
+    """Where the watchdog writes: the real stderr pytest's faulthandler plugin keeps (output capture would swallow
+    fd 2), else a file."""
+    try:
+        from _pytest.faulthandler import fault_handler_stderr_fd_key
+        return config.stash[fault_handler_stderr_fd_key]
+    except (ImportError, KeyError):
+        WATCHDOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        return open(WATCHDOG_FILE, "w", encoding="utf-8")
+
+
+def _file_of(item) -> str:
+    return Path(str(item.fspath)).resolve().relative_to(ROOT).as_posix()
+
+
+def file_budget(name: str) -> float:
+    budget = _tb.BUDGETS.get(name, _tb.DEFAULT)
+    if name == "tests/packaging/test_installer.py" and os.environ.get("SANKALAN_BUILD_TESTS") == "1":
+        budget += _tb.BUILD_BUDGET
+    return budget
+
+
+def _elapsed() -> float:
+    return _time.monotonic() - _clock["start"] - _clock["excluded"]
+
+
+def _arm_watchdog() -> None:
+    """End the process with every thread's stack when the current file reaches its limit (a hang)."""
+    import faulthandler
+    if _clock["limit"] is not None:
+        faulthandler.dump_traceback_later(max(1.0, _clock["limit"] - _elapsed()) + WATCHDOG_GRACE, exit=True,
+                                          file=_clock["out"])
+
+
+class untimed:
+    """Time spent inside (building shared test data) doesn't count against the current file's budget; the watchdog
+    is paused meanwhile."""
+
+    def __enter__(self):
+        import faulthandler
+        faulthandler.cancel_dump_traceback_later()
+        self.t = _time.monotonic()
+
+    def __exit__(self, *exc):
+        _clock["excluded"] += _time.monotonic() - self.t
+        _arm_watchdog()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    if not _BUDGET_ON:
+        yield
+        return
+    import faulthandler
+    name = _file_of(item)
+    if _clock["suite"] is None:
+        _clock["suite"] = _time.monotonic()
+    if _clock["file"] != name:
+        _clock.update(file=name, start=_time.monotonic(), excluded=0.0)
+    limit = file_budget(name) * _tb.OVERRUN
+    if _clock["out"] is None:
+        _clock["out"] = _watchdog_out(item.config)
+    _clock["limit"] = limit
+    _arm_watchdog()
+    try:
+        yield
+    finally:
+        _clock["limit"] = None
+        faulthandler.cancel_dump_traceback_later()
+    spent = _elapsed()
+    if spent > limit:
+        pytest.exit(f"TIME BUDGET: {name} took {spent:.1f} s, more than 10% over its expected {file_budget(name):g} s "
+                    f"(tests/time_budgets.py). Stop, investigate the cause, fix it, then run again.", returncode=3)
+
+
+def pytest_terminal_summary(terminalreporter):
+    if _BUDGET_ON and _clock["suite"] is not None:
+        spent = _time.monotonic() - _clock["suite"]
+        terminalreporter.write_line(f"Time budget: tests took {spent:.0f} s; the full normal suite is expected to "
+                                    f"take {_tb.SUITE} s (stop and investigate above {_tb.SUITE * _tb.OVERRUN:.0f} s)")
+
+
 @pytest.fixture(autouse=True)
 def collect_garbage():
     """Collect after every test, while no Job runs. A closed DuckDB connection left in a reference cycle by an
@@ -50,8 +147,9 @@ def collect_garbage():
 def fixtures_dir(tmp_path_factory):
     """The fixture pack F01-F21, generated once per test session and verified against the Fixtures tab."""
     import generate
-    out = generate.generate(tmp_path_factory.mktemp("fixtures"))
-    generate.verify(out)
+    with untimed():
+        out = generate.generate(tmp_path_factory.mktemp("fixtures"))
+        generate.verify(out)
     return out
 
 
@@ -335,8 +433,9 @@ def commit_tpl_a_run(storage, template_id, fx, name, reason=None, comment=""):
 def _tpl_r_files(tmp_path_factory, size):
     import tpl_r
     out = tmp_path_factory.mktemp(f"tpl_r_{size}")
-    m = tpl_r.generate(out, size)
-    tpl_r.verify(out, m)
+    with untimed():
+        m = tpl_r.generate(out, size)
+        tpl_r.verify(out, m)
     return out, m
 
 
@@ -358,8 +457,9 @@ def tpl_r_full():
     out = ROOT / "tests" / "fixtures" / "_generated" / f"tpl_r_full_{key}"
     if (out / f"tpl_r_{tpl_r.FULL}.json").is_file():
         return out, tpl_r.load_manifest(out, tpl_r.FULL)
-    m = tpl_r.generate(out, tpl_r.FULL)
-    tpl_r.verify(out, m)
+    with untimed():                 # ~5 minutes, once; not part of the slow file's budget
+        m = tpl_r.generate(out, tpl_r.FULL)
+        tpl_r.verify(out, m)
     return out, m
 
 

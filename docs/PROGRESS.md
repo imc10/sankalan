@@ -90,6 +90,18 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
 
+### 21-11-2026 — Test time budgets (asked by the user: testing was delaying development)
+- `tests/time_budgets.py`: an expected time per test file, measured on the dev PC (normal suite 150 s, slow
+  `test_stored_order.py` 198 s with cached data) plus ~25% headroom, minimum 5 s; suite 190 s.
+- `tests/conftest.py` enforces them: a file more than 10% over its budget stops the run at once (`TIME BUDGET: …`,
+  exit code 3); a hung test is killed 10 s after that limit by a faulthandler watchdog that dumps every thread's
+  stack to pytest's real stderr. Building shared test data (fixture pack, TPL-R) is excluded from the clock.
+  `SANKALAN_NO_TIME_BUDGET=1` switches it off for debugging only.
+- CLAUDE.md → "Test time budgets (stop rule)": over budget by more than 10% → stop, investigate, fix, run again.
+  The plan's session checklist points to it.
+- Checked: a probe file over budget stopped the run with the message; a sleeping test was killed with a dump
+  naming it; the full suite (505 passed, 149 s) stays within every budget.
+
 ### 21-11-2026 — A2-1: Groundwork and Feature E (text in Number and Date columns), catalogue v2, BUG-1
 - **Step 0, green baseline.** `test_many_issues_first_10000_then_discard` did **not** fail this session: it passed
   in its module, in `tests/gui`, and in three repeated GUI runs (it can't run alone: it relies on R-0001/R-0002

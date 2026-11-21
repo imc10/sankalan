@@ -639,7 +639,7 @@ section).
    output.
 3. Keep context small: grep the large UI files (`new_run.py`, `new_template.py`, `analysis.py`) for the parts you need
    rather than reading them whole. Use an Explore subagent for wide searches.
-4. Normal suite green (`QT_QPA_PLATFORM=offscreen`). Run this phase's `slow` tests once. **No `perf` tests before
+4. Normal suite green (`QT_QPA_PLATFORM=offscreen`), within its time budget (CLAUDE.md → Test time budgets: more than 10% over → stop, find the cause, fix, rerun). Run this phase's `slow` tests once. **No `perf` tests before
    A2-6.**
 5. Render new or changed screens offscreen at 1366×768 and look at them; check they fit 1280×640.
 6. Update `docs/PROGRESS.md`: status, what changed, interpretations, deviations, Not verified, next. Then commit on

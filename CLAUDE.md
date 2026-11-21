@@ -62,9 +62,34 @@ py -3.13 -m venv .venv
 pip install -r requirements-lock.txt -r requirements-dev.txt
 python -m sankalan                         # run the app
 set QT_QPA_PLATFORM=offscreen
-python -m pytest tests -q                  # full suite (must pass before committing)
-python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F00–F21
+python -m pytest tests -q                  # full normal suite (must pass before committing), expected 190 s
+python -m pytest -m slow tests             # full-size tests (A2: each phase runs its own once)
+python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F00–F21 (+ TPL-R small; --full)
 ```
+
+## Test time budgets (stop rule)
+
+Every test file has an expected completion time in `tests/time_budgets.py` (measured, plus ~25% headroom). Testing
+time is development time, so:
+
+| Run | Expected | Stop above |
+| --- | --- | --- |
+| Full normal suite `pytest tests` | 190 s (measured 150 s) | 209 s |
+| One test file | its entry in `tests/time_budgets.py` (5–21 s for normal files) | entry + 10% |
+| `pytest -m slow tests/engine/test_stored_order.py` | 250 s (measured 198 s; building full TPL-R the first time, ~5 min, is not counted) | 275 s |
+| Build tests (`SANKALAN_BUILD_TESTS=1`) | installer file + 170 s | + 10% |
+
+- **If a run exceeds its expected time by more than 10%, stop.** Investigate the cause, fix it, then run again. Don't
+  wait for a slow or silent run, and don't just rerun it hoping it passes.
+- `tests/conftest.py` enforces this: a file more than 10% over budget ends the run at once with
+  `TIME BUDGET: <file> took …` (exit code 3); a test that hangs is killed 10 s later with `Timeout (…)!` and every
+  thread's stack (the stuck test is in the dump). A run that stops progressing usually means a GUI test failed
+  before discarding its edits and left a real modal dialog open: look at the first failure before it.
+- Always run long commands with a timeout (or in the background with the budget in mind) and check them when the
+  expected time is up.
+- A new test file gets its own entry once timed (unlisted files get 30 s). Raise a budget only when a change
+  legitimately makes a file slower, and record why in `docs/PROGRESS.md`. `SANKALAN_NO_TIME_BUDGET=1` turns the
+  checks off for debugging with breakpoints only, never for the run that decides a commit.
 
 ## Working rules
 
