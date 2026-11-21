@@ -39,6 +39,11 @@ class StepBar(QWidget):
         lay.addStretch(1)
         self._paint()
 
+    def set_label(self, index: int, label: str) -> None:
+        """Rename a step: the New run wizard's third step is Validate or Load (T44)."""
+        self.labels[index] = label
+        self.names[index].setText(label)
+
     def set_current(self, index: int) -> None:
         self._current = index
         self._paint()

@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTabBar,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
+                               QTabBar, QToolButton, QVBoxLayout, QWidget)
 
 from sankalan.ui import theme
 from sankalan.ui.widgets import icons
@@ -215,3 +215,66 @@ class SaveBar(QWidget):
             self.bridge.set_allowed(self.save, dirty)
         else:
             self.save.setEnabled(dirty)
+
+
+class YesNoBar(QWidget):
+    """"Check data before loading  [Yes | No]" with a note under it (2.4 step 4, 3.4 Settings; NCK-2, NCK-11).
+    ``changed(bool)`` when the user picks the other answer."""
+    changed = Signal(bool)
+
+    def __init__(self, label: str, hint: str, parent=None, inline: bool = False):
+        """``inline``: the hint beside the buttons instead of under them (3.4, where the form is tight)."""
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.label = heading(label, self, theme.BODY_PX)
+        row.addWidget(self.label)
+        self.yes, self.no = QPushButton("Yes", self), QPushButton("No", self)
+        for b, side in ((self.yes, "left"), (self.no, "right")):
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFixedSize(64, theme.BUTTON_HEIGHT)
+            radius = ("border-top-left-radius: 6px; border-bottom-left-radius: 6px;" if side == "left" else
+                      "border-top-right-radius: 6px; border-bottom-right-radius: 6px;")
+            b.setStyleSheet(f"QPushButton {{ border: 1px solid {theme.INPUT_BORDER}; border-radius: 0; {radius} "
+                            f"background: {theme.WHITE}; color: {theme.TEXT}; }}"
+                            f"QPushButton:checked {{ border-color: {theme.TEAL}; background: {theme.TINT}; "
+                            f"color: {theme.TEAL_DARK}; font-weight: 500; }}")
+        pair = QHBoxLayout()
+        pair.setSpacing(0)
+        pair.addWidget(self.yes)
+        pair.addWidget(self.no)
+        row.addLayout(pair)
+        self.hint = note(hint, self)
+        if inline:
+            row.addSpacing(4)
+            row.addWidget(self.hint, 1)
+            lay.addLayout(row)
+        else:
+            row.addStretch(1)
+            lay.addLayout(row)
+            lay.addWidget(self.hint)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.group.addButton(self.yes)
+        self.group.addButton(self.no)
+        self._value = True
+        self.yes.clicked.connect(lambda _c=False: self._pick(True))
+        self.no.clicked.connect(lambda _c=False: self._pick(False))
+        self.set_value(True)
+
+    def value(self) -> bool:
+        return self._value
+
+    def set_value(self, yes: bool) -> None:
+        self._value = bool(yes)
+        (self.yes if yes else self.no).setChecked(True)
+
+    def _pick(self, yes: bool) -> None:
+        changed = bool(yes) != self._value
+        self.set_value(yes)
+        if changed:
+            self.changed.emit(bool(yes))

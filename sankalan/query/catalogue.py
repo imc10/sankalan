@@ -182,7 +182,7 @@ def load_template(con, template_id: str) -> Template:
         [template_id]).fetchall()]
     source = settings.get("source") if isinstance(settings.get("source"), dict) else None
     return Template(template_id, client_id, name, settings_from_dict(source), cols, load_rules(con, template_id),
-                    outputs, dict(settings.get("export") or {}), int(version))
+                    outputs, dict(settings.get("export") or {}), int(version), bool(settings.get("checks", True)))
 
 
 def duplicate_template(con, template_id: str, name: str, client_id: str | None = None) -> str:
@@ -436,9 +436,10 @@ def template_header(con, template_id: str) -> tuple | None:
 
 def run_rows(con, template_id: str) -> list[tuple]:
     """C4 Runs grid (UX-4, RUN-2), newest first: (id, run number, loaded on, file names (list, in file order),
-    rows loaded, errors, warnings, status, comment, damaged)."""
+    rows loaded, errors, warnings, status, comment, damaged, loaded with checks)."""
     rows = con.execute("""
-        SELECT r.id, r.run_number, r.loaded_on, r.rows_loaded, r.errors, r.warnings, r.status, r.comment, r.damaged
+        SELECT r.id, r.run_number, r.loaded_on, r.rows_loaded, r.errors, r.warnings, r.status, r.comment, r.damaged,
+               r.checks
         FROM run r WHERE r.template_id = ? ORDER BY r.run_number DESC""", [template_id]).fetchall()
     files: dict[str, list[str]] = {}
     for run_id, name in con.execute("""
@@ -447,7 +448,7 @@ def run_rows(con, template_id: str) -> list[tuple]:
         names = files.setdefault(run_id, [])
         if name not in names:                       # one row per file and sheet; a file is listed once
             names.append(name)
-    return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+    return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8], r[9]) for r in rows]
 
 
 def latest_run(con, template_id: str) -> tuple | None:
@@ -473,9 +474,9 @@ def saved_analysis_count(con, *, client_id: str | None = None, template_id: str 
 
 
 def run_delete_figures(con, run_id: str) -> tuple | None:
-    """For dialog 7.2: (run number, template name, rows loaded, saved outputs)."""
+    """For dialog 7.2: (run number, template name, rows loaded, saved outputs, loaded with checks)."""
     row = con.execute("""SELECT r.run_number, t.name, r.rows_loaded,
-                                (SELECT count(*) FROM run_output o WHERE o.run_id = r.id)
+                                (SELECT count(*) FROM run_output o WHERE o.run_id = r.id), r.checks
                          FROM run r JOIN template t ON t.id = r.template_id WHERE r.id = ?""", [run_id]).fetchone()
     return tuple(row) if row else None
 

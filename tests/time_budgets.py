@@ -19,8 +19,9 @@ SUITE = 190                    # the whole normal suite (`pytest tests`): measur
 
 BUDGETS = {
     # engine
-    "tests/engine/test_bug1.py": 5,
+    "tests/engine/test_bug1.py": 8,                    # A2-2: the old-code proof may try its scenario 3 times
     "tests/engine/test_catalogue.py": 5,
+    "tests/engine/test_choose_sheets.py": 10,          # A2-2: measured 7 s (on battery)
     "tests/engine/test_commit_crash.py": 5,
     "tests/engine/test_connection.py": 5,
     "tests/engine/test_convert_sql.py": 5,
@@ -35,27 +36,31 @@ BUDGETS = {
     "tests/engine/test_run_pipeline.py": 7,
     "tests/engine/test_template_sample.py": 6,
     "tests/engine/test_text_values.py": 5,
+    "tests/engine/test_unchecked.py": 10,               # A2-2: measured 8 s
     "tests/engine/test_validation.py": 5,
     # GUI (offscreen)
     "tests/gui/test_analysis.py": 17,
+    "tests/gui/test_choose_sheets_screens.py": 12,       # A2-2: measured 8 s (on battery)
     "tests/gui/test_clients.py": 5,
     "tests/gui/test_dialog_buttons.py": 8,
     "tests/gui/test_new_run.py": 14,
     "tests/gui/test_new_template.py": 21,
     "tests/gui/test_shell.py": 11,
     "tests/gui/test_template.py": 17,
+    "tests/gui/test_unchecked_screens.py": 15,                 # A2-2: measured 11 s
     # packaging, security, unit
     "tests/packaging/test_installer.py": 9,
     "tests/packaging/test_layout.py": 5,
     "tests/security/test_offline.py": 5,
     "tests/unit/test_excel_readers.py": 5,
-    "tests/unit/test_fixture_pack.py": 6,
+    "tests/unit/test_fixture_pack.py": 8,              # A2-2: + TPL-N small generated twice
     "tests/unit/test_formats.py": 5,
     "tests/unit/test_ingest_values.py": 5,
     "tests/unit/test_manage.py": 5,
     "tests/unit/test_paths.py": 5,
     # slow tier (`pytest -m slow`): the full TPL-R is built once (~5 min) and then cached in tests/fixtures/_generated
     "tests/engine/test_stored_order.py": 250,          # measured 198 s (3 x 2.5M-row runs committed)
+    "tests/engine/test_unchecked_full.py": 30,         # A2-2: measured 16 s on battery (generation not counted)
 }
 
 # Build-only tests (SANKALAN_BUILD_TESTS=1: PyInstaller build, packaged self-test, installer compile, ~2¼ min).

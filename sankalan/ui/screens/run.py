@@ -3,6 +3,9 @@
 A committed run: header with the Run ID, its status badge and a summary line; Export data and a ⋯ menu (Export
 issue list, Export left-out rows, Delete run); tabs Summary · Issues · Outputs · Source files. Saved outputs are
 read back as stored, never recalculated (DO-6). The comment is read-only (RUN-13).
+
+A run loaded without checks (NCK-12, Tech spec A2 6.8) has no Issues tab, says "Data checks: Not checked" with its
+blank rows, and offers neither Export issue list nor Export left-out rows.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ from sankalan.ui.widgets.result_table import ResultTable
 
 SUMMARY, ISSUES, OUTPUTS, SOURCES = range(4)
 TAB_LABELS = ["Summary", "Issues", "Outputs", "Source files"]
+NOT_CHECKED = "Not checked"
 
 
 def status_badge(status: str) -> str:
@@ -35,10 +39,11 @@ def status_badge(status: str) -> str:
 def header_line(run: dict) -> str:
     """"Loaded 16-11-2026 18:36 · 4 files · 8 sheets · 9,344,350 rows · 2 errors · 23 warnings" (C6-01)."""
     files = run["files"]
+    issues = (f"{formats.count(run['errors'], 'error')} · {formats.count(run['warnings'], 'warning')}"
+              if run.get("checks", True) else NOT_CHECKED)
     return (f"Loaded {formats.date_time(run['loaded_on'])} · "
             f"{formats.count(len({f['path'] for f in files}), 'file')} · {formats.count(len(files), 'sheet')} · "
-            f"{formats.count(run['rows_loaded'], 'row')} · {formats.count(run['errors'], 'error')} · "
-            f"{formats.count(run['warnings'], 'warning')}")
+            f"{formats.count(run['rows_loaded'], 'row')} · {issues}")
 
 
 def summary_figures(view: runs.RunView) -> list[tuple[str, str]]:
@@ -56,6 +61,19 @@ def summary_figures(view: runs.RunView) -> list[tuple[str, str]]:
         hidden.append(formats.count(hidden_rows, "hidden row"))
     if hidden_sheets:
         hidden.append(f"hidden sheet{'s' if len(hidden_sheets) > 1 else ''} {', '.join(hidden_sheets)}")
+    if not view.checks:                 # NCK-12, T45
+        out = [("Committed on", formats.date_time(run["loaded_on"])),
+               ("Data checks", NOT_CHECKED),
+               ("Files and sheets read", f"{formats.count(len({f['path'] for f in files}), 'file')} · "
+                                         f"{formats.count(len(files), 'sheet')}"),
+               ("Rows read", formats.number(run["rows_read"])),
+               ("Rows loaded", formats.number(run["rows_loaded"]))]
+        if view.blank_rows:
+            out.append(("Blank rows skipped", formats.number(view.blank_rows)))
+        out += [("Rows left out", "None"),
+                ("Hidden data skipped", " and ".join(hidden) if hidden else "None"),
+                ("Default outputs saved", formats.number(len(run["outputs"])))]
+        return out
     return [
         ("Committed on", formats.date_time(run["loaded_on"])),
         ("Files and sheets read", f"{formats.count(len({f['path'] for f in files}), 'file')} · "
@@ -76,6 +94,8 @@ def decision_lines(view: runs.RunView) -> list[str]:
     ch = view.run["run_changes"] or {}
     cols = view.template.columns
     lines = runs.mapping_lines(ch.get("mapping") or [])
+    if not view.checks:
+        return lines or ["No mapping decisions in this run"]
     lines += runs.rule_change_lines(ch.get("rules_saved") or [], cols, True)
     run_only = runs.rule_change_lines(ch.get("rules_run_only") or [], cols, False)
     lines += run_only or ["No rule changes for this run only"]
@@ -154,8 +174,9 @@ class SummaryTab(QWidget):
                              formats.number(_dec(t["loaded"]), t["decimals"]),
                              formats.number(_dec(t["left_out"]), t["decimals"])] for t in totals], {1, 2, 3})
         self.totals.setFixedHeight(theme.ROW_HEIGHT * (len(totals) + 1) + 2)
-        self.totals_state.setText("All totals matched: In the files = Loaded + Left out." if totals else
-                                  "No column was ticked for the totals check.")
+        match = ("All totals matched: In the files = Loaded + Left out." if view.checks else
+                 "All totals matched: In the files = Loaded. Values that aren't numbers count as 0 on both sides.")
+        self.totals_state.setText(match if totals else "No column was ticked for the totals check.")
         if run["status"] == STATUS_OVERRIDE:
             self.comment_label.setText(f"Comment · reason for continuing despite "
                                        f"{formats.count(run['errors'], 'error')}")
@@ -420,6 +441,7 @@ class RunScreen(DataScreen):
         self.badge.show()
         self.refresh_crumbs()
         self.tabs.set_count(ISSUES, run["errors"] + run["warnings"])
+        self.tabs.setTabVisible(ISSUES, view.checks)          # no Issues tab without checks (NCK-12)
         self.tabs.set_count(OUTPUTS, len(run["outputs"]))
         self.tabs.set_count(SOURCES, len(run["files"]))
         self.summary_tab.load(view)
@@ -434,9 +456,10 @@ class RunScreen(DataScreen):
     def more_menu(self) -> QMenu:
         """C6-01: Export issue list, Export left-out rows, Delete run."""
         menu = QMenu(self)
-        menu.addAction("Export issue list", partial(self.export, "issues"))
-        menu.addAction("Export left-out rows", partial(self.export, "left_out"))
-        menu.addSeparator()
+        if self.view is None or self.view.checks:           # not offered for a run without checks (NCK-12)
+            menu.addAction("Export issue list", partial(self.export, "issues"))
+            menu.addAction("Export left-out rows", partial(self.export, "left_out"))
+            menu.addSeparator()
         menu.addAction("Delete run", self.delete_run).setEnabled(not self.bridge.busy)
         self.menu = menu
         return menu
@@ -454,6 +477,8 @@ class RunScreen(DataScreen):
             output = o.name
             sub = self.outputs_tab.subtotals.isChecked()
         rows = v.run.get("rows_loaded") if kind == "data" else None
+        if kind in ex.CHECKED_ONLY and not v.checks:
+            return None
         return ex.prefill(kind, v.template.export, template_id=v.template.id, client=v.client_name,
                           template=v.template.name, run_id=self.run_id, run_label=v.label, output=output,
                           position=position, subtotals=sub, rows=rows)

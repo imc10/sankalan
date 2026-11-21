@@ -538,6 +538,40 @@ def test_save_and_start_opens_new_run(env, qtbot, fixtures_dir):
     assert wz.window_.current.title == "New run"
 
 
+@spec("AC-NCK-1", "NCK-2", "NCK-3", "T43")
+def test_check_data_before_loading_no(env, qtbot, fixtures_dir):
+    s = env["s"]
+    wz = open_wizard(qtbot, env, client="bharat", name="No checks", sample="Conversion_Values.csv", fx=fixtures_dir)
+    to_step(qtbot, wz, RULES)
+    rs = wz.rules_step
+    bar = rs.checks_bar
+    assert bar.label.text() == "Check data before loading" and bar.yes.isChecked() and not bar.no.isChecked()
+    assert bar.hint.text() == "Applies to every run of this template. Can be changed later in Settings."
+    assert rs.editor.isVisible() and not rs.no_panel.isVisible()
+    rs.select("c006")
+    assert rs.add_rule(NOT_BLANK, {}, WARNING) is not None
+    settle(qtbot, wz.window_)
+    bar.no.click()
+    settle(qtbot, wz.window_)
+    assert not rs.checks and not rs.editor.isVisible() and rs.no_panel.isVisible()
+    n = f"{wz.sample_rows:,}"
+    assert rs.no_panel.lines() == [f"Amount · 1 of {n}", f"Amount0 · 1 of {n}", f"Doc Date · 2 of {n}",
+                                   f"Due Date · 1 of {n}"]                      # Number and Date columns
+    assert rs.no_panel.footer.text() == "No rules will be set for this template"
+    bar.yes.click()                                                             # rules entered come back
+    settle(qtbot, wz.window_)
+    assert rs.editor.isVisible() and [r.type for r in rs.rules] == [NOT_BLANK]
+    assert counts_by_name(wz)[("Code", "Not blank")] is not None
+    bar.no.click()
+    settle(qtbot, wz.window_)
+    to_step(qtbot, wz, REVIEW)
+    assert wz.review_step.summary()["Rules"] == "None · this template loads without checks"
+    wz.save(False)
+    settle(qtbot, wz.window_)
+    t = q.load_template(s.con, next(iter(q.template_names(s.con, env["bharat"]))))
+    assert t.checks is False and t.rules == []                                 # no rules saved with No
+
+
 # ---------------------------------------------------------------------------------------------- Back
 @spec("C3-22", "UX-3")
 def test_back_keeps_entries(env, qtbot, fixtures_dir):

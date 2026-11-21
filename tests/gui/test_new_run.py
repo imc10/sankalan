@@ -266,10 +266,12 @@ def test_files_in_error_exclude_and_recheck(win, qtbot, tpla, tmp_path):
     assert status["Sales_WrongSheet.xlsx"] == "Can't read" and status["~$Sales_Locked.xlsx"] == "Skipped"
     texts = [b.plain_text for b in file_banners(wz)]
     assert "Sales_Protected.xlsx is password-protected. Remove the password at source, or exclude the file." in texts
-    assert "Sheet Sales not found." in texts
+    sheet = "Sales_WrongSheet.xlsx: sheets to read not found. Sheets found: Data."      # one row per file (T47)
+    assert sheet in texts
     if held is not None:
         assert "Sales_Locked.xlsx is open in another program. Close it, then Re-check." in texts
-    assert all(set(b.buttons) == {"Exclude file", "Re-check"} for b in file_banners(wz) if b.kind == "error")
+    assert all(set(b.buttons) == ({"Choose sheets…", "Exclude file"} if b.plain_text == sheet else
+                                  {"Exclude file", "Re-check"}) for b in file_banners(wz) if b.kind == "error")
     assert not wz.next_button.isEnabled()
     assert wz.footer.text() == f"Exclude or fix {4 if held else 3} files to continue"
     if held is not None:                                             # RUNF-06: Excel closed, Re-check → Ready

@@ -136,6 +136,23 @@ class Book:
         raise ExcelError("sheet missing")
 
     # ------------------------------------------------------------------------------------------ probe
+    def last_row(self, name: str) -> int | None:
+        """The last row from the sheet's dimension record, read without the cells (T47: every sheet's approximate
+        row count for Choose sheets). The record comes before ``sheetData``; None when there is none."""
+        info = self.sheet(name)
+        try:
+            with self.zip.open(info.part) as fh:
+                for _ev, el in ET.iterparse(fh, events=("start",)):
+                    lname = _local(el.tag)
+                    if lname == "dimension":
+                        m = re.search(r"(\d+)$", el.get("ref", ""))
+                        return int(m.group(1)) if m else None
+                    if lname == "sheetData":
+                        return None
+        except (ET.ParseError, KeyError, zipfile.BadZipFile, OSError) as e:
+            raise ExcelError(type(e).__name__) from None
+        return None
+
     def peek(self, name: str, n: int = detect.HEADER_SCAN_ROWS) -> Peek:
         """The first ``n`` visible rows of a sheet, with values typed enough for header detection (text stays
         text), and the last row from the dimension record. Stops reading as soon as it has them."""

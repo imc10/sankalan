@@ -35,14 +35,17 @@ class LoadFailed(Exception):
 
 # ---------------------------------------------------------------------------------------------- probe
 def probe(ctx: JobContext, paths, *, settings: SourceSettings, columns: list[Column] | None = None,
-          template_id: str | None = None, existing=(), workers: int | None = None) -> list[FileSheet]:
+          template_id: str | None = None, existing=(), workers: int | None = None,
+          choices: dict[str, list[str]] | None = None) -> list[FileSheet]:
     """The Files-step rows for newly added ``paths``. With ``template_id``, files whose contents were already
     loaded in an earlier run of that template (checked
-    on the Job's connection) get a warning naming the run and its date (RUN-7)."""
+    on the Job's connection) get a warning naming the run and its date (RUN-7). ``choices``: path → sheets chosen
+    for it in this run (SHT-3)."""
     accepted, screened = screen_paths(paths, existing)
     ctx.set_stage("Checking files")
     known = mapping_mod.known_names(columns) if columns else None
-    results = run_tasks(probe_file, [(p, settings, known) for p in accepted], workers=workers,
+    choices = choices or {}
+    results = run_tasks(probe_file, [(p, settings, known, choices.get(p)) for p in accepted], workers=workers,
                         should_stop=lambda: ctx.cancel_requested) if accepted else []
     rows_by_path: dict[str, list[FileSheet]] = {}
     for p, res in zip(accepted, results):

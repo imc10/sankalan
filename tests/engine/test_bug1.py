@@ -57,10 +57,16 @@ def test_spilled_temp_table_survives_the_next_jobs(small):
 @spec("BUG-1")
 def test_old_cleanup_breaks_spilled_tables(small):
     """The same scenario with the old clean-up (everything deleted after a Job) fails: proof that the test above
-    exercises BUG-1."""
+    exercises BUG-1. Whether a spill file is deleted while DuckDB still needs it depends on timing (about 1 run in 4
+    passed on the old code too, 21-11-2026), so the scenario is tried up to three times and must fail at least once."""
     small.runner.on_job_end = lambda _job: app_paths.empty_folder(small.paths.temp)
-    jobs = _scenario(small)
-    assert any(j.error is not None for j in jobs[1:])
+    for _attempt in range(3):
+        jobs = _scenario(small)
+        if any(j.error is not None for j in jobs[1:]):
+            return
+        for sql in ("DROP TABLE IF EXISTS b", "DROP TABLE IF EXISTS big"):
+            _sql(small, sql)
+    pytest.fail("the old clean-up never broke a spilled table in three tries")
 
 
 @spec("AC-BUG-1b", "SEC-4", "T54")

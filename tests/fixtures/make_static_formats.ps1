@@ -10,6 +10,8 @@ Excel opens the generated .xlsx fixtures and saves them in the other formats:
     F25 Conversion_Values.xlsb   F19 saved as Excel Binary
     F26 Sales_Protected.xls      F06 (password Sankalan@123) saved as Excel 97-2003 with the same password
     F27 Sales_Protected.xlsb     F06 saved as Excel Binary with the same password
+    S05 Sales_Nov-2026_Central.xlsb   S01 saved as Excel Binary (A2-2, Choose sheets; hidden Notes kept)
+    S06 Sales_Nov-2026_Central.xls    S01 saved as Excel 97-2003
 
 To rebuild:
     python tests\fixtures\generate.py
@@ -29,7 +31,8 @@ try {
     $jobs = @(
         @{ From = "Sales_Nov.xlsx"; To = "Sales_Nov"; Password = $null },
         @{ From = "Conversion_Values.xlsx"; To = "Conversion_Values"; Password = $null },
-        @{ From = "Sales_Protected.xlsx"; To = "Sales_Protected"; Password = $password }
+        @{ From = "Sales_Protected.xlsx"; To = "Sales_Protected"; Password = $password },
+        @{ From = "Sales_Nov-2026_Central.xlsx"; To = "Sales_Nov-2026_Central"; Password = $null }
     )
     foreach ($j in $jobs) {
         $src = Join-Path $Generated $j.From

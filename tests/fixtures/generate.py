@@ -14,6 +14,10 @@ app will (python-calamine, a sheet-XML scan for hidden rows, the csv module) and
 Development only: uses XlsxWriter and msoffcrypto-tool (requirements-dev.txt). F11 (.xls) is a checked-in binary
 made by make_static_xls.py, because no runtime or dev package writes .xls any more. F22-F27 (.xls and .xlsb saved by
 Excel from F03, F19 and F06) are checked-in binaries made by make_static_formats.ps1.
+
+The A2-2 sheet files S01-S06 (Choose sheets, Feature Spec A2 10.5) follow F29: three November files whose sheet
+names differ from the template's rule "Sales and Sales Returns", a copy of Central with Sales Nov renamed (AC-SHT-6),
+and Central saved by Excel as .xlsb and .xls (checked in, make_static_formats.ps1).
 """
 from __future__ import annotations
 
@@ -314,7 +318,65 @@ def generate(out: Path = DEFAULT_OUT) -> Path:
         shutil.copyfile(STATIC / FILES[fid], p(FILES[fid]))
     p("Sales_Export.xls").write_bytes(f28_html().encode("utf-8"))
     p("Sales_Notes.txt").write_bytes(b"Sales notes for November.\r\n")
+    write_sheet_files(out)
     return out
+
+
+# ---------------------------------------------------------------- S01-S06 sheet files (A2-2, Choose sheets)
+SHEET_RULE = ["Sales", "Sales Returns"]          # the template's Sheets to read for the sheet-file tests
+NOTES_ROWS = [["Notes"], ["November register for the Central branch."]]
+COVER_ROWS = [["Sales register — West branch"], ["Period", 2026, 11], ["Pages", 3]]   # no row looks like a header
+
+
+def write_sheet_files(out: Path) -> None:
+    p = out.joinpath
+    central = [("Sales Nov", tpl(f00_rows(300, 100000, 2026, 11))),
+               ("Returns Nov", tpl(f00_rows(50, 100300, 2026, 11)))]
+    write_xlsx(p(SHEET_FILES["S01"]), [Sheet(n, rows) for n, rows in central] + [Sheet("Notes", NOTES_ROWS,
+                                                                                      hidden=True)])
+    write_xlsx(p(SHEET_FILES["S02"]), [Sheet("Sales", tpl(f00_rows(200, 101000, 2026, 11)))])
+    write_xlsx(p(SHEET_FILES["S03"]), [Sheet("Sales", tpl(f00_rows(100, 102000, 2026, 11))),
+                                       Sheet("Sales Returns", tpl(f00_rows(20, 102100, 2026, 11))),
+                                       Sheet("Cover", COVER_ROWS)])
+    write_xlsx(p(SHEET_FILES["S04"]), [Sheet("Sales November", central[0][1]), Sheet("Returns Nov", central[1][1]),
+                                       Sheet("Notes", NOTES_ROWS, hidden=True)])
+    for sid in ("S05", "S06"):
+        shutil.copyfile(STATIC / SHEET_FILES[sid], p(SHEET_FILES[sid]))
+
+
+SHEET_FILES = {
+    "S01": "Sales_Nov-2026_Central.xlsx", "S02": "Sales_Nov-2026_East.xlsx", "S03": "Sales_Nov-2026_West.xlsx",
+    "S04": "Sales_Nov-2026_Central_Renamed.xlsx", "S05": "Sales_Nov-2026_Central.xlsb",
+    "S06": "Sales_Nov-2026_Central.xls",
+}
+SHEET_EXPECTED = {   # sheet: (visible, data rows) in workbook order
+    "S01": [("Sales Nov", True, 300), ("Returns Nov", True, 50), ("Notes", False, None)],
+    "S02": [("Sales", True, 200)],
+    "S03": [("Sales", True, 100), ("Sales Returns", True, 20), ("Cover", True, None)],
+    "S04": [("Sales November", True, 300), ("Returns Nov", True, 50), ("Notes", False, None)],
+}
+
+
+def verify_sheet_files(out: Path) -> None:
+    import python_calamine as pc
+    f = {k: Path(out) / v for k, v in SHEET_FILES.items()}
+    for sid, want in SHEET_EXPECTED.items():
+        wb = pc.CalamineWorkbook.from_path(str(f[sid]))
+        meta = [(m.name, "Hidden" not in str(m.visible)) for m in wb.sheets_metadata]
+        check(meta == [(n, v) for n, v, _r in want], f"{sid}: sheets {meta}")
+        for name, _v, rows in want:
+            if rows is not None:
+                header, data, _ = read_sheet(f[sid], name, 1)
+                check(header == HEADERS and len(data) == rows, f"{sid} {name}: {len(data)} rows")
+    a = pc.CalamineWorkbook.from_path(str(f["S01"]))
+    for sid, magic in (("S05", b"PK"), ("S06", bytes.fromhex("D0CF11E0A1B11AE1"))):
+        check(f[sid].read_bytes()[:8].startswith(magic), f"{sid}: wrong container")
+        b = pc.CalamineWorkbook.from_path(str(f[sid]))
+        check([(m.name, str(m.visible)) for m in a.sheets_metadata]
+              == [(m.name, str(m.visible)) for m in b.sheets_metadata], f"{sid}: sheets")
+        for name in a.sheet_names:
+            check(a.get_sheet_by_name(name).to_python() == b.get_sheet_by_name(name).to_python(),
+                  f"{sid}: sheet {name} differs from S01")
 
 
 def f28_html() -> str:
@@ -667,7 +729,8 @@ def verify(out: Path = DEFAULT_OUT) -> dict:
             pass
     check(f["F28"].read_text(encoding="utf-8").startswith("<html>"), "F28: HTML")
     check(f["F29"].suffix == ".txt", "F29: .txt")
-    report["checked"] = sorted(FILES)
+    verify_sheet_files(out)
+    report["checked"] = sorted(FILES) + sorted(SHEET_FILES)
     return report
 
 

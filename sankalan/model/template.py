@@ -140,6 +140,8 @@ class Template:
     outputs: list[DefaultOutput] = field(default_factory=list)
     export: dict = field(default_factory=dict)
     version: int = 0
+    checks: bool = True             # Check data before loading (NCK-1, T43): held in the settings JSON
+
 
     def column(self, column_id: str) -> Column:
         for c in self.columns:
@@ -152,7 +154,7 @@ class Template:
         return active(self.columns)
 
     def settings_dict(self) -> dict:
-        return {"source": settings_to_dict(self.source), "export": dict(self.export)}
+        return {"source": settings_to_dict(self.source), "export": dict(self.export), "checks": bool(self.checks)}
 
     def snapshot(self) -> dict:
         """The template_version snapshot (TPL-7): settings, columns, rules and default outputs."""
@@ -167,7 +169,7 @@ class Template:
         return Template(self.id, self.client_id, self.name, settings_from_dict(snap["settings"]["source"]),
                         [column_from_dict(c) for c in snap["columns"]], [Rule.from_dict(r) for r in snap["rules"]],
                         [DefaultOutput.from_dict(o) for o in snap["outputs"]], dict(snap["settings"]["export"]),
-                        self.version)
+                        self.version, bool(snap["settings"]["checks"]))
 
 
 def next_column_id(columns: list[Column]) -> str:

@@ -72,3 +72,16 @@ def test_tpl_r_small_generates_verifies_and_is_deterministic(tmp_path, tpl_r_sma
     again = tpl_r.generate(tmp_path, tpl_r.SMALL)
     tpl_r.verify(tmp_path, again)
     assert _hashes(tmp_path) == _hashes(folder)
+
+
+@spec("A2-O1", "AC-NCK-2", "AC-NCK-4")
+def test_tpl_n_small_generates_verifies_and_is_deterministic(tmp_path, tpl_n_small):
+    """TPL-N small (A2-2): 2 × 5,000 rows, 20 repeated, 68 / 12 text values, 3 blank rows; same bytes twice."""
+    import tpl_n
+    folder, m = tpl_n_small
+    assert (m.rows_loaded, m.repeated, m.blank_rows, m.rows_read) == (10_000, 20, 3, 10_003)
+    assert (m.taxable_text_count, m.date_text_count) == (68, 12)
+    assert [t["text"] for t in m.taxable_text] == ["NA", "Nil", "-", "12,000/-", " NA "]
+    again = tpl_n.generate(tmp_path, tpl_n.SMALL)
+    tpl_n.verify(tmp_path, again)
+    assert _hashes(tmp_path) == _hashes(folder)

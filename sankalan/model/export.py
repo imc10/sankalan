@@ -17,6 +17,9 @@ PLACEHOLDERS = ("Client", "Template", "RunID", "Output")
 # What {Output} stands for in exports that aren't a default output
 DATA_NAME, LEFT_OUT_NAME, ISSUES_NAME = "Data", "Left-out rows", "Issues"
 
+# Exports a run loaded without checks doesn't have (NCK-12)
+CHECKED_ONLY = ("issues", "left_out")
+
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 
@@ -128,7 +131,11 @@ class ExportRequest:
 
 def prefill(kind: str, export: dict | None, *, template_id: str, client: str, template: str,
             run_id: str | None = None, run_label: str = "", output: str = "", position: int | None = None,
-            subtotals: bool | None = None, items: Callable | None = None, rows: int | None = None) -> ExportRequest:
+            subtotals: bool | None = None, items: Callable | None = None, rows: int | None = None,
+            checks: bool = True) -> ExportRequest:
+    """``checks`` False (a run loaded without checks) refuses the issue list and left-out rows (NCK-12)."""
+    if kind in CHECKED_ONLY and not checks:
+        raise ValueError(f"A run loaded without checks has no {kind.replace('_', '-')} export")
     d = ExportDefaults.of(export)
     name = output or {"data": DATA_NAME, "issues": ISSUES_NAME, "left_out": LEFT_OUT_NAME}.get(kind, "")
     file_name = csv_file_name(d.pattern, Client=client, Template=template, RunID=run_label, Output=name)

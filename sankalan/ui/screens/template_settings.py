@@ -1,12 +1,16 @@
 """3.4 Template › Settings (UX-7, TPL-1, IN-4, IN-5, EXP-3, EXP-4; C4-17, C4-18): template name, sheets to read, CSV
 delimiter and encoding, and the export defaults that prefill the Export dialog. No header-row, trailer or
-number-grouping setting: the header row is found in each sheet, and dates are always DD-MM-YYYY."""
+number-grouping setting: the header row is found in each sheet, and dates are always DD-MM-YYYY.
+
+Check data before loading (NCK-11, Tech spec A2 6.3) sits under Template name; saving makes a new version, and
+No → Yes puts the automatic type rules in place (``manage.save_template``)."""
 from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QPushButton, QRadioButton, QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget)
 
 from sankalan import manage
 from sankalan.model import export as ex
@@ -14,12 +18,13 @@ from sankalan.model.template import (DELIMITERS, ENC_1252, ENC_UTF8, SHEETS_ALL_
                                      SHEETS_FIRST_VISIBLE, SourceSettings, Template)
 from sankalan.ui import theme
 from sankalan.ui.screens.template import TemplateTab
-from sankalan.ui.widgets.controls import ChipList, SaveBar, heading, note, panel
+from sankalan.ui.widgets.controls import ChipList, SaveBar, YesNoBar, heading, note, panel
 
 NOTE = "Input settings apply from the next run. Export settings prefill the Export dialog."
 ROWS_NOTE = "The header row is found automatically in each sheet. Every row with data below it is read."
 DETECT = "Detect automatically"
 CSV_ENCODINGS = {ENC_UTF8: "UTF-8", ENC_1252: "Windows-1252"}
+CHECKS_HINT = "A change applies from the next run. Runs already loaded don't change."
 
 FolderChooser = Callable[[QWidget, str], str | None]
 
@@ -63,6 +68,11 @@ class SettingsTab(TemplateTab):
         self.name.textEdited.connect(self._edited)
         g.addWidget(self._label("Template name", left), 1, 0)
         g.addWidget(self.name, 1, 1)
+        self.checks = YesNoBar("Check data before loading", CHECKS_HINT, left, inline=True)
+        self.checks.label.hide()
+        self.checks.changed.connect(self._edited)
+        g.addWidget(self._label("Check data before loading", left), 2, 0)
+        g.addWidget(self.checks, 2, 1)
         sheets = QWidget(left)
         sl = QVBoxLayout(sheets)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -82,21 +92,26 @@ class SettingsTab(TemplateTab):
         sl.addWidget(self.first)
         sl.addWidget(self.all)
         self.sheet_group.buttonToggled.connect(lambda _b, on: on and self._sheets_toggled())
-        g.addWidget(self._label("Sheets to read", left), 2, 0)
-        g.addWidget(sheets, 2, 1)
-        g.addWidget(self._label("Rows", left), 3, 0)
-        g.addWidget(note(ROWS_NOTE, left, "body"), 3, 1)
-        g.addWidget(heading("CSV files only", left, theme.GRID_TEXT_PX), 4, 0, 1, 2)
+        g.addWidget(self._label("Sheets to read", left), 3, 0)
+        g.addWidget(sheets, 3, 1)
+        g.addWidget(self._label("Rows", left), 4, 0)
+        g.addWidget(note(ROWS_NOTE, left, "body"), 4, 1)
+        g.addWidget(heading("CSV files only", left, theme.GRID_TEXT_PX), 5, 0, 1, 2)
         self.csv_delimiter = self._combo(left, [(DETECT, None)] + [(v, k) for k, v in DELIMITERS.items()],
                                          "CSV delimiter")
         self.csv_encoding = self._combo(left, [(DETECT, None)] + [(v, k) for k, v in CSV_ENCODINGS.items()],
                                         "CSV encoding")
-        g.addWidget(self._label("Delimiter", left), 5, 0)
-        g.addWidget(self.csv_delimiter, 5, 1)
-        g.addWidget(self._label("Encoding", left), 6, 0)
-        g.addWidget(self.csv_encoding, 6, 1)
-        g.setRowStretch(7, 1)
-        cols.addWidget(left, 1)
+        g.addWidget(self._label("Delimiter", left), 6, 0)
+        g.addWidget(self.csv_delimiter, 6, 1)
+        g.addWidget(self._label("Encoding", left), 7, 0)
+        g.addWidget(self.csv_encoding, 7, 1)
+        g.setRowStretch(8, 1)
+        scroll = QScrollArea(self)                  # scrolls inside itself when the window is at its smallest
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(left)
+        cols.addWidget(scroll, 1)
 
         # ---- export defaults
         right = panel(self)
@@ -164,6 +179,7 @@ class SettingsTab(TemplateTab):
         self._loading = True
         try:
             self.name.setText(t.name)
+            self.checks.set_value(t.checks)
             {SHEETS_BY_NAME: self.by_name, SHEETS_FIRST_VISIBLE: self.first,
              SHEETS_ALL_VISIBLE: self.all}[t.source.sheets].setChecked(True)
             self.sheet_names.set_values(t.source.sheet_names)
@@ -221,6 +237,7 @@ class SettingsTab(TemplateTab):
     def apply(self, t: Template) -> None:
         sheets = self.sheets_value()
         t.name = self.name.text().strip()
+        t.checks = self.checks.value()
         t.source = SourceSettings(sheets, list(self.sheet_names.values) if sheets == SHEETS_BY_NAME else [],
                                   self.csv_encoding.currentData(), self.csv_delimiter.currentData())
         export = dict(t.export)

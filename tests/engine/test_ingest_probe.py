@@ -15,12 +15,14 @@ from sankalan.model.template import SourceSettings
 from sankalan.query import catalogue as q
 
 
-def _probe(fx, names, settings=None, columns=None, runner=None, template_id=None, workers=0, existing=()):
+def _probe(fx, names, settings=None, columns=None, runner=None, template_id=None, workers=0, existing=(),
+           choices=None):
     runner = runner or JobRunner()
     paths = [str(fx / n) for n in names]
     return run_job(runner, lambda ctx: probe(ctx, paths, settings=settings or tpl_a_settings(),
                                              columns=tpl_a_columns() if columns is None else columns,
-                                             template_id=template_id, existing=existing, workers=workers))
+                                             template_id=template_id, existing=existing, workers=workers,
+                                             choices=choices))
 
 
 @spec("RUNF-02", "IN-11", "RUNF-12", "TPL-6")
@@ -152,10 +154,11 @@ def test_file_open_in_another_program(fixtures_dir, tmp_path):
     assert again.status == P.READY and again.rows_approx == 1000
 
 
-@spec("RUNF-07", "IN-15")
+@spec("RUNF-07", "IN-15", "T47")
 def test_sheet_not_found(fixtures_dir):
-    (row,) = _probe(fixtures_dir, ["Sales_WrongSheet.xlsx"])
-    assert (row.status, row.problem, row.message) == (P.ERROR, "sheet", "Sheet Sales not found.")
+    (row,) = _probe(fixtures_dir, ["Sales_WrongSheet.xlsx"])                # one row for the file (T47)
+    assert (row.status, row.problem, row.sheet, row.message) == (P.ERROR, "sheet", "", "Sheets found: Data")
+    assert row.sheets == [P.SheetEntry("Data", True, 100)]
 
 
 @spec("RUNF-08", "IN-6", "IN-15")
@@ -215,11 +218,13 @@ def test_one_row_per_sheet(fixtures_dir):
     assert all(r.hidden_sheets == ["Archive"] for r in rows)
     (first,) = _probe(fixtures_dir, ["Sales_Regions.xlsx"], settings=SourceSettings(sheets="first"))
     assert first.sheet == "North"
-    rows = _probe(fixtures_dir, ["Sales_Regions.xlsx"],
-                  settings=SourceSettings(sheets="name", sheet_names=["south", "Archive", "East"]))
-    assert [(r.sheet, r.status, r.message) for r in rows] == [
-        ("Archive", P.ERROR, "Sheet Archive is hidden, so it isn't read."), ("East", P.ERROR, "Sheet East not found."),
-        ("South", P.READY, "")]
+    rows = _probe(fixtures_dir, ["Sales_Regions.xlsx"],                      # a named sheet hidden or missing:
+                  settings=SourceSettings(sheets="name", sheet_names=["south", "Archive", "East"]))  # whole file (SHT-6)
+    assert [(r.sheet, r.status, r.problem, r.message) for r in rows] == [
+        ("", P.ERROR, "sheet", "Sheets found: North, South")]
+    (south,) = _probe(fixtures_dir, ["Sales_Regions.xlsx"], settings=SourceSettings(sheets="name",
+                                                                                    sheet_names=["south"]))
+    assert (south.sheet, south.status) == ("South", P.READY)
 
 
 @spec("C3-08", "IN-4")
@@ -273,3 +278,67 @@ def test_source_files_unchanged(fixtures_dir):
     before = (path.stat().st_mtime_ns, path.read_bytes())
     _probe(fixtures_dir, ["Sales_Nov.xlsx"])
     assert (path.stat().st_mtime_ns, path.read_bytes()) == before
+
+
+# ---------------------------------------------------------------------------------------------- Choose sheets (A2-2)
+RULE = SourceSettings(sheets="name", sheet_names=["Sales", "Sales Returns"])
+CENTRAL = [P.SheetEntry("Sales Nov", True, 300), P.SheetEntry("Returns Nov", True, 50), P.SheetEntry("Notes", False)]
+
+
+@spec("T46", "T47", "SHT-4", "AC-SHT-2")
+@pytest.mark.parametrize("name", ["Sales_Nov-2026_Central.xlsx", "Sales_Nov-2026_Central.xlsb",
+                                  "Sales_Nov-2026_Central.xls"])
+def test_sheet_list_with_visibility_and_rows(fixtures_dir, name):
+    (row,) = _probe(fixtures_dir, [name], settings=RULE)
+    assert row.sheets == CENTRAL                                         # workbook order; hidden: no count
+    assert (row.status, row.problem, row.sheet, row.message) == (P.ERROR, "sheet", "", "Sheets found: Sales Nov, "
+                                                                                        "Returns Nov")
+    assert row.hidden_sheets == ["Notes"] and row.sha256
+
+
+@spec("T47", "SHT-4")
+def test_sheet_list_xlsm_and_csv(fixtures_dir):
+    (xlsm,) = _probe(fixtures_dir, ["Sales_Macro.xlsm"])
+    assert xlsm.sheets == [P.SheetEntry("Sales", True, 500)] and xlsm.status == P.READY
+    (csv_row,) = _probe(fixtures_dir, ["Conversion_Values.csv"], settings=SourceSettings(), columns=tpl_c_columns())
+    assert csv_row.sheets == []
+    (pw,) = _probe(fixtures_dir, ["Sales_Protected.xlsx"])
+    assert pw.problem == "password" and pw.sheets == []
+
+
+@spec("AC-SHT-4", "SHT-6", "T47")
+def test_one_error_row_per_file(fixtures_dir):
+    rows = _probe(fixtures_dir, ["Sales_Nov-2026_East.xlsx", "Sales_Nov-2026_Central.xlsx",
+                                 "Sales_Nov-2026_West.xlsx"], settings=RULE)
+    assert [(r.file_name, r.sheet, r.status, r.message) for r in rows] == [
+        ("Sales_Nov-2026_East.xlsx", "", P.ERROR, "Sheets found: Sales"),       # Sales only: Sales Returns missing
+        ("Sales_Nov-2026_Central.xlsx", "", P.ERROR, "Sheets found: Sales Nov, Returns Nov"),
+        ("Sales_Nov-2026_West.xlsx", "Sales", P.READY, ""), ("Sales_Nov-2026_West.xlsx", "Sales Returns", P.READY, "")]
+    assert [r.rows_approx for r in rows[2:]] == [100, 20]
+
+
+@spec("SHT-7", "SHT-9", "T47")
+def test_resolution_from_a_choice(fixtures_dir):
+    central = str(fixtures_dir / "Sales_Nov-2026_Central.xlsx")
+    rows = _probe(fixtures_dir, ["Sales_Nov-2026_Central.xlsx"], settings=RULE,
+                  choices={central: ["returns NOV", "sales nov"]})              # case ignored, workbook order
+    assert [(r.sheet, r.status, r.rows_approx, r.header_row) for r in rows] == [("Sales Nov", P.READY, 300, 1),
+                                                                                ("Returns Nov", P.READY, 50, 1)]
+    for chosen in (["Sales Nov", "Notes"], ["Sales Nov", "Sales"]):           # hidden, or missing (SHT-9)
+        (row,) = _probe(fixtures_dir, ["Sales_Nov-2026_Central.xlsx"], settings=RULE, choices={central: chosen})
+        assert (row.problem, row.message) == ("sheet", "Sheets found: Sales Nov, Returns Nov")
+
+
+@spec("AC-SHT-5", "SHT-8")
+def test_chosen_sheet_without_a_header(fixtures_dir):
+    west = str(fixtures_dir / "Sales_Nov-2026_West.xlsx")
+    rows = _probe(fixtures_dir, ["Sales_Nov-2026_West.xlsx"], settings=RULE, choices={west: ["Sales", "Cover"]})
+    assert [(r.sheet, r.status, r.problem) for r in rows] == [("Sales", P.READY, ""), ("Cover", P.ERROR, "header")]
+
+
+def test_rule_ticks():
+    sheets = CENTRAL + [P.SheetEntry("Sales", True, 1)]
+    assert P.rule_ticks(RULE, sheets) == ["Sales"]
+    assert P.rule_ticks(SourceSettings(sheets="first"), sheets) == ["Sales Nov"]
+    assert P.rule_ticks(SourceSettings(sheets="all"), sheets) == ["Sales Nov", "Returns Nov", "Sales"]
+    assert P.rule_ticks(RULE, CENTRAL) == []

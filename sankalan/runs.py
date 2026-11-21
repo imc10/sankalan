@@ -161,6 +161,19 @@ class RunView:
         return self.run["label"]
 
     @property
+    def checks(self) -> bool:
+        """False for a run loaded without checks (NCK-12): no issues, nothing left out."""
+        return bool(self.run.get("checks", True))
+
+    @property
+    def blank_rows(self) -> int:
+        """Blank rows skipped (T45): in ``left_out_by_reason`` for a checked run, Rows read − Rows loaded for a run
+        without checks."""
+        if self.checks:
+            return int(self.run["left_out_by_reason"].get("blank", 0))
+        return int(self.run["rows_read"]) - int(self.run["rows_loaded"])
+
+    @property
     def issues(self) -> Path:
         return self.run_dir / qv.ISSUES
 
@@ -218,6 +231,8 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
     view = run_view(ctx, folder, request.run_id)
     con = ctx.cursor()
     label = view.label
+    if request.kind in ex.CHECKED_ONLY and not view.checks:       # NCK-12, Tech spec A2 6.8 (defence behind the UI)
+        raise RunProblem(f"{label} was loaded without checks: it has no issue list or left-out rows.")
     if request.kind == "data":
         return [(qx.run_data(con, view.run_dir / convert.DATA, view.template.columns, view.file_names, label),
                  request.file_name)]

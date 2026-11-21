@@ -1,6 +1,8 @@
 """4.1–4.5 New run wizard (F2, UX-8, RUN-1 to RUN-14; RUNF, RUNM, RUNV, RUNO, RUNC test cases).
 
-Five steps over one ``RunSession`` (``sankalan.run.pipeline``): Files · Mapping · Validate · Outputs · Commit.
+Five steps over one ``RunSession`` (``sankalan.run.pipeline``): Files · Mapping · Validate · Outputs · Commit. A
+template without checks has Load in Validate's place (T44): the step bar's third label, the Next labels and page 2
+are chosen when the wizard starts.
 Mapping is skipped when every header matches (TPL-6) and Outputs when the template has none (DO-4); the step bar
 shows them as skipped. Every step that reads files or DuckDB is a Job. Leaving the wizard any other way than
 Commit asks "Leave and discard this run?" (7.6) and deletes the staging folder (RUN-14).
@@ -20,14 +22,14 @@ from sankalan import mapping as mp
 from sankalan import runs
 from sankalan.ingest.probe import ERROR, SKIPPED, FileSheet
 from sankalan.ingest.stage import LoadFailed
-from sankalan.model.template import active
+from sankalan.model.template import SHEETS_ALL_VISIBLE, SHEETS_BY_NAME, SourceSettings, active
+from sankalan.run import pipeline as runpipe
 from sankalan.run.pipeline import RunBlocked, RunSession
 from sankalan.ui import theme
 from sankalan.ui.dialogs.base import ask
 from sankalan.ui.dialogs.run_dialogs import AddColumnDialog
 from sankalan.ui.screens.base import LeaveGuard
 from sankalan.ui.screens.common import DataScreen, error_text
-from sankalan.ui.screens.new_template import sheets_text
 from sankalan.ui.widgets.banner import Banner
 from sankalan.ui.widgets.breadcrumb import Crumb
 from sankalan.ui.widgets.controls import heading, icon_button, note, panel, primary
@@ -40,6 +42,7 @@ FILE_FILTER = "Excel and CSV files (*.xlsx *.xlsm *.xlsb *.xls *.csv)"       # I
 WORKERS: int | None = None          # reader workers (tests set 0: read in the Job's thread)
 LEAVE_TITLE = "Leave and discard this run?"
 LOAD_ANYWAY = "Load" " anyway"      # split so the SQL LOAD guard (test_offline) never reads it as a statement
+LOAD_FILES = "Load" " files"        # name of the Job that reads files without checks (T44), split as above
 
 
 def plain_error(error) -> str:
@@ -49,6 +52,31 @@ def plain_error(error) -> str:
     if isinstance(error, (runs.RunProblem, mp.MappingError)):
         return str(error)
     return error_text(error)
+
+
+CHOOSE_SHEETS = "Choose sheets…"
+
+
+def files_hint(source: SourceSettings) -> str:
+    """The drop-zone hint (Tech spec A2 7.3): "reads sheets Sales and Sales Returns unless you choose others for a
+    file", "reads the first visible sheet unless…", "reads every visible sheet unless…"."""
+    if source.sheets == SHEETS_BY_NAME:
+        names = source.sheet_names
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        what = f"reads sheet{'s' if len(names) > 1 else ''} {listed}"
+    elif source.sheets == SHEETS_ALL_VISIBLE:
+        what = "reads every visible sheet"
+    else:
+        what = "reads the first visible sheet"
+    return f"{what} unless you choose others for a file"
+
+
+def sheet_banner_text(f: FileSheet) -> str:
+    """Sheet not found (4.1b): the file and the sheets it has. A message that names the file already ("… has no
+    visible sheet.") is shown as it is."""
+    if f.message.startswith(f.file_name):
+        return f.message
+    return f"{f.file_name}: sheets to read not found. {f.message}."
 
 
 def file_status(f: FileSheet, decided: bool) -> str:
@@ -125,7 +153,7 @@ class FilesStep(QWidget):
         self.table.setShowGrid(False)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i, w in ((1, 160), (2, 96), (3, 88), (4, 110), (5, 140), (6, 44)):
+        for i, w in ((1, 160), (2, 96), (3, 88), (4, 110), (5, 120), (6, 190)):
             hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
             hh.resizeSection(i, w)
         lay.addWidget(self.table, 1)
@@ -159,7 +187,7 @@ class FilesStep(QWidget):
         wz = self.wizard
         sess = wz.session
         if wz.start_info is not None:
-            self.accepts.setText(".xlsx, .xlsm, .xlsb, .xls or .csv · " + sheets_text(wz.start_info.template.source))
+            self.accepts.setText(".xlsx, .xlsm, .xlsb, .xls or .csv · " + files_hint(wz.start_info.template.source))
         files = sess.files if sess else []
         decided = sess.duplicate_decisions if sess else {}
         while self.problems.count():
@@ -177,12 +205,21 @@ class FilesStep(QWidget):
         for f in files:
             if f.path in seen:
                 continue
-            if f.status == ERROR:
+            if f.status == ERROR and f.problem == "sheet":           # Sheet not found (4.1b, SHT-6)
                 seen.add(f.path)
+                actions = [(CHOOSE_SHEETS, lambda _c=False, p=f.path: wz.choose_sheets(p))] \
+                    if sess.can_choose_sheets(f.path) else []
+                actions.append(("Exclude file", lambda _c=False, p=f.path: wz.remove_file(p)))
+                self.problems.addWidget(Banner("error", sheet_banner_text(f), closable=False, parent=self,
+                                               actions=actions))
+            elif f.status == ERROR:
+                seen.add(f.path)
+                actions = [("Exclude file", lambda _c=False, p=f.path: wz.remove_file(p))]
+                if f.problem != "header" or f.path not in sess.sheet_choice:
+                    actions.append(("Re-check", lambda _c=False, p=f.path: wz.recheck_files([p])))
                 self.problems.addWidget(Banner(
                     "error", f.message or f"{f.file_name} can't be read.", closable=False, parent=self,
-                    actions=[("Exclude file", lambda _c=False, p=f.path: wz.remove_file(p)),
-                             ("Re-check", lambda _c=False, p=f.path: wz.recheck_files([p]))]))
+                    actions=actions))
             elif f.duplicate_of and f.path not in decided:
                 seen.add(f.path)
                 self.problems.addWidget(Banner(
@@ -214,10 +251,24 @@ class FilesStep(QWidget):
                     item.setToolTip(f.message)
                 self.table.setItem(r, c, item)
             if first:
-                rm = icon_button("close", f"Remove {f.file_name}")
+                cell = QWidget()
+                cl = QHBoxLayout(cell)
+                cl.setContentsMargins(0, 0, 4, 0)
+                cl.setSpacing(4)
+                cl.addStretch(1)
+                if sess.can_choose_sheets(f.path):                  # SHT-2: the file's first row, next to ✕
+                    link = QPushButton(CHOOSE_SHEETS, cell)
+                    link.setProperty("kind", "plain")
+                    link.setCursor(Qt.CursorShape.PointingHandCursor)
+                    link.setAccessibleName(f"Choose sheets for {f.file_name}")
+                    link.clicked.connect(lambda _c=False, p=f.path: wz.choose_sheets(p))
+                    wz.bridge.guard(link)
+                    cl.addWidget(link)
+                rm = icon_button("close", f"Remove {f.file_name}", cell)
                 rm.clicked.connect(lambda _c=False, p=f.path: wz.remove_file(p))
                 wz.bridge.guard(rm)
-                self.table.setCellWidget(r, 6, rm)
+                cl.addWidget(rm)
+                self.table.setCellWidget(r, 6, cell)
             else:
                 self.table.removeCellWidget(r, 6)
         self.summary.setText(self.summary_text(files))
@@ -245,11 +296,24 @@ class FilesStep(QWidget):
     def rows(self) -> list[list[str]]:
         return [[self.table.item(r, c).text() for c in range(6)] for r in range(self.table.rowCount())]
 
+    def choose_links(self) -> list[str]:
+        """File names whose first row has the Choose sheets… link."""
+        out = []
+        for r in range(self.table.rowCount()):
+            cell = self.table.cellWidget(r, 6)
+            if cell is not None and any(b.text() == CHOOSE_SHEETS for b in cell.findChildren(QPushButton)):
+                out.append(self.table.item(r, 0).text())
+        return out
+
     def footer_text(self) -> str:
         sess = self.wizard.session
         if sess is None or not sess.files:
             return "Add the files for this run"
-        bad = len({f.path for f in sess.files if f.status == ERROR})
+        errors = [f for f in sess.files if f.status == ERROR]
+        bad = len({f.path for f in errors})
+        if bad and all(f.problem == "sheet" for f in errors):           # SHT-6
+            return (f"Choose sheets for {formats.count(bad, 'file')}, or exclude "
+                    f"{'it' if bad == 1 else 'them'}, to continue")
         if bad:
             return f"Exclude or fix {formats.count(bad, 'file')} to continue"
         dup = len({f.path for f in sess.files if f.duplicate_of and f.path not in sess.duplicate_decisions})
@@ -595,7 +659,7 @@ class NewRunScreen(DataScreen):
         self.template_id = template_id
         self.template_name = name
         super().__init__(window, parent)
-        from sankalan.ui.screens.new_run_steps import CommitStep, OutputsStep, ValidateStep
+        from sankalan.ui.screens.new_run_steps import CommitStep, LoadStep, OutputsStep, ValidateStep
         self.step = FILES
         self.start_info: runs.WizardStart | None = None
         self.session: RunSession | None = None
@@ -608,6 +672,8 @@ class NewRunScreen(DataScreen):
         self.files_step = FilesStep(self)
         self.mapping_step = MappingStep(self)
         self.validate_step = ValidateStep(self)
+        self.load_step = LoadStep(self)
+        self.load_step.hide()
         self.outputs_step = OutputsStep(self)
         self.commit_step = CommitStep(self)
         for p in (self.files_step, self.mapping_step, self.validate_step, self.outputs_step, self.commit_step):
@@ -665,9 +731,18 @@ class NewRunScreen(DataScreen):
         self.start_info = info
         self.template_name = info.template.name
         self.session = RunSession(self.folder, info.template, workers=WORKERS)
+        if not self.session.checks:         # T44: Load in Validate's place, for the whole run
+            self.steps.set_label(VALIDATE, "Load")
+            self.pages.removeWidget(self.validate_step)
+            self.validate_step.hide()
+            self.pages.insertWidget(VALIDATE, self.load_step)
         self.refresh_crumbs()
         self.files_step.load()
         self.update_footer()
+
+    @property
+    def third_label(self) -> str:
+        return "Load" if self.session is not None and not self.session.checks else "Validate"
 
     @property
     def run_label(self) -> str:
@@ -697,7 +772,11 @@ class NewRunScreen(DataScreen):
             next_on = sess is not None and not sess.files_blockers()
         elif step == MAPPING:
             text = self.mapping_step.footer_text() if sess and sess.mapping else ""
-            next_label, next_on = "Next: Validate", True        # Next with decisions left moves focus (MAP-13)
+            next_label, next_on = f"Next: {self.third_label}", True    # with decisions left moves focus (MAP-13)
+        elif step == VALIDATE and sess is not None and not sess.checks:
+            text = self.load_step.footer_text()
+            next_label = "Next: Commit" if not sess.template.outputs else "Next: Outputs"
+            next_on = bool(sess.loaded is not None and self.job is None)
         elif step == VALIDATE:
             text = self.validate_step.footer_text()
             next_label = "Next: Commit" if sess and not sess.template.outputs else "Next: Outputs"
@@ -780,6 +859,27 @@ class NewRunScreen(DataScreen):
         self.files_step.load()
         self.update_footer()
 
+    def choose_sheets(self, path):
+        """Choose sheets… (4.1c, SHT-4 to SHT-7): the dialog opens from the probed sheet list; Read N sheets checks
+        the file again with the ticked sheets, Cancel leaves it as it was. Returns the dialog."""
+        from sankalan.ui.dialogs.choose_sheets import ChooseSheetsDialog
+        sess = self.session
+        if sess is None or self.job is not None or not sess.can_choose_sheets(path):
+            return None
+        rows = sess.file_rows(path)
+        dlg = ChooseSheetsDialog(rows[0].file_name, rows[0].size, rows[0].sheets, sess.dialog_ticks(path), self)
+        self.dialog = dlg
+
+        def accepted():
+            names = dlg.chosen()
+            self.run("Check files", lambda ctx: sess.choose_sheets(ctx, path, names),
+                     lambda _rows: self.files_step.load())
+
+        dlg.accepted.connect(accepted)
+        dlg.finished.connect(lambda _r: setattr(self, "dialog", None))
+        dlg.open()
+        return dlg
+
     def load_anyway(self, path) -> None:
         if self.session is None or self.job is not None:
             return
@@ -799,7 +899,7 @@ class NewRunScreen(DataScreen):
     def next(self) -> None:
         if self.job is not None or self.session is None:
             return
-        {FILES: self._next_files, MAPPING: self._next_mapping, VALIDATE: self._next_validate,
+        {FILES: self._next_files, MAPPING: self._next_mapping, VALIDATE: self._next_third,
          OUTPUTS: self._next_outputs}.get(self.step, lambda: None)()
 
     def go_step(self, step: int) -> None:
@@ -828,7 +928,7 @@ class NewRunScreen(DataScreen):
             except RunBlocked as e:
                 self.show_banner(Banner("error", e.message))
                 return
-            self.validate()
+            self.third()
         else:
             self.go_step(MAPPING)
 
@@ -839,7 +939,56 @@ class NewRunScreen(DataScreen):
             self.mapping_step.show_item(first)
             return
         sess.mapping_next()
-        self.validate()
+        self.third()
+
+    def third(self) -> bool:
+        """Enter the third step: Validate, or Load for a template without checks (T44)."""
+        return self.validate() if self.session.checks else self.load_files()
+
+    def load_files(self) -> bool:
+        """The Load Job of a run without checks (NCK-7): read and convert with progress and Cancel. Cancel returns
+        to Mapping, or Files when Mapping was skipped, and nothing is kept."""
+        sess = self.session
+        self.go_step(VALIDATE)
+        self.load_step.clear()
+
+        def back_out():
+            sess.drop_staging()
+            self.go_step(FILES if sess.mapping_skipped else MAPPING)
+
+        def failed(error):
+            sess.drop_staging()
+            self.load_step.show_failure(plain_error(error))
+
+        return self.run(LOAD_FILES, sess.load_unchecked, lambda _l: self.load_step.load(), on_cancelled=back_out,
+                        on_failed=failed) is not None
+
+    def recheck_load(self) -> bool:
+        """Re-check files on Load (Tech spec A2 6.6): a new file problem goes back to Files, a new header to
+        Mapping, otherwise the files are loaded again."""
+        sess = self.session
+        self.load_step.clear()
+
+        def done(where: str):
+            if where == runpipe.FILES:
+                sess.drop_staging()
+                self.go_step(FILES)
+            elif where == runpipe.MAPPING:
+                sess.drop_staging()
+                self.go_step(MAPPING)
+            else:
+                self.load_step.load()
+
+        def failed(error):
+            sess.drop_staging()
+            self.load_step.show_failure(plain_error(error))
+
+        def back_out():
+            sess.drop_staging()
+            self.go_step(FILES if sess.mapping_skipped else MAPPING)
+
+        return self.run("Re-check files", sess.recheck_load, done, on_cancelled=back_out,
+                        on_failed=failed) is not None
 
     def validate(self) -> bool:
         """Read, convert and check the rules (RUN-3) with progress and Cancel. Cancel returns to Mapping, or Files
@@ -865,7 +1014,7 @@ class NewRunScreen(DataScreen):
         """Re-check files (VR-6, RUNV-11): read the files again and check the rules, without leaving the run."""
         if self.job is not None or self.session is None:
             return False
-        return self.validate()
+        return self.validate() if self.session.checks else self.recheck_load()
 
     def continue_despite_errors(self):
         from sankalan.ui.screens.new_run_steps import open_override
@@ -888,6 +1037,17 @@ class NewRunScreen(DataScreen):
     def _next_validate(self) -> None:
         self.leave_validate(None)
 
+    def _next_third(self) -> None:
+        sess = self.session
+        if sess.checks:
+            self._next_validate()
+        elif sess.loaded is not None:               # Next on Load (NCK-8): the rows are ready, no split
+            if sess.outputs_skipped:
+                self.go_step(COMMIT)
+            else:
+                self.go_step(OUTPUTS)
+                self.outputs_step.generate()
+
     def _next_outputs(self) -> None:
         if self.session.outputs_done:
             self.go_step(COMMIT)
@@ -902,12 +1062,21 @@ class NewRunScreen(DataScreen):
             sess.drop_staging()
             self.go_step(FILES if sess.mapping_skipped else MAPPING)
         elif self.step == OUTPUTS:
-            self.validate()             # the rows were split: check again to change anything (pipeline)
+            self._back_to_third()
         elif self.step == COMMIT:
             if sess.outputs_skipped:
-                self.validate()
+                self._back_to_third()
             else:
                 self.go_step(OUTPUTS)
+
+    def _back_to_third(self) -> None:
+        """Back to Validate checks again, since the rows were split (pipeline). Back to Load shows the loaded rows
+        as they are: nothing was split."""
+        if self.session.checks:
+            self.validate()
+        else:
+            self.go_step(VALIDATE)
+            self.load_step.load()
 
     # ------------------------------------------------------------------------------------------ commit
     def commit(self) -> bool:

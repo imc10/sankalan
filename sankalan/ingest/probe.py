@@ -4,6 +4,10 @@
 the same file added twice are skipped (IN-10). ``probe_file`` runs in a reader worker, one per file: file type from
 content, password protection, sharing violations, sheets to read, header row, CSV encoding and delimiter,
 approximate row count and SHA-256. Messages are plain text for the file list (UI-6) and never contain cell values.
+
+Every Excel file that opens lists all its sheets with visibility and an approximate row count from the dimension
+record (``SheetEntry``, T47), for Choose sheets (SHT-4). A file whose sheets don't satisfy the rule, or the user's
+choice, is one Sheet not found row (``problem = "sheet"``) naming its visible sheets (SHT-6).
 """
 from __future__ import annotations
 
@@ -18,6 +22,15 @@ from sankalan.model.template import (ENCODING_LABELS, SHEETS_ALL_VISIBLE, SHEETS
 
 READY, WARNING, ERROR, SKIPPED, REFUSED = "ready", "warning", "error", "skipped", "refused"
 SUPPORTED = (".xlsx", ".xlsm", ".xlsb", ".xls", ".csv")        # IN-3 (D38)
+
+
+@dataclass(frozen=True)
+class SheetEntry:
+    """One sheet of an Excel file (T47): its name, whether it's visible, and about how many rows it has (the
+    dimension's last row − 1, so the header row is not counted; None for a hidden sheet or no dimension)."""
+    name: str
+    visible: bool
+    rows_approx: int | None = None
 
 
 @dataclass
@@ -44,6 +57,7 @@ class FileSheet:
     problem: str = ""                   # error code: password, locked, missing, sheet, header, damaged, ...
     duplicate_of: dict | None = None    # RUN-7: {"run": "R-0001", "loaded_on": datetime}
     headers_match: bool | None = None   # TPL-6: every template column found and no new header
+    sheets: list[SheetEntry] = field(default_factory=list)   # every sheet of an Excel file that opened (T47)
 
     @property
     def readable(self) -> bool:
@@ -96,9 +110,10 @@ def _password(name: str) -> FileProblem:
 
 
 # ---------------------------------------------------------------------------------------------- in a worker
-def probe_file(path: str, settings: SourceSettings, known_names: set[str] | None = None, report=None,
-               stop=None) -> list[FileSheet]:
-    """Probe one file. Never raises for a problem with the file: it becomes an error row."""
+def probe_file(path: str, settings: SourceSettings, known_names: set[str] | None = None,
+               chosen: list[str] | None = None, report=None, stop=None) -> list[FileSheet]:
+    """Probe one file. Never raises for a problem with the file: it becomes an error row. ``chosen``: the sheets
+    the user chose for this file in this run (SHT-3), read instead of the template's rule."""
     p = Path(path)
     base = FileSheet(str(p), p.name, ERROR, kind=p.suffix.lower().lstrip("."))
     try:
@@ -112,7 +127,7 @@ def probe_file(path: str, settings: SourceSettings, known_names: set[str] | None
                     raise _password(p.name) from None
                 raise
             if base.kind != "csv":
-                return _probe_excel(fh, base, settings, known_names)
+                return _probe_excel(fh, base, settings, known_names, chosen)
             return [_probe_csv(fh, base, settings, known_names)]
     except FileProblem as e:
         base.message = e.message
@@ -135,7 +150,66 @@ def _copy(base: FileSheet, **kw) -> FileSheet:
     return FileSheet(**d)
 
 
-def _probe_excel(fh, base: FileSheet, settings: SourceSettings, known) -> list[FileSheet]:
+def sheet_entries(book) -> list[SheetEntry]:
+    """Every sheet in workbook order with its approximate row count (dimension only, no header scan, T47)."""
+    out = []
+    for s in book.sheets:
+        rows = None
+        if s.visible:
+            try:
+                last = book.last_row(s.name)
+            except ExcelError:
+                last = None
+            rows = max(0, last - 1) if last else None
+        out.append(SheetEntry(s.name, s.visible, rows))
+    return out
+
+
+def sheets_found_message(name: str, visible: list[str]) -> str:
+    """Sheet not found (SHT-6, T47): "Sheets found: Sales Nov, Returns Nov", or "<file> has no visible sheet."."""
+    return f"Sheets found: {', '.join(visible)}" if visible else f"{name} has no visible sheet."
+
+
+def resolve_sheets(settings: SourceSettings, sheets: list[SheetEntry],
+                   chosen: list[str] | None = None) -> list[str] | None:
+    """The sheets to read (T47), or None when the file is in Sheet not found:
+
+    - ``chosen``: the chosen names matched case-insensitively to visible sheets, in workbook order; any chosen sheet
+      missing or hidden is Sheet not found (SHT-9);
+    - by name: each named sheet, in the order named; any named sheet missing or hidden is Sheet not found, even if
+      others match (SHT-6);
+    - first visible / all visible: as before; no visible sheet is Sheet not found."""
+    visible = [s.name for s in sheets if s.visible]
+    if chosen is not None:
+        want = {c.lower() for c in chosen}
+        found = [v for v in visible if v.lower() in want]
+        return found if found and len({f.lower() for f in found}) == len(want) else None
+    if settings.sheets == SHEETS_BY_NAME:
+        targets: list[str] = []
+        for want in settings.sheet_names:
+            match = next((v for v in visible if v.lower() == want.lower()), None)
+            if match is None:
+                return None
+            if match not in targets:
+                targets.append(match)
+        return targets
+    if not visible:
+        return None
+    return visible if settings.sheets == SHEETS_ALL_VISIBLE else visible[:1]
+
+
+def rule_ticks(settings: SourceSettings, sheets: list[SheetEntry]) -> list[str]:
+    """The visible sheets the template's rule selects, for the Choose sheets dialog's first ticks (SHT-5): by name
+    the named ones that exist (in workbook order), first visible, or every visible sheet."""
+    visible = [s.name for s in sheets if s.visible]
+    if settings.sheets == SHEETS_BY_NAME:
+        names = {n.lower() for n in settings.sheet_names}
+        return [v for v in visible if v.lower() in names]
+    return visible if settings.sheets == SHEETS_ALL_VISIBLE else visible[:1]
+
+
+def _probe_excel(fh, base: FileSheet, settings: SourceSettings, known,
+                 chosen: list[str] | None = None) -> list[FileSheet]:
     name = base.file_name
     try:
         book = open_book(fh, base.kind)
@@ -144,28 +218,14 @@ def _probe_excel(fh, base: FileSheet, settings: SourceSettings, known) -> list[F
     except ExcelError:
         raise FileProblem("damaged", f"{name} can't be read. It may be damaged, or not an Excel workbook.") from None
     base.sha256 = source.sha256_of(fh)
-    visible = [s.name for s in book.sheets if s.visible]
-    hidden = [s.name for s in book.sheets if not s.visible]
-    base.hidden_sheets = hidden
+    base.sheets = sheet_entries(book)
+    visible = [s.name for s in base.sheets if s.visible]
+    base.hidden_sheets = [s.name for s in base.sheets if not s.visible]
 
     out: list[FileSheet] = []
-    targets: list[str] = []
-    if settings.sheets == SHEETS_BY_NAME:
-        for want in settings.sheet_names:
-            match = next((s for s in visible if s.lower() == want.lower()), None)
-            if match is not None:
-                if match not in targets:
-                    targets.append(match)
-                continue
-            hid = next((s for s in hidden if s.lower() == want.lower()), None)
-            msg = (f"Sheet {hid} is hidden, so it isn't read." if hid is not None else f"Sheet {want} not found.")
-            out.append(_copy(base, sheet=want, status=ERROR, message=msg, problem="sheet"))
-    elif settings.sheets == SHEETS_ALL_VISIBLE:
-        targets = visible
-    else:
-        targets = visible[:1]
-    if not visible and not out:
-        out.append(_copy(base, status=ERROR, message=f"{name} has no visible sheet.", problem="sheet"))
+    targets = resolve_sheets(settings, base.sheets, chosen)
+    if targets is None:                 # one Sheet not found row for the file (T47)
+        return [_copy(base, sheet="", status=ERROR, message=sheets_found_message(name, visible), problem="sheet")]
 
     for sheet in targets:
         row = _copy(base, sheet=sheet)
