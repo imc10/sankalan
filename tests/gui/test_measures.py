@@ -1,6 +1,8 @@
 """The Measures section (Feature Spec A2 3.1, 3.2; Tech spec A2 9.6) on the builder, without a window."""
-from PySide6.QtCore import Qt
+import pytest
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
 from conftest import spec, tpl_a_columns
 from sankalan.model import definition as d
@@ -8,8 +10,21 @@ from sankalan.model.definition import Definition, Group, MeasureCard, Op
 from sankalan.model.template import Column
 from sankalan.ui import theme
 from sankalan.ui.widgets.builder import DefinitionBuilder
+from sankalan.ui.widgets.measures import AddColumnPopup
 
 INV, DATE_, CUST, GSTIN, STATE, TAXABLE = "c001", "c002", "c003", "c004", "c005", "c006"
+
+
+@pytest.fixture(autouse=True)
+def close_widgets(app):
+    """Close every popup and builder a test made: a popup left open slows the GUI tests after this file."""
+    yield
+    for w in QApplication.topLevelWidgets():
+        if isinstance(w, (AddColumnPopup, DefinitionBuilder)):
+            w.close()
+            w.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QApplication.processEvents()
 
 
 def builder(cols=None):

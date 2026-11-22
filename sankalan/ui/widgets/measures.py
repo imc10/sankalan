@@ -138,6 +138,7 @@ class AddColumnPopup(QFrame):
 
     def __init__(self, choices: list[tuple[str, str, str]], search: bool, parent=None):
         super().__init__(parent, Qt.WindowType.Popup)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)     # closed by a pick, Esc or a click outside
         self.setObjectName("AddColumnPopup")
         self.setStyleSheet(f"#AddColumnPopup {{ background: {theme.WHITE}; border: 1px solid {theme.BORDER}; "
                            f"border-radius: 6px; }}")
@@ -192,9 +193,8 @@ class AddColumnPopup(QFrame):
             self.list.item(i).setHidden(bool(t) and t not in name.lower())
 
     def pick(self, column_id: str) -> None:
-        self.hide()
         self.picked.emit(column_id)
-        self.deleteLater()
+        self.close()
 
 
 class MeasuresSection(QWidget):
@@ -240,8 +240,11 @@ class MeasuresSection(QWidget):
         return out + [(c.id, c.name, c.type) for c in self.columns if c.id not in used]
 
     def open_popup(self) -> AddColumnPopup:
+        if self.popup is not None:                  # one list at a time
+            self.popup.close()
         self.popup = AddColumnPopup(self.choices(), len(self.columns) > SEARCH_FROM, self)
         self.popup.picked.connect(self._picked)
+        self.popup.destroyed.connect(lambda _o=None, p=self.popup: self._popup_gone(p))
         pos = self.add.mapToGlobal(QPoint(self.add.width() - 300, self.add.height()))
         self.popup.move(pos)
         self.popup.show()
@@ -249,8 +252,11 @@ class MeasuresSection(QWidget):
             self.popup.search.setFocus()
         return self.popup
 
+    def _popup_gone(self, popup) -> None:
+        if self.popup is popup:
+            self.popup = None
+
     def _picked(self, column_id: str) -> None:
-        self.popup = None
         card = self.add_card(column_id)
         if column_id == d.ROWS:
             card.tick(d.COUNT)                 # Rows comes with Count ticked (MEA-10)

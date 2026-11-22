@@ -33,7 +33,7 @@ BUDGETS = {
     "tests/engine/test_move.py": 5,
     "tests/engine/test_query.py": 6,
     "tests/engine/test_rules_sql.py": 5,
-    "tests/engine/test_run_pipeline.py": 7,
+    "tests/engine/test_run_pipeline.py": 9,            # A2-4: AC-MEA-9 commits a third run, measured 9.1 s on battery
     "tests/engine/test_template_sample.py": 6,
     "tests/engine/test_text_values.py": 5,
     "tests/engine/test_unchecked.py": 10,               # A2-2: measured 8 s

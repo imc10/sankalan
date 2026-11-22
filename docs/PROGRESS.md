@@ -164,36 +164,32 @@ Newest first. One entry per session: date, phase, what was done, deviations from
     is kept and has no effect: such a result has no subtotal rows).
   - The outputs list summary ("1 group · 3 measures") counts ticked operations, not cards.
   - Hovering ✎ itself reads "Rename this column"; elsewhere on a measure header, the default form.
-- **Suite: no full timed run passed; committed at the user's request without it.** Every test passed when run,
-  but no run of the whole normal suite finished within the time budgets:
-  - Run 1 (on AC): stopped at the first file, `engine/test_bug1.py` (10.0 s > 8 s budget, one of its tests
-    failed); alone, the file passed 4 of 4 in 2.7 s. That is the A2-2 retrying timing test; this phase doesn't
-    touch it.
-  - Run 2 (on AC): 367 passed, then stopped at `gui/test_new_template.py` (23.2 s, limit 23.1 s). Timed against
-    the A2-3 code with this phase stashed, the same file took 24.4–25.4 s against 23.8–27.7 s with it (fixture setup
-    included), so this phase doesn't slow it: the file sits at its limit.
-  - Run 3 (the laptop had gone onto battery): 349 passed, then stopped at `gui/test_new_run.py` (17.9 s > 16 s; a
-    file this phase doesn't change).
-  - The files no full run reached were run on their own on battery afterwards: `test_shell` 33, `test_template`
-    21 (its time budget stopped the file run after 20, and the last test passed alone), `test_unchecked_screens` 5,
-    packaging 20 (+2 skipped, build-only), security 9, unit 143, all passed. `test_template.py` reports one pytest
-    warning that wasn't read (the budget stop cut the summary).
-  - Budgets raised for added tests: `gui/test_analysis.py` 20 → 23 s (+2 tests with analysis runs; 20.8 s on AC),
-    `gui/test_template.py` 17 → 19 s (+1 preview test; 19.4 s on AC). New files: `unit/test_definition_v2.py`,
-    `unit/test_headers.py`, `gui/test_measures.py` 5 s each.
-  - **First thing next session (on AC power):** run the full normal suite. If a file is still over its budget on
-    AC, look at it before starting A2-5.
-  - No `slow` test belongs to this phase. The packaged self-test's code passed when run from source (`--no-window`,
-    every check true).
+- **Suite (on AC power, after the follow-up fix below):** 600 passed, 2 skipped (build-only), 5 deselected
+  (`slow`), no warnings, in 2 min 43 s (161 s timed; budget 190 s). No `slow` test belongs to this phase. The
+  packaged self-test's code passed when run from source (`--no-window`, every check true).
+  - **The A2-4 commit went in before this** (at the user's request, with no full run inside the budgets: the laptop
+    had gone onto battery, and each run stopped on a different file a fraction over its limit).
+  - **Found by those runs and fixed in the follow-up commit:** `gui/test_measures.py` left Add column popups open
+    as top-level windows, which made the GUI files after it slower (`test_shell.py` 7.6 → 12.1 s) and caused the
+    stray pytest warning. The popup now deletes itself when closed and a new one replaces an open one
+    (`MeasuresSection.open_popup`); the test file closes every popup and builder it makes.
+  - Budgets raised for added tests: `engine/test_run_pipeline.py` 7 → 9 s (AC-MEA-9 commits a third run),
+    `gui/test_analysis.py` 20 → 23 s (+2 tests with analysis runs; 20.8 s on AC), `gui/test_template.py` 17 → 19 s
+    (+1 preview test; 19.4 s on AC). New files: `unit/test_definition_v2.py`, `unit/test_headers.py`,
+    `gui/test_measures.py` 5 s each.
+  - Checked along the way, against the A2-3 code: `gui/test_new_template.py` takes the same time with and without
+    this phase (it sits near its limit); `gui/test_shell.py` on its own is about 0.4 s slower (every `PagedGrid` now
+    has `RenamableHeader`), far inside its budget. `engine/test_bug1.py` failed once in a full run (one of its
+    tests, 10.0 s) and passed 4 of 4 alone: the A2-2 retrying timing test, not touched here.
 - **Rendered offscreen at 1366×768 and 1280 wide and looked at:** 6.2 with five cards (Rows, Text, Number, Date),
   the header icons, the rename box with the clash message, a card error after Run, the Add column popup; 3.2 preview
   with a renamed header. Fixed from that: the icon overlapped right-aligned header text (now the text is painted
   left of it, an SVG icon rather than a font glyph), the popup's type column (grey, right-aligned, full-height
   rows), chips 28 px under the theme (QSS heights exclude the border; now 24 + 2), and a card error below the fold
   (the builder now scrolls to it).
-- **Not verified:** a full normal suite run within its budgets (see Suite); the app by hand; the packaged build
-  (build tests not run); 125% / 150% scaling of the cards and the header icon; focus loss cancelling the rename box on
-  a real desktop (offscreen focus events are unreliable; Enter and Esc are tested).
+- **Not verified:** the app by hand; the packaged build (build tests not run); 125% / 150% scaling of the cards and
+  the header icon; focus loss cancelling the rename box on a real desktop (offscreen focus events are unreliable;
+  Enter and Esc are tested).
 - **Next:** A2-5 (Feature A, Rows view). `DefinitionBuilder.set_sections(...)` is ready for the Rows mode.
 
 ### 21-11-2026 — A2-3: Feature C (export in parts), engine and dialogs
