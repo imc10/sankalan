@@ -102,3 +102,62 @@ def test_full_size_run_export_splits_into_three_parts(full, tmp_path):
                 n += 1
         counts.append(n)
     assert counts == [1_000_000, 1_000_000, 499_937] and max(counts) <= 1_048_576
+
+
+# ---------------------------------------------------------------------------------------------- A2-5: Rows view
+def _rows_refs(full):
+    from sankalan import rowsview
+    s, tid = full["s"], full["tid"]
+    ids = [full["runs"][k] for k in (1, 2, 3)]
+    return run_job(s.runner, lambda ctx: rowsview.run_refs(ctx.cursor(), s.folder, tid, ids)), ids
+
+
+@spec("AC-ROW-10", "AC-ROW-11a", "AC-ROW-12a", "AC-ROW-12b", "ROW-12", "T48", "T32")
+def test_full_size_rows_view_count_fetch_and_export(full, tmp_path):
+    """A2-5: rows searched 7,499,937; the first 100,000 in stored order; every row exported in parts at the real
+    part size, Run ID never going back and rows ascending (file, sheet, row) within each run."""
+    from sankalan import rowsview
+    from sankalan.model.definition import Filter
+    from sankalan.model.rowspec import RowSpec
+    from sankalan.model import definition as d
+    from sankalan.query import rows as qr
+    s, tid = full["s"], full["tid"]
+    t = q.load_template(s.con, tid)
+    refs, ids = _rows_refs(full)
+    all_cols = [c.id for c in t.columns if not c.removed]
+    spec_ = RowSpec(tid, [], all_cols)
+    o = run_job(s.runner, lambda ctx: rowsview.run(ctx, s.folder, t, spec_, ids))
+    try:
+        assert o.searched == o.match == 7_499_937 and o.held == 100_000 and o.capped
+        got = s.con.execute(f"SELECT run_id, _src_file, _src_row, _seq FROM {o.table} ORDER BY _seq").fetchall()
+        assert [x[3] for x in got] == list(range(1, 100_001)) and {x[0] for x in got} == {full["runs"][1]}
+        keys = [(x[1], x[2]) for x in got]
+        assert keys == sorted(keys) and len(set(keys)) == 100_000
+        # a filter: counts equal an independent count(*)
+        f = RowSpec(tid, [Filter("c006", d.NOT_NUMBER)], all_cols)
+        counts = run_job(s.runner, lambda ctx: qr.count_rows(ctx.cursor(), f, t.columns, refs))
+        assert counts == {full["runs"][1]: 1_510, full["runs"][2]: 0, full["runs"][3]: 0}
+        (src, _n), = run_job(s.runner, rowsview.export_items(o, all_cols))
+        out, = run_job(s.runner, lambda ctx: exporting.export(ctx, s.paths.temp, [src], tmp_path, ["rows.csv"],
+                                                              ExportOptions()))
+        assert len(out.paths) == 8 and out.rows == 7_499_937
+        files = {k: full["m"].files[str(k)] for k in (1, 2, 3)}
+        sheets = {"Sales A": 0, "Sales B": 1, "": 2}
+        prev, n, first = None, 0, []
+        for path in out.paths:
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                r = csv.reader(fh)
+                head = next(r)
+                fi, si, ri, ui = (head.index(h) for h in ("Source File", "Source Sheet", "Source Row", "Run ID"))
+                for rec in r:
+                    run = int(rec[ui][2:])
+                    key = (run, files[run].index(rec[fi]), sheets[rec[si]], int(rec[ri]))
+                    assert prev is None or key > prev, (prev, key)
+                    prev = key
+                    if n < 100_000:
+                        first.append((rec[ui], int(rec[ri])))
+                    n += 1
+        assert n == 7_499_937
+        assert first == [("R-0001", x[2]) for x in got]                       # AC-ROW-11b at full size
+    finally:
+        run_job(s.runner, lambda ctx: qr.drop_table(ctx.cursor(), o.table))

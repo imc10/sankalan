@@ -100,6 +100,9 @@ def default_routes() -> dict[str, Callable[..., bool]]:
             "new_run": _open_new_run, "run": _open_run, "export": _open_export, "analysis": _open_analysis}
 
 
+DROP_OPERATION = "Clear result"
+
+
 class MainWindow(QMainWindow):
     screenChanged = Signal(object)
 
@@ -233,8 +236,8 @@ class MainWindow(QMainWindow):
         self.open_screen(self.factories[area](self), check_leave=False)
 
     def drop_results(self, results: list) -> None:
-        """Drop analysis results (temporary tables) of a screen that was left, as a quiet Job when the runner is
-        free; otherwise the next analysis run drops them."""
+        """Drop analysis and Rows results (temporary tables) of a screen that was left, as a quiet Job when the
+        runner is free; otherwise once the Job holding it finishes (or the next analysis run drops them)."""
         self.pending_drops.extend(r for r in results if r is not None)
         todo = list(self.pending_drops)
         if not todo:
@@ -243,7 +246,7 @@ class MainWindow(QMainWindow):
 
         def done(_r):
             self.pending_drops = [r for r in self.pending_drops if r not in todo]
-        self.bridge.try_quiet("Clear result", lambda ctx: analyses.drop_results(ctx, todo), on_done=done)
+        self.bridge.try_quiet(DROP_OPERATION, lambda ctx: analyses.drop_results(ctx, todo), on_done=done)
 
     def _open_job_origin(self) -> None:
         origin = self.bridge.current_origin()
@@ -306,7 +309,10 @@ class MainWindow(QMainWindow):
                 t.job.cancel()
                 t.job.wait(2.0)
 
-    def _job_finished(self, _job) -> None:
+    def _job_finished(self, job) -> None:
+        if (self.pending_drops and not self._closing and getattr(job, "operation", "") != DROP_OPERATION
+                and not self.bridge.busy):
+            self.drop_results([])           # results left while a Job held the runner (ROW-3: a cancelled Run)
         if self._closing and self.bridge.current is None:
             self._closing = False
             self._may_close = True

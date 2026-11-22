@@ -62,7 +62,7 @@ py -3.13 -m venv .venv
 pip install -r requirements-lock.txt -r requirements-dev.txt
 python -m sankalan                         # run the app
 set QT_QPA_PLATFORM=offscreen
-python -m pytest tests -q                  # full normal suite (must pass before committing), expected 190 s
+python -m pytest tests -q                  # full normal suite (must pass before committing), expected 215 s
 python -m pytest -m slow tests             # full-size tests (A2: each phase runs its own once)
 python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F00–F21 (+ TPL-R small; --full)
 ```
@@ -74,9 +74,9 @@ time is development time, so:
 
 | Run | Expected | Stop above |
 | --- | --- | --- |
-| Full normal suite `pytest tests` | 190 s (measured 150 s) | 209 s |
+| Full normal suite `pytest tests` | 215 s (measured 190 s with A2-5) | 237 s |
 | One test file | its entry in `tests/time_budgets.py` (5–21 s for normal files) | entry + 10% |
-| `pytest -m slow tests/engine/test_stored_order.py` | 250 s (measured 198 s; building full TPL-R the first time, ~5 min, is not counted) | 275 s |
+| `pytest -m slow tests/engine/test_stored_order.py` | 300 s (measured 252 s; building full TPL-R the first time, ~5 min, is not counted) | 330 s |
 | Build tests (`SANKALAN_BUILD_TESTS=1`) | installer file + 170 s | + 10% |
 
 - **If a run exceeds its expected time by more than 10%, stop.** Investigate the cause, fix it, then run again. Don't

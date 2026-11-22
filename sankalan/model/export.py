@@ -6,6 +6,7 @@ characters Windows doesn't allow in file names become ``_``.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -122,6 +123,8 @@ class ExportRequest:
     items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportSource, file name)]
     what: str = ""                      # "R-0013 data", "State-wise sales": the dialog's "Export R-0013 data"
     rows: int | None = None             # rows the file will hold, when the screen knows ("9,344,350 rows · CSV file")
+    context: tuple = ()                 # Export rows (7.9): the summary's leading items, "Client · Template · 3 runs · 2 filters"
+    details: tuple = ()                 # Export rows (7.9): the box's lines (filters, columns, row order)
 
     @property
     def many(self) -> bool:
@@ -150,3 +153,21 @@ def describe(kind: str, run_label: str, output: str = "") -> str:
     return {"data": f"{run}data", "issues": f"{run}issue list", "left_out": f"{run}left-out rows",
             "outputs": f"all outputs of {run_label}".strip(),
             "analysis": output or "analysis result"}.get(kind, output or kind)
+
+
+# ---------------------------------------------------------------------------------------------- Export rows (7.9)
+def rows_file_name(client: str, template: str, today: dt.date) -> str:
+    """{Client}_{Template}_Rows_{DD-MM-YYYY}.csv (Feature Spec A2 2.3), made safe for Windows."""
+    return safe_file_name(f"{client}_{template}_Rows_{today.strftime('%d-%m-%Y')}") + ".csv"
+
+
+def prefill_rows(export: dict | None, *, template_id: str, client: str, template: str, rows: int,
+                 items: Callable, context: list[str], details: list[str], today: dt.date | None = None
+                 ) -> ExportRequest:
+    """The Export rows dialog (7.9): folder, delimiter and encoding from the template's export defaults; the file
+    name {Client}_{Template}_Rows_{date}; title "Export N rows"."""
+    d = ExportDefaults.of(export)
+    what = f"{rows:,} {'row' if rows == 1 else 'rows'}"
+    return ExportRequest("rows", template_id, None, d.folder, rows_file_name(client, template, today or dt.date.today()),
+                         d.pattern, d.options, values={"Client": client, "Template": template, "RunID": ""},
+                         items=items, what=what, rows=rows, context=tuple(context), details=tuple(details))

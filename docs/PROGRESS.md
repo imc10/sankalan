@@ -23,7 +23,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | A2-2 | A2-2 — Template without checks (F), then Choose sheets (D) | Done | `Feature-Updates` (A2-2 commit) | Both parts. Slow TPL-N full test passes. New run wizard's min height with Mapping skipped is a known issue (below) |
 | A2-3 | A2-3 — Export in parts (C): engine and dialogs | Done | `Feature-Updates` (A2-3 commit) | All 7 steps. Full-size split test lives in `test_stored_order.py` (reuses its committed runs) |
 | A2-4 | A2-4 — Measures by column (B): engine and UI | Done | `Feature-Updates` (A2-4 commit) | All 9 steps (engine and UI). AC-MEA-10 test in `test_text_values.py` (reuses its committed TPL-R runs) |
-| — | A2-5 — Rows view (A): engine and UI | Not started | | |
+| A2-5 | A2-5 — Rows view (A): engine and UI | Done | `Feature-Updates` (A2-5 commit) | All 7 steps. Full-size Rows test lives in `test_stored_order.py` (reuses its committed runs). Every feature is now built |
 | — | A2-6 — Docs, full-size checks, performance suite | Not started | | Only phase that runs `perf` tests; any PERF miss goes to the user before proceeding |
 
 Status values: Not started · In progress · Done · Blocked (say why).
@@ -96,6 +96,83 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 22-11-2026 — A2-5: Feature A (Rows view), engine and UI
+- **Model** (`model/rowspec.py`, Tech spec A2 10.1): `RowSpec(template_id, filters, columns, show_source)` (memory
+  only; `as_definition()` for the filter checks and `analyses.describe`) and `RunRef(id, number, label, data_path,
+  rows_loaded, file_names)`. `query.catalogue.rows_view_runs` reads the ticked runs in Run ID order with their
+  `run_file` names.
+- **Queries** (`query/rows.py`, 10.2–10.4): `count_rows` (one `GROUP BY run_id` scan over the ticked runs; with no
+  filters the catalogue's rows loaded, no scan); `fetch_rows` (`CREATE TEMP TABLE _rows_<uuid>` with `_seq`, every
+  active column and companion, `run_id`, `_src_file`, `_src_sheet`, `_src_row`; per run in Run ID order one `ORDER BY
+  _src_file, _src_row LIMIT <rows still needed>`, stops when full; `between` callback before each run); `rows_page`
+  (a `_seq` range); `export_source` (one chunk per run with matches, `nullif(_src_sheet, '')`, file-name `CASE`, Run
+  ID literal, chunk rows from the counts); `ROWS_CAP = 100_000` read at call time so tests lower it. Filters go
+  through the compiler's `filter_sql`; a column a run lacks is a typed null (ROW-14); filter checks are
+  `definition.check`'s.
+- **Job work** (`rowsview.py`): `run` (stages "Counting rows" / "Fetching the first 100,000"; `ctx.on_abort` drops
+  the new table, retrying while a cancel is still interrupting; previous tables dropped once the new one is full, as
+  `analyses.run` does); `RowsOutcome` (`table`, so `layer.drop` / `window.drop_results` drop it like an analysis
+  result; `summary()`, `footer()`); `RowsSource` (rows carry every column's display text via `formats.cell_text` plus
+  file name, sheet, row, Run ID); `export_items`, `describe`, `context`. Test hook `_before_fetch`.
+- **Grid** (T52): `PagedModel.rearrange(columns, positions)` shows other columns of the loaded rows (no read, no
+  Job); `PagedGrid.set_sorting(False)` (no arrow, clicks ignored), `set_frozen(True)` (an overlaid `QTableView` on
+  the same model and selection, column 0 only, medium weight, synced scroll and width), `resizable` (Interactive
+  header sections).
+- **Screen** (`ui/screens/rows_view.py`, `analysis.py`): `ModeSwitch` "Summary | Rows" beside the title (hidden on
+  a saved analysis); Rows mode = `builder.set_sections(filters only)` + `ColumnsSection` (ticks, ↑ ↓, "N of M
+  ticked", Show them on screen with a note that the source columns are always exported) + `RowsResult` (header line,
+  Export rows (.csv), progress, frozen grid, footer, 2.4 states). Badge "Row views aren't saved", no Save, no leave
+  prompt; Run clickable with no runs ("Tick at least one run" under the runs list) or no columns ("Tick at least one
+  column" under Columns), neither starts a Job. Filters, runs, client and template grey with "Settings changed: Run
+  again"; column changes redraw from the loaded rows. Switching clears and drops both results; template change drops
+  the table.
+- **Export rows (7.9):** `model.export.prefill_rows` (kind `rows`, title "Export N rows", file name
+  `{Client}_{Template}_Rows_{DD-MM-YYYY}.csv`, folder/delimiter/encoding from the template); `ExportRequest.context`
+  (summary "Client · Template · N runs · N filters · about X · CSV file / K CSV files") and `.details` (the box:
+  "Filters: …", the columns line, the order line), shown by the Export dialog.
+- **Also changed:** `MainWindow` retries pending result drops when a Job finishes (a table left while a cancelled Run
+  still held the runner was otherwise kept until the next analysis Run); `AnalysisScreen.closing()` cancels a running
+  Run — Summary too — and drops a result a just-finished Run made. **Pre-existing fix:** an "is one of" filter row
+  needed 414 px in the 368 px settings panel, so the panel clipped on the right in both modes (FIT-04): the builder's
+  combo boxes no longer size to their longest item (`builder.narrow`) and the picked-values button elides
+  (`ElidedButton`, full text in its tooltip and `text()`).
+- **Tests (new):** `engine/test_rows_view.py` (7: AC-ROW-10 counts vs independent `count(*)` for 7 filter sets incl.
+  Is not a number / date, rows searched 7,437, no scan without filters; cap 1,000 crossing R-0001 → R-0002 in stored
+  order, `_seq` paging; cancel keeps the old table and drops the new; AC-ROW-11b, 12a, 12b (8 parts, byte-identical),
+  AC-ROW-8 export half; AC-ROW-13; AC-ROW-14; AC-TXT-1 Rows half; refusals), `gui/test_rows_view_screen.py` (11: AC-ROW-1,
+  2, 3, 4, 6, 7, 8, 9a, 9b, 11a, 11b, S1, S2, TXT-3, Export rows dialog and file, fit 1280×640), and
+  `test_stored_order.py::test_full_size_rows_view_count_fetch_and_export` (`slow`: rows searched 7,499,937, first
+  100,000 in order, 1,510 Is not a number, all three runs exported in 8 parts at the real part size in stored order,
+  grid = first 100,000 export rows). **No existing test or expected figure changed.**
+- **Deviations (where, not what):** the full-size Rows test is in `test_stored_order.py`, not a new
+  `test_rows_view_big.py`, so it reuses the module's three committed full runs (~3 min) as A2-3 did. The previous
+  table is dropped inside the Run Job once the new one is full (as `analyses.run`), not by `window.drop_results`
+  after the Job; same effect, one Job fewer. The plan's `tests/gui/test_rows_view.py` is
+  `tests/gui/test_rows_view_screen.py`: pytest can't collect two test modules with the same basename (no packages).
+- **Interpretations** (change if wrong):
+  - AC-ROW-9a "the template greys the result": a template change asks first (ROW-5) and then **clears** the settings
+    and the result and drops the table, as in Summary; there is no greyed result left to show. Cancel on the prompt
+    keeps everything.
+  - Before the first Run, Export rows is shown disabled; with no matches it is hidden (2.4 "not offered").
+  - The Columns list's order decides the export order, not the order of ticking.
+  - The Export rows summary always gives the size ("about X"); one match reads "1 row matches"; Source Row on
+    screen has grouping ("1,502", UI-7), in the export it doesn't.
+  - Long text on screen: line breaks shown as spaces (one line, 2.2); the tooltip shows the same one-line text.
+  - Leaving the screen during a Summary Run now cancels it too (it used to finish and leak its table).
+- **Suite (AC power):** 618 passed, 2 skipped (build-only), 6 deselected (`slow`), no failures, in 3 min 12 s (190 s
+  timed, budgets on). That reached the old suite expectation exactly (190 s, the two new files add ~23 s), so
+  `SUITE` is raised 190 → 215 s (stop at 237 s; CLAUDE.md updated). `slow` once (AC power, budgets off for the durations listing):
+  `test_stored_order.py` 4 passed in 252 s (commits 177 s, Rows view 45 s, the two A2-3 exports 15 s each). Budget
+  raised 250 → 300 s (CLAUDE.md table too). New files: `engine/test_rows_view.py` 8 s (6 s), `gui/test_rows_view_screen.py`
+  21 s (16.6 s).
+- **Rendered offscreen at 1366×768 and 1280×640 and looked at:** Rows mode before Run, the result with source
+  columns and the grid scrolled sideways (first column stays, medium weight), greyed "Settings changed: Run again",
+  Export rows dialog (summary, box, file name; ~470 px tall). Fixed from that: the clipped settings panel (above).
+- **Not verified:** the app by hand; 125% / 150% scaling of the switch, Columns rows and frozen column; dragging a
+  header edge on a real desktop; the frozen column's look with a vertical scrollbar on a real display; Rows view
+  speed at 10M rows (PERF-7…10, A2-6).
+- **Next:** A2-6 (docs, full-size checks, performance). Start by showing the user the list of spec edits.
 
 ### 21-11-2026 — A2-4: Feature B (measures by column), engine and UI
 - **Model** (`model/definition.py`, Tech spec A2 9.1, T49): `Op(fn, name)`, `MeasureCard(column_id, ops)`, `ROWS =

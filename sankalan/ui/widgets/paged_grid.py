@@ -89,6 +89,7 @@ class PagedModel(QAbstractTableModel):
         self._generation = 0
         self._need_count = False
         self.emphasis: Callable[[Sequence[Any]], bool] | None = None    # rows drawn in medium weight (subtotals)
+        self.positions: list[int] | None = None     # where each column's value is in a row (``rearrange``)
         bridge.jobFinished.connect(self._job_finished)     # a bound slot: dropped with the model
 
     # ------------------------------------------------------------------------------------------ loading
@@ -102,8 +103,20 @@ class PagedModel(QAbstractTableModel):
     def set_columns(self, columns: list[GridColumn], source: PageSource | None) -> None:
         """New columns and rows (an analysis result has its own columns each time it runs); the sort is cleared."""
         self.columns = list(columns)
+        self.positions = None
         self.sort_spec = []
         self.set_source(source)
+
+    def rearrange(self, columns: list[GridColumn], positions: list[int]) -> None:
+        """Show other columns of the same rows (the Rows view's ticks, order and source columns, ROW-9): column
+        ``i`` shows the row's value at ``positions[i]``. The loaded pages are kept, so nothing is read again."""
+        self.beginResetModel()
+        self.columns = list(columns)
+        self.positions = list(positions)
+        self.endResetModel()
+
+    def _value(self, values: Sequence[Any], column: int) -> Any:
+        return values[self.positions[column] if self.positions is not None else column]
 
     def set_titles(self, titles: list[str]) -> None:
         """New header text only (a renamed result column, MEA-8): nothing is read again."""
@@ -217,7 +230,7 @@ class PagedModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self.columns)
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
+        if not index.isValid() or index.column() >= len(self.columns):
             return None
         col = self.columns[index.column()]
         if role == Qt.ItemDataRole.TextAlignmentRole:
@@ -226,7 +239,7 @@ class PagedModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if col.colour is not None:
                 values = self.row_values(index.row())
-                c = col.colour(values[index.column()]) if values is not None else None
+                c = col.colour(self._value(values, index.column())) if values is not None else None
                 if c:
                     return QColor(c)
             if col.muted:
@@ -244,7 +257,7 @@ class PagedModel(QAbstractTableModel):
             values = self.row_values(index.row())
             if values is None:
                 return "" if role == Qt.ItemDataRole.DisplayRole else None
-            text = display(values[index.column()], col)
+            text = display(self._value(values, index.column()), col)
             if role == Qt.ItemDataRole.ToolTipRole:
                 if col.tooltip is not None:
                     tip = values[col.tooltip]
@@ -253,12 +266,12 @@ class PagedModel(QAbstractTableModel):
             return text
         if role == Qt.ItemDataRole.UserRole:
             values = self.row_values(index.row())
-            return None if values is None else values[index.column()]
+            return None if values is None else self._value(values, index.column())
         return None
 
     def headerData(self, section: int, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if orientation != Qt.Orientation.Horizontal:
-            return None
+        if orientation != Qt.Orientation.Horizontal or not 0 <= section < len(self.columns):
+            return None             # a second view (the frozen column) can ask during a reset
         col = self.columns[section]
         if role == Qt.ItemDataRole.DisplayRole:
             return col.title
@@ -358,7 +371,12 @@ class CellDelegate(QStyledItemDelegate):
 
 class PagedGrid(QTableView):
     """A ``QTableView`` set up as the canvas grid: 40 px rows and header, no row numbers, whole-row selection,
-    scrolling inside its own panel (UI-2)."""
+    scrolling inside its own panel (UI-2).
+
+    Options for the Rows view (Tech spec A2 T52): ``set_sorting(False)`` draws no sort arrow and ignores header
+    clicks; ``set_frozen(True)`` keeps the first column on the left while the others scroll sideways (Qt's frozen
+    column: a second view over the same model, laid over this one, showing column 0 in medium weight);
+    ``resizable`` lets the user drag a header edge to resize a fixed-width column."""
     rowActivated = Signal(int)
     cellClicked = Signal(int, str)      # row, column key (ACTION, MENU and LINK cells)
 
@@ -391,6 +409,9 @@ class PagedGrid(QTableView):
         hh.setSortIndicatorShown(True)
         hh.sectionClicked.connect(self._header_clicked)
         self._sorted: tuple[int, Qt.SortOrder] | None = None
+        self.sorting = True
+        self.resizable = False
+        self.frozen: QTableView | None = None
         self.doubleClicked.connect(self._double_clicked)
         self.clicked.connect(self._clicked)
         self.setItemDelegate(CellDelegate(self))
@@ -417,16 +438,106 @@ class PagedGrid(QTableView):
 
     def apply_widths(self) -> None:
         hh = self.horizontalHeader()
+        fixed = QHeaderView.ResizeMode.Interactive if self.resizable else QHeaderView.ResizeMode.Fixed
         for i, c in enumerate(self.model().columns):
             if c.width is None:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
             else:
-                hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                hh.setSectionResizeMode(i, fixed)
                 hh.resizeSection(i, c.width)
+        self._sync_frozen()
+
+    # ------------------------------------------------------------------------------------------ Rows view (T52)
+    def set_sorting(self, on: bool) -> None:
+        """Off: no sort arrows, and header clicks do nothing (ROW-11, D71)."""
+        self.sorting = on
+        self._sorted = None
+        hh = self.horizontalHeader()
+        hh.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        hh.setSortIndicatorShown(on)
+
+    def set_frozen(self, on: bool) -> None:
+        """Keep the first column in view while the others scroll sideways (2.2), in medium weight."""
+        if not on:
+            if self.frozen is not None:
+                self.frozen.hide()
+            return
+        if self.frozen is None:
+            f = QTableView(self)
+            f.setObjectName("FrozenColumn")
+            f.setModel(self.model())
+            f.setSelectionModel(self.selectionModel())
+            f.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            f.verticalHeader().hide()
+            f.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            f.verticalHeader().setDefaultSectionSize(theme.ROW_HEIGHT)
+            f.verticalHeader().setMinimumSectionSize(theme.ROW_HEIGHT)
+            fh = f.horizontalHeader()
+            fh.setFixedHeight(theme.ROW_HEIGHT)
+            fh.setFont(theme.font(theme.GRID_HEADER_PX, medium=True))
+            fh.setHighlightSections(False)
+            fh.setSectionsClickable(False)
+            fh.setSortIndicatorShown(False)
+            fh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            f.setFont(theme.font(theme.GRID_TEXT_PX, medium=True))
+            f.setShowGrid(False)
+            f.setWordWrap(False)
+            f.setTextElideMode(Qt.TextElideMode.ElideRight)
+            f.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            f.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+            f.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            f.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            f.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            f.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            f.setFrameShape(QTableView.Shape.NoFrame)
+            f.setStyleSheet(f"QTableView#FrozenColumn {{ border: 0; border-right: 1px solid {theme.BORDER}; }}")
+            f.setItemDelegate(CellDelegate(f))
+            self.viewport().stackUnder(f)
+            self.horizontalHeader().sectionResized.connect(self._frozen_resized)
+            self.verticalScrollBar().valueChanged.connect(f.verticalScrollBar().setValue)
+            f.verticalScrollBar().valueChanged.connect(self.verticalScrollBar().setValue)
+            self.model().modelReset.connect(self._sync_frozen)
+            self.model().columnsInserted.connect(self._sync_frozen)
+            self.frozen = f
+        self.frozen.show()
+        self._sync_frozen()
+
+    def _frozen_resized(self, section: int, _old: int, new: int) -> None:
+        if section == 0 and self.frozen is not None:
+            self.frozen.setColumnWidth(0, new)
+            self._frozen_geometry()
+
+    def _sync_frozen(self) -> None:
+        f = getattr(self, "frozen", None)       # None until set_frozen (also while __init__ sets the model)
+        if f is None or not f.isVisibleTo(self):
+            return
+        n = self.model().columnCount()
+        for c in range(n):
+            f.setColumnHidden(c, c != 0)
+        if n:
+            f.setColumnWidth(0, self.columnWidth(0))
+        f.verticalScrollBar().setValue(self.verticalScrollBar().value())
+        self._frozen_geometry()
+
+    def _frozen_geometry(self) -> None:
+        f = getattr(self, "frozen", None)       # None until set_frozen (also while __init__ sets the model)
+        if f is None:
+            return
+        fw = self.frameWidth()
+        f.setGeometry(fw, fw, self.columnWidth(0) if self.model().columnCount() else 0,
+                      self.viewport().height() + self.horizontalHeader().height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._frozen_geometry()
+
+    def updateGeometries(self) -> None:
+        super().updateGeometries()
+        self._frozen_geometry()
 
     def _header_clicked(self, section: int) -> None:
         col = self.model().columns[section]
-        if not col.sortable:
+        if not self.sorting or not col.sortable:
             return
         order = Qt.SortOrder.AscendingOrder
         if self._sorted and self._sorted[0] == section and self._sorted[1] == Qt.SortOrder.AscendingOrder:

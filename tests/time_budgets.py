@@ -15,7 +15,7 @@ decides a commit).
 OVERRUN = 1.10                 # stop at expected time + 10%
 DEFAULT = 30                   # a file not listed yet: add it here once it has been timed
 
-SUITE = 190                    # the whole normal suite (`pytest tests`): measured 150 s
+SUITE = 215                    # the whole normal suite (`pytest tests`): measured 150 s; 190 s with A2-5 (2 new files)
 
 BUDGETS = {
     # engine
@@ -32,6 +32,7 @@ BUDGETS = {
     "tests/engine/test_jobs.py": 5,
     "tests/engine/test_move.py": 5,
     "tests/engine/test_query.py": 6,
+    "tests/engine/test_rows_view.py": 8,               # A2-5: commits TPL-R small R-0001…R-0003, measured 6 s
     "tests/engine/test_rules_sql.py": 5,
     "tests/engine/test_run_pipeline.py": 9,            # A2-4: AC-MEA-9 commits a third run, measured 9.1 s on battery
     "tests/engine/test_template_sample.py": 6,
@@ -47,6 +48,7 @@ BUDGETS = {
     "tests/gui/test_measures.py": 5,                   # A2-4: measured 1 s
     "tests/gui/test_new_run.py": 16,                   # A2-3: settles for the Export dialog size check
     "tests/gui/test_new_template.py": 21,
+    "tests/gui/test_rows_view_screen.py": 21,          # A2-5: commits TPL-R small, 11 tests, measured 16.6 s
     "tests/gui/test_shell.py": 11,
     "tests/gui/test_template.py": 19,                  # A2-4: + preview rename test, measured 19.4 s (wall)
     "tests/gui/test_unchecked_screens.py": 15,                 # A2-2: measured 11 s
@@ -65,7 +67,7 @@ BUDGETS = {
     "tests/unit/test_manage.py": 5,
     "tests/unit/test_paths.py": 5,
     # slow tier (`pytest -m slow`): the full TPL-R is built once (~5 min) and then cached in tests/fixtures/_generated
-    "tests/engine/test_stored_order.py": 250,          # measured 198 s; 209 s with A2-3's 3-part export
+    "tests/engine/test_stored_order.py": 300,          # measured 198 s; 209 s with A2-3's export; 252 s with A2-5's Rows view
     "tests/engine/test_export_big.py": 10,             # A2-3: measured 2 s
     "tests/engine/test_unchecked_full.py": 30,         # A2-2: measured 16 s on battery (generation not counted)
 }

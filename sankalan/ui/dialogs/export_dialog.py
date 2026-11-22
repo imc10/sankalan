@@ -75,8 +75,13 @@ def file_name_of(text: str) -> str:
     return name if name.lower().endswith(".csv") else name + ".csv"
 
 
-def summary_text(est: exporting.Estimate, many: bool) -> str:
-    """"5,000 rows · CSV file", "2,341,118 rows · 3 CSV files · about 610 MB", "one CSV file per output"."""
+def summary_text(est: exporting.Estimate, many: bool, context: tuple = ()) -> str:
+    """"5,000 rows · CSV file", "2,341,118 rows · 3 CSV files · about 610 MB", "one CSV file per output". Export
+    rows (7.9) leads with its ``context`` and always gives the size: "Rao & Co · Sales · 3 runs · 2 filters · about
+    610 MB · 3 CSV files"."""
+    if context:
+        files = "CSV file" if est.files == 1 else f"{formats.number(est.files)} CSV files"
+        return " · ".join([*context, f"about {formats.size(est.bytes)}", files])
     parts = [formats.count(est.total_rows, "row")]
     if many and not est.split:
         parts.append("one CSV file per output")
@@ -137,6 +142,12 @@ class ExportDialog(Dialog):
         fl.setSpacing(16)
         self.info = self._label(CHECKING, "body")
         fl.addWidget(self.info)
+        self.details = self._label("\n".join(request.details), "small")      # Export rows: filters, columns, order
+        self.details.setObjectName("ExportDetails")
+        self.details.setStyleSheet(f"QLabel#ExportDetails {{ background: {theme.HEADER_BG}; border: 1px solid "
+                                   f"{theme.BORDER}; border-radius: 6px; padding: 10px 12px; color: {theme.TEXT}; }}")
+        self.details.setVisible(bool(request.details))
+        fl.addWidget(self.details)
 
         fl.addLayout(self._field("Folder", self._folder_row()))
         if request.many:
@@ -280,13 +291,15 @@ class ExportDialog(Dialog):
             self.estimate_job = job
 
     def _fallback_info(self) -> str:
+        if self.request.context:
+            return " · ".join([*self.request.context, "CSV file"])
         parts = [formats.count(self.request.rows, "row")] if self.request.rows is not None else []
         parts.append("one CSV file per output" if self.request.many else "CSV file")
         return " · ".join(parts)
 
     def _estimated(self, est: exporting.Estimate) -> None:
         self.estimate = est
-        self.info.setText(summary_text(est, self.request.many))
+        self.info.setText(summary_text(est, self.request.many, self.request.context))
         self._update_parts()
         self.update_space()
 

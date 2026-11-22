@@ -15,7 +15,7 @@ import datetime as dt
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                               QSpinBox, QVBoxLayout, QWidget)
+                               QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
 
 from sankalan.model import definition as d
 from sankalan.model.definition import Definition, Filter, FlatMeasure, Group, MeasureCard, Op
@@ -57,6 +57,41 @@ def show_date(iso) -> str:
     return dt.date.fromisoformat(iso).strftime("%d-%m-%Y") if iso else ""
 
 
+def narrow(cb: QComboBox, chars: int = 3) -> None:
+    """A combo box whose minimum width doesn't follow its longest item, so a filter or group row fits the 380 px
+    settings panel (FIT-04); the open list still shows whole items."""
+    cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    cb.setMinimumContentsLength(chars)
+
+
+class ElidedButton(QPushButton):
+    """A button whose text is cut with an ellipsis to its width, so long picks ("Maharashtra, Gujarat and 2
+    more") don't widen the 380 px settings panel (FIT-04). ``text()`` is the whole text."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(64)
+        self.setStyleSheet("text-align: left; padding-left: 10px; padding-right: 10px;")
+        self._full = ""
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self._full = text
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = max(0, self.width() - 22)
+        super().setText(self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, width))
+
+
 class _Row(QWidget):
     changed = Signal()
     remove = Signal(object)
@@ -70,6 +105,7 @@ class _Row(QWidget):
     def _combo(self, items: list[tuple[str, object]], current=None, name: str = "") -> QComboBox:
         cb = QComboBox(self)
         cb.setAccessibleName(name)
+        narrow(cb)
         for label, data in items:
             cb.addItem(label, data)
         if current is not None:
@@ -103,6 +139,7 @@ class FilterRow(_Row):
         self.column = self._combo([(c.name, c.id) for c in columns], f.column_id if f else None, "Filter column")
         self.op = QComboBox(self)
         self.op.setAccessibleName("Filter condition")
+        narrow(self.op, 8)                          # "is one of" stays whole
         self.help = QLabel("", self)                 # the op's help text, under the op picker (Tech spec A2 5.8)
         self.help.setProperty("kind", "small")
         self.help.setWordWrap(True)
@@ -173,7 +210,7 @@ class FilterRow(_Row):
         v = list(values or [])
         if op == d.ONE_OF and self.picker is not None:
             self.picked = [str(x) for x in v]
-            b = QPushButton(picked_text(self.picked), self.values)
+            b = ElidedButton(picked_text(self.picked), self.values)
             b.setAccessibleName("Choose values")
             b.setToolTip(", ".join(self.picked))
             b.clicked.connect(lambda: self.picker(self))

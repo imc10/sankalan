@@ -451,6 +451,22 @@ def run_rows(con, template_id: str) -> list[tuple]:
     return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8], r[9]) for r in rows]
 
 
+def rows_view_runs(con, template_id: str, run_ids: list[str]) -> list[tuple]:
+    """The Rows view's runs (Tech spec A2 10.1), in Run ID order: (id, run number, rows loaded, {file index: file
+    name}). Runs not of the template, or not committed, are left out."""
+    if not run_ids:
+        return []
+    marks = ", ".join("?" for _ in run_ids)
+    rows = con.execute(f"SELECT id, run_number, rows_loaded FROM run WHERE template_id = ? AND id IN ({marks}) "
+                       f"ORDER BY run_number", [template_id, *run_ids]).fetchall()
+    names: dict[str, dict[int, str]] = {}
+    for run_id, index, name in con.execute(
+            f"SELECT run_id, file_index, file_name FROM run_file WHERE run_id IN ({marks}) "
+            f"ORDER BY run_id, file_index", list(run_ids)).fetchall():
+        names.setdefault(run_id, {})[int(index)] = name
+    return [(r[0], int(r[1]), int(r[2]), names.get(r[0], {})) for r in rows]
+
+
 def latest_run(con, template_id: str) -> tuple | None:
     """The latest committed run (DO-8 preview, VR-8 Test rules): (id, run number, rows loaded, loaded on)."""
     row = con.execute("SELECT id, run_number, rows_loaded, loaded_on FROM run WHERE template_id = ? "
