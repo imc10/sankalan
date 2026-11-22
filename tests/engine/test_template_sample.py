@@ -7,7 +7,7 @@ import pytest
 from conftest import run_job, spec
 from sankalan import newtemplate as nt
 from sankalan.ingest import sample as smp
-from sankalan.model.definition import Definition, Group, Measure
+from sankalan.model.definition import Definition, Group, FlatMeasure, cards
 from sankalan.model.rule import UNIQUE, Rule
 from sankalan.model.template import DATE, NUMBER, TEXT, DefaultOutput, SourceSettings
 from sankalan.query import catalogue as q
@@ -104,8 +104,14 @@ def test_type_detection(storage, fixtures_dir):
     det = [nt.detect(c.profile) for c in st.columns]
     assert [(x.type, x.date_format) for x in det] == [(TEXT, None), (NUMBER, None), (NUMBER, None),
                                                       (DATE, "DD-MM-YYYY"), (DATE, "DD/MM/YYYY"), (TEXT, None)]
-    assert det[1].note == "90.9% numbers" and not det[1].exact
-    assert det[3].note == "84.61% dates · DD-MM-YYYY"
+    assert det[1].note == "90.9% numbers · 9.09% aren't numbers and are kept as text" and not det[1].exact
+    assert det[3].note == "84.61% dates · DD-MM-YYYY · 15.38% aren't dates and are kept as text"
+    # AC-TXT-10 (Feature Spec A2 6.2, Tech spec A2 5.9): the share kept as text
+    assert nt.detect(Profile(total=100, filled=100, numbers=98)).note == (
+        "98% numbers · 2% aren't numbers and are kept as text")
+    assert nt.detect(Profile(total=100, filled=100, iso_shaped=0, shaped={"DD-MM-YYYY": 100},
+                             dates={"DD-MM-YYYY": 97})).note == (
+        "97% dates · DD-MM-YYYY · 3% aren't dates and are kept as text")
     assert nt.detect(Profile(total=10, filled=1, samples=["x"])).note == "90% blank"
     assert nt.detect(Profile(total=10, filled=0)).note == "100% blank"
     assert nt.percent(9998, 10000) == "99.98%" and nt.percent(99999, 100000) == "99.99%"
@@ -132,7 +138,7 @@ def test_build_template_renumbers_in_order(storage, fixtures_dir):
     drafts[2], drafts[1] = drafts[1], drafts[2]          # Customer before Invoice Date
     drafts[3].include = False                            # GSTIN left out
     rules = [Rule("r1", "c003", UNIQUE, {"columns": ["c003", "c005"]}), Rule("r2", "c004", "VAL-1")]
-    outs = [DefaultOutput("By state", Definition("", [], [Group("c005")], [Measure("c006", "sum")]).to_dict())]
+    outs = [DefaultOutput("By state", Definition("", [], [Group("c005")], cards(FlatMeasure("c006", "sum"))).to_dict())]
     t = nt.build_template("cl", " Sales ", SourceSettings("name", ["Sales"]), drafts, rules, outs)
     assert [(c.id, c.name) for c in t.columns][:4] == [("c001", "Invoice No"), ("c002", "Customer"),
                                                       ("c003", "Invoice Date"), ("c004", "State")]

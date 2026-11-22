@@ -85,14 +85,36 @@ def count(n: int, one: str, many: str | None = None) -> str:
     return f"{number(int(n))} {one if int(n) == 1 else (many or one + 's')}"
 
 
+def cell_text(col, value, text: str | None) -> str:
+    """One cell of a Number or Date column with its text companion (Feature Spec A2 TXT-2): the number with grouping
+    at the column's decimals, or the date as DD-MM-YYYY, else the text as typed. Text columns show the value."""
+    from sankalan.model.template import DATE, NUMBER
+    if value is None:
+        return "" if text is None else text
+    if col.type == NUMBER:
+        return number(value, col.decimals)
+    if col.type == DATE:
+        return date(value)
+    return str(value)
+
+
+def right_aligned(col) -> bool:
+    """Number columns are right-aligned, their text values too (TXT-3); Date and Text columns are left-aligned."""
+    from sankalan.model.template import NUMBER
+    return col.type == NUMBER
+
+
 def result_cell(value, kind: tuple, group: bool) -> str:
     """One cell of an analysis or output result on screen. ``kind``: (type, decimals, grain); type is Text, Number,
-    Date or "count". A blank group value is "(Null)"; a date group shows its period."""
-    from sankalan.model.definition import NULL_LABEL
+    Date or "count". A blank group value is "(Null)"; the group of text values is "(Not a number)" or "(Not a
+    date)" (TXT-10); a date group shows its period."""
+    from sankalan.model.definition import NULL_LABEL, TEXT_GROUP, text_group_label
     from sankalan.model.template import DATE, NUMBER
     typ, decimals, grain = kind
     if value is None:
         return NULL_LABEL if group else ""
+    if value is TEXT_GROUP:
+        return text_group_label(typ)
     if typ == DATE:
         return period(value, grain) if group else date(value)
     if typ == NUMBER:

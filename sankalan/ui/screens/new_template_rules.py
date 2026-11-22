@@ -5,11 +5,15 @@ Error / Warning choice and its failure count on the sample rows. The automatic I
 no remove control (VR-7). Counts are a dry run on the sample after every change (VR-8); a count opens the first
 20 failing rows.
 
+Check data before loading (NCK-2, NCK-3; Tech spec A2 6.2): a Yes / No bar at the top. No replaces the rule editor
+with the 2.4b panel: what No means, the sample's values that aren't numbers or dates per column, and "No rules will
+be set for this template". The rules entered stay in memory and come back on Yes.
+
 Default outputs: the template's Default outputs tab without its save bar, previewing on the sample (DO-8).
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QMenu, QPushButton,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -21,12 +25,25 @@ from sankalan.ui.dialogs.base import Dialog
 from sankalan.ui.dialogs.rule_editor import NEEDS_SETTINGS, RuleDialog
 from sankalan.ui.screens.template_columns import setting_text
 from sankalan.ui.screens.template_outputs import OutputsTab
-from sankalan.ui.widgets.controls import heading, icon_button, note, panel, plus_button
+from sankalan.ui.widgets.controls import YesNoBar, heading, icon_button, note, panel, plus_button
 from sankalan.validation import issues as iss
 from sankalan.validation.rules import RuleError, check_rule, rules_for_type
 
 
 BECOMES_FIXED = "Becomes fixed after the first run"
+
+# Check data before loading (NCK-2, NCK-3, NCK-11)
+CHECKS_LABEL = "Check data before loading"
+CHECKS_HINT_NEW = "Applies to every run of this template. Can be changed later in Settings."
+NO_CHECKS_TEXT = ("Every row read is loaded, duplicates included. No rules run, no issues are listed and nothing is "
+                  "left out. Values that aren't numbers or dates are kept as typed and counted at Load and Commit. "
+                  "File errors, Mapping, the duplicate-file warning and the totals check still apply.")
+NO_RULES_FOOTER = "No rules will be set for this template"
+
+
+def text_count_line(name: str, count: int, rows: int) -> str:
+    """"Tax Amount · 38 of 100,000" (2.4b)."""
+    return f"{name} · {formats.number(count)} of {formats.number(rows)}"
 
 
 def sample_fails(n: int | None, rows: int) -> str:
@@ -73,7 +90,69 @@ class ShowDialog(Dialog):
         return [[self.table.item(r, c).text() for c in range(3)] for r in range(self.table.rowCount())]
 
 
+class NoChecksPanel(QWidget):
+    """2.4b: what No means, the sample's text counts per Number and Date column, and the footer (NCK-3)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+        box = panel(self)
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(16, 12, 16, 12)
+        bl.setSpacing(12)
+        bl.addWidget(heading("This template loads without checks", box, theme.BODY_PX))
+        self.explain = note(NO_CHECKS_TEXT, box, "body")
+        bl.addWidget(self.explain)
+        self.title = heading("Values in the sample that aren't numbers or dates", box, theme.GRID_TEXT_PX)
+        bl.addWidget(self.title)
+        self.table = QTableWidget(0, 3, box)
+        self.table.setHorizontalHeaderLabels(["Column", "Type", "Values"])
+        self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(theme.ROW_HEIGHT)
+        self.table.horizontalHeader().setFixedHeight(theme.ROW_HEIGHT)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.table.setShowGrid(False)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for i, w in ((1, 100), (2, 200)):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+            hh.resizeSection(i, w)
+        bl.addWidget(self.table, 1)
+        self.none = note("", box)
+        bl.addWidget(self.none)
+        lay.addWidget(box, 1)
+        self.footer = note(NO_RULES_FOOTER, self, "body")
+        lay.addWidget(self.footer)
+
+    def set_counts(self, lines, rows: int | None, sample: str) -> None:
+        """``lines``: ``newtemplate.SampleTextCount`` per column with text values; None while counting."""
+        if lines is None:
+            self.table.setRowCount(0)
+            self.none.setText("Counting values in the sample…")
+            return
+        self.table.setRowCount(len(lines))
+        for r, x in enumerate(lines):
+            items = [QTableWidgetItem(x.name), QTableWidgetItem(x.type),
+                     QTableWidgetItem(f"{formats.number(x.count)} of {formats.number(x.rows)}")]
+            items[2].setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            for c, it in enumerate(items):
+                self.table.setItem(r, c, it)
+        self.none.setText(f"Every value in the Number and Date columns of the first {formats.count(rows or 0, 'row')} "
+                          f"of {sample} is a number or a date." if not lines else
+                          f"Counted on the first {formats.count(rows or 0, 'row')} of {sample}.")
+
+    def lines(self) -> list[str]:
+        """The table as "Column · N of M" lines."""
+        return [f"{self.table.item(r, 0).text()} · {self.table.item(r, 2).text()}"
+                for r in range(self.table.rowCount())]
+
+
 class RulesStep(QWidget):
+    checks_changed = Signal(bool)
+
     def __init__(self, wizard):
         super().__init__(wizard)
         self.wizard = wizard
@@ -82,8 +161,20 @@ class RulesStep(QWidget):
         self.selected: str | None = None
         self.counts: dict[str, int] | None = None
         self.first: dict[str, list[tuple]] = {}
+        self.text_lines = None                  # 2.4b counts (newtemplate.SampleTextCount), None until counted
         self.dialog = None
-        lay = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(16)
+        self.checks_bar = YesNoBar(CHECKS_LABEL, CHECKS_HINT_NEW, self)
+        self.checks_bar.changed.connect(self._checks_picked)
+        outer.addWidget(self.checks_bar)
+        self.no_panel = NoChecksPanel(self)
+        self.no_panel.hide()
+        outer.addWidget(self.no_panel, 1)
+        self.editor = QWidget(self)
+        outer.addWidget(self.editor, 1)
+        lay = QHBoxLayout(self.editor)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(16)
 
@@ -149,6 +240,27 @@ class RulesStep(QWidget):
         self.info = note("", right)
         rl.addWidget(self.info)
         lay.addWidget(right, 1)
+
+    # ------------------------------------------------------------------------------------------ checks (NCK-2)
+    @property
+    def checks(self) -> bool:
+        return self.checks_bar.value()
+
+    def set_checks(self, yes: bool) -> None:
+        """Yes shows the rule editor, No the 2.4b panel. The rules entered stay in ``rules`` either way."""
+        if yes != self.checks_bar.value():
+            self.checks_bar.set_value(yes)
+        self.editor.setVisible(yes)
+        self.no_panel.setVisible(not yes)
+
+    def _checks_picked(self, yes: bool) -> None:
+        self.set_checks(yes)
+        self.show_error("")
+        self.checks_changed.emit(yes)
+
+    def set_text_counts(self, lines) -> None:
+        self.text_lines = lines
+        self.no_panel.set_counts(lines, self.wizard.sample_rows, self.wizard.sample_name)
 
     # ------------------------------------------------------------------------------------------ load
     def load(self, columns: list[Column], rules: list[Rule]) -> None:
@@ -355,6 +467,8 @@ class RulesStep(QWidget):
         return dlg
 
     def check(self) -> str | None:
+        if not self.checks:
+            return None                     # no rules are saved (Tech spec A2 6.2)
         for rule in self.all_rules():
             try:
                 check_rule(rule, self.columns)

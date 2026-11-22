@@ -160,8 +160,10 @@ def _job(storage, name, work, cancellable=True):
     return j.result
 
 
-def _empty(folder: Path) -> bool:
-    return not folder.exists() or not any(folder.iterdir())
+def _empty(folder: Path, keep=None) -> bool:
+    """Nothing in ``folder`` but entries ``keep`` accepts (after a Job, the connection's own DuckDB spill files stay,
+    BUG-1, T54)."""
+    return not folder.exists() or not any(keep is None or not keep(p.name) for p in folder.iterdir())
 
 
 def check_engines(checks: Checks, sample: dict) -> None:
@@ -175,6 +177,7 @@ def check_engines(checks: Checks, sample: dict) -> None:
 def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
     """A run from Files to Commit, then an export of its data."""
     from sankalan.db import connection
+    from sankalan.db.storage import own_spill_file
     from sankalan.exporting import export
     from sankalan.model import definition as d
     from sankalan.model import export as ex
@@ -195,7 +198,8 @@ def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
                Column("c003", "Customer"), Column("c004", "Taxable Value", "Number", decimals=2, totals_check=True),
                Column("c005", "GST Rate", "Number", decimals=0)]
     rules = with_type_rules(columns, [Rule("r1", "c001", NOT_BLANK), Rule("r2", "c001", UNIQUE)])
-    by_rate = d.Definition("", [], [d.Group("c005")], [d.Measure("c004", d.SUM, "Taxable")])
+    by_rate = d.Definition("", [], [d.Group("c005")],
+                           [d.MeasureCard("c004", [d.Op(d.SUM, "Taxable")])])
     client = q.insert_client(con, "Self-test client")
     tid = q.create_template(con, Template("", client, "Self-test sales", columns=columns, rules=rules,
                                           outputs=[DefaultOutput("By GST rate", by_rate.to_dict())],
@@ -234,14 +238,15 @@ def check_run(checks: Checks, storage, sample: dict, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     def export_work(ctx):
-        (query, name), = export_items(ctx, storage.folder, req)
-        return export(ctx, storage.paths.temp, query, out / name, req.options)
+        (source, name), = export_items(ctx, storage.folder, req)
+        return export(ctx, storage.paths.temp, [source], out, [name], req.options)[0]
     res = _job(storage, "Export", export_work)
     raw = res.path.read_bytes()
     checks.add("CSV export", raw.startswith(b"\xef\xbb\xbf") and res.rows == sample["loaded"]
-               and raw.count(b"\n") == sample["loaded"] + 1 and not list(out.glob("*.part")),
+               and raw.count(b"\n") == sample["loaded"] + 1 and not list(out.glob("*.partial")),
                f"{res.path.name}, {res.rows} rows")
-    checks.add("Staging and temp emptied", _empty(storage.folder.staging_root) and _empty(storage.paths.temp))
+    checks.add("Staging and temp emptied", _empty(storage.folder.staging_root)
+               and _empty(storage.paths.temp, keep=own_spill_file))
 
 
 def check_reopen(checks: Checks, paths) -> None:

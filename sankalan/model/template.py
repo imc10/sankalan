@@ -78,6 +78,11 @@ def active(columns: list[Column]) -> list[Column]:
     return [c for c in columns if not c.removed]
 
 
+def typed(columns: list[Column]) -> list[Column]:
+    """The active Number and Date columns: the ones whose text is kept in a companion column (Tech spec A2 5.1)."""
+    return [c for c in active(columns) if c.type in (NUMBER, DATE)]
+
+
 # ---------------------------------------------------------------------------------------------- the whole template
 class TemplateError(ValueError):
     """A template change that isn't allowed; the message is plain enough to show (TPL-9, MAP-11, MAP-12)."""
@@ -135,6 +140,8 @@ class Template:
     outputs: list[DefaultOutput] = field(default_factory=list)
     export: dict = field(default_factory=dict)
     version: int = 0
+    checks: bool = True             # Check data before loading (NCK-1, T43): held in the settings JSON
+
 
     def column(self, column_id: str) -> Column:
         for c in self.columns:
@@ -147,7 +154,7 @@ class Template:
         return active(self.columns)
 
     def settings_dict(self) -> dict:
-        return {"source": settings_to_dict(self.source), "export": dict(self.export)}
+        return {"source": settings_to_dict(self.source), "export": dict(self.export), "checks": bool(self.checks)}
 
     def snapshot(self) -> dict:
         """The template_version snapshot (TPL-7): settings, columns, rules and default outputs."""
@@ -162,7 +169,7 @@ class Template:
         return Template(self.id, self.client_id, self.name, settings_from_dict(snap["settings"]["source"]),
                         [column_from_dict(c) for c in snap["columns"]], [Rule.from_dict(r) for r in snap["rules"]],
                         [DefaultOutput.from_dict(o) for o in snap["outputs"]], dict(snap["settings"]["export"]),
-                        self.version)
+                        self.version, bool(snap["settings"]["checks"]))
 
 
 def next_column_id(columns: list[Column]) -> str:
@@ -175,11 +182,11 @@ def next_column_id(columns: list[Column]) -> str:
 
 
 def definition_columns(definition: dict) -> set[str]:
-    """Column IDs a definition uses in its filters, groups or measures."""
+    """Column IDs a definition uses in its filters, groups or measure cards (the Rows card uses none)."""
     out = set()
     for key in ("filters", "groups", "measures"):
         for item in definition.get(key) or []:
-            if item.get("column_id"):
+            if item.get("column_id") and item["column_id"] != "_rows":
                 out.add(item["column_id"])
     return out
 

@@ -1,0 +1,19 @@
+﻿{
+    "excel":  "16.0",
+    "files":  [
+                  {
+                      "path":  "C:\\SankalanPerf\\out\\exp9a\\Perf_Rows_part01of02.csv",
+                      "expected":  1000001,
+                      "excel_rows":  1000001,
+                      "ok":  true,
+                      "seconds":  22.8
+                  },
+                  {
+                      "path":  "C:\\SankalanPerf\\out\\exp9a\\Perf_Rows_part02of02.csv",
+                      "expected":  999699,
+                      "excel_rows":  999699,
+                      "ok":  true,
+                      "seconds":  21.8
+                  }
+              ]
+}

@@ -1,7 +1,7 @@
 # Sankalan — notes for Claude sessions
 
-Sankalan (संकलन, "compilation") is an offline Windows desktop app for accounting executives. Version 2 (being
-built on the `v2` branch) merges and validates Excel/CSV files, runs default outputs, and commits each run to a
+Sankalan (संकलन, "compilation") is an offline Windows desktop app for accounting executives. Version 2 (on `main`;
+new work on a branch off `main`) merges and validates Excel/CSV files, runs default outputs, and commits each run to a
 local per-template dataset (DuckDB + Parquet) that can be analysed and exported to CSV.
 
 ## Start every session here
@@ -19,9 +19,10 @@ local per-template dataset (DuckDB + Parquet) that can be analysed and exported 
 | How to build it (T1–T27, storage, ingestion, rules table, query layer, packaging) | `docs/specs/technical-spec-v1.0.md` | **Wins over the feature spec** where they differ (its "Feature spec changes" table lists the 21 differences) |
 | Screen layouts, copy, column sets, colours | `docs/specs/ui-screens/README.md` + `*.dc.html` | 30 artboards at 1366×768; mockups, not app code |
 | Acceptance figures, fixtures F00–F21/P01–P02, screen→test coverage | `docs/specs/test-cases.md` | 191 cases. Expected numbers are the oracle for automated tests |
-| Rows view, measures by column, export in parts (ROW, MEA, EXP-8–14) | `docs/specs/feature-spec-a1.md` | Behaviour and acceptance criteria |
-| How to build A1 (T28–T44) | `docs/specs/technical-spec-a1.md` | **Wins over Feature Spec A1** where they differ (its section 14.1) |
-| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | A1 phases: `docs/plans/a1-implementation-plan.md` |
+| Feature-Updates: Rows view, measures by column, export in parts, choose sheets, text in Number/Date columns, templates without checks, BUG-1 (ROW, MEA, EXP-8–14, SHT, TXT, NCK) | `docs/specs/feature-spec-a2.md` | Behaviour and acceptance criteria. Replaces Feature Spec A1 |
+| How to build A2 (T32–T67) | `docs/specs/technical-spec-a2.md` | **Wins over Feature Spec A2** where they differ (its section 15.1). Replaces Technical Spec A1 |
+| Phase order, layout, reuse from V1 | `docs/IMPLEMENTATION_PLAN.md` | V2 phases 0–12 |
+| A2 phases A2-1…A2-6: steps, tests, acceptance | `docs/plans/a2-implementation-plan.md` | Replaces Technical Spec A2 section 16's build order (A1 plan superseded) |
 | Status, decisions, session log | `docs/PROGRESS.md` | Update at the end of every session |
 
 ## Hard rules (break none of these)
@@ -61,14 +62,40 @@ py -3.13 -m venv .venv
 pip install -r requirements-lock.txt -r requirements-dev.txt
 python -m sankalan                         # run the app
 set QT_QPA_PLATFORM=offscreen
-python -m pytest tests -q                  # full suite (must pass before committing)
-python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F00–F21
+python -m pytest tests -q                  # full normal suite (must pass before committing), expected 215 s
+python -m pytest -m slow tests             # full-size tests (A2: each phase runs its own once)
+python tests\fixtures\generate.py          # (from Phase 0) build fixture pack F00–F21 (+ TPL-R small; --full)
 ```
+
+## Test time budgets (stop rule)
+
+Every test file has an expected completion time in `tests/time_budgets.py` (measured, plus ~25% headroom). Testing
+time is development time, so:
+
+| Run | Expected | Stop above |
+| --- | --- | --- |
+| Full normal suite `pytest tests` | 215 s (measured 190 s with A2-5) | 237 s |
+| One test file | its entry in `tests/time_budgets.py` (5–21 s for normal files) | entry + 10% |
+| `pytest -m slow tests/engine/test_stored_order.py` | 300 s (measured 252 s; building full TPL-R the first time, ~5 min, is not counted) | 330 s |
+| Build tests (`SANKALAN_BUILD_TESTS=1`) | installer file + 170 s | + 10% |
+
+- **If a run exceeds its expected time by more than 10%, stop.** Investigate the cause, fix it, then run again. Don't
+  wait for a slow or silent run, and don't just rerun it hoping it passes.
+- `tests/conftest.py` enforces this: a file more than 10% over budget ends the run at once with
+  `TIME BUDGET: <file> took …` (exit code 3); a test that hangs is killed 10 s later with `Timeout (…)!` and every
+  thread's stack (the stuck test is in the dump). A run that stops progressing usually means a GUI test failed
+  before discarding its edits and left a real modal dialog open: look at the first failure before it.
+- Always run long commands with a timeout (or in the background with the budget in mind) and check them when the
+  expected time is up.
+- A new test file gets its own entry once timed (unlisted files get 30 s). Raise a budget only when a change
+  legitimately makes a file slower, and record why in `docs/PROGRESS.md`. `SANKALAN_NO_TIME_BUDGET=1` turns the
+  checks off for debugging with breakpoints only, never for the run that decides a commit.
 
 ## Working rules
 
-- **Branch:** work on `v2` (or a worktree branch off it). Never commit to `main` except the v1 hotfixes the user asks
-  for. Never push unless the user asks.
+- **Branch:** never commit to `main`. Always commit to the branch off `main` on which the changes are being made
+  (currently `Feature-Updates`), or a worktree branch off it. Changes reach `main` only by merging that branch when
+  the user asks. Never push unless the user asks.
 - **Scope:** one phase per session. If the phase is too large, finish a coherent part, record what's left in
   `docs/PROGRESS.md`, and stop there.
 - **Tests first for engine phases:** turn the matching test-case figures into pytest assertions with generated

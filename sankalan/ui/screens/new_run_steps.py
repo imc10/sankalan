@@ -1,11 +1,14 @@
 """4.3 Validate, 4.4 Outputs and 4.5 Commit of the New run wizard (RUN-3 to RUN-6, RUN-13, ISS-1 to ISS-3, VR-3 to
-VR-6, DO-2 to DO-7, T18, T20, T22). The wizard frame is ``new_run.NewRunScreen``."""
+VR-6, DO-2 to DO-7, T18, T20, T22). The wizard frame is ``new_run.NewRunScreen``.
+
+A template without checks has 4.3b Load in Validate's place (NCK-6 to NCK-8, T44, T45) and the 4.5b Commit lines
+(NCK-9, NCK-10)."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel,
                                QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -26,6 +29,8 @@ from sankalan.ui.widgets.result_table import ResultTable
 
 if TYPE_CHECKING:
     from sankalan.ui.screens.new_run import NewRunScreen
+
+TEXT_AS_ZERO = "Values that aren't numbers count as 0 on both sides"
 
 ISSUE_COLUMNS = [
     GridColumn("file", "File", TEXT, width=180, tooltip=7),
@@ -218,6 +223,212 @@ class IssuesView(QWidget):
 
 
 # ---------------------------------------------------------------------------------------------- 4.3 Validate
+def text_line(name: str, kind: str, n: int) -> str:
+    """4.5b: "Taxable Value: 3,412 values aren't numbers and are left out of sums" (NCK-9)."""
+    from sankalan.model.template import NUMBER
+    one = n == 1
+    if kind == NUMBER:
+        return (f"{name}: {formats.number(n)} value{'' if one else 's'} {'is' if one else 'are'}n't "
+                f"{'a number' if one else 'numbers'} and {'is' if one else 'are'} left out of sums")
+    return (f"{name}: {formats.number(n)} value{'' if one else 's'} {'is' if one else 'are'}n't "
+            f"{'a date' if one else 'dates'} and {'is' if one else 'are'} left out of date filters and groups")
+
+
+def _grid(headers: list[str], parent, stretch: int = 0) -> QTableWidget:
+    t = QTableWidget(0, len(headers), parent)
+    t.setHorizontalHeaderLabels(headers)
+    t.verticalHeader().hide()
+    t.verticalHeader().setDefaultSectionSize(theme.ROW_HEIGHT)
+    t.horizontalHeader().setFixedHeight(theme.ROW_HEIGHT)
+    t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    t.setShowGrid(False)
+    t.setStyleSheet("QTableWidget { border: 0; }")
+    hh = t.horizontalHeader()
+    for i in range(len(headers)):
+        hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch if i == stretch else
+                                QHeaderView.ResizeMode.ResizeToContents)
+    return t
+
+
+class LoadStep(QWidget):
+    """4.3b Load (NCK-7, NCK-8, T44, T45): a status banner, four stat cards, the text-value counts per Number and
+    Date column, and for the selected column its values as typed (a short "Read values" Job)."""
+
+    def __init__(self, wizard: "NewRunScreen"):
+        super().__init__(wizard)
+        self.wizard = wizard
+        self.values_job = None
+        self.column_id: str | None = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+        self.banner_slot = QVBoxLayout()
+        lay.addLayout(self.banner_slot)
+        self.result_banner: Banner | None = None
+        tiles = QHBoxLayout()
+        tiles.setSpacing(12)
+        self.tiles: dict[str, QLabel] = {}
+        for key, title in (("files", "Files and sheets read"), ("rows", "Rows read"), ("load", "Rows to load"),
+                           ("text", "Values that aren't numbers or dates")):
+            box, value = tile(title, self)
+            if key == "rows":
+                self.skipped = note("", box)
+                self.skipped.hide()
+                box.layout().addWidget(self.skipped)
+            tiles.addWidget(box, 1)
+            self.tiles[key] = value
+        lay.addLayout(tiles)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        left = panel(self)
+        left.setFixedWidth(400)
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(16, 12, 16, 12)
+        ll.setSpacing(8)
+        ll.addWidget(heading("Values that aren't numbers or dates", left, theme.GRID_TEXT_PX))
+        self.columns = _grid(["Column", "Type", "Values"], left)
+        self.columns.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.columns.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.columns.itemSelectionChanged.connect(self._column_picked)
+        ll.addWidget(self.columns, 1)
+        self.none = note("", left)
+        ll.addWidget(self.none)
+        body.addWidget(left)
+        right = panel(self)
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(16, 12, 16, 12)
+        rl.setSpacing(8)
+        self.values_title = heading("", right, theme.GRID_TEXT_PX)
+        rl.addWidget(self.values_title)
+        self.values_info = note("Select a column to list its values as typed, most frequent first.", right)
+        rl.addWidget(self.values_info)
+        self.values = _grid(["Value", "Count", "File", "Sheet", "Row"], right)
+        self.values.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        rl.addWidget(self.values, 1)
+        body.addWidget(right, 1)
+        lay.addLayout(body, 1)
+
+    def clear(self) -> None:
+        if self.result_banner is not None:
+            self.result_banner.dismiss()
+            self.result_banner = None
+        for v in self.tiles.values():
+            v.setText("–")
+        self.skipped.hide()
+        self.columns.setRowCount(0)
+        self.none.setText("")
+        self._clear_values()
+
+    def _clear_values(self) -> None:
+        self.column_id = None
+        self.values.setRowCount(0)
+        self.values_title.setText("")
+        self.values_info.setText("Select a column to list its values as typed, most frequent first.")
+
+    def show_failure(self, text: str) -> None:
+        self.clear()
+        self.result_banner = Banner("error", text, closable=False, parent=self)
+        self.banner_slot.addWidget(self.result_banner)
+
+    def load(self) -> None:
+        self.clear()
+        sess = self.wizard.session
+        ls = sess.loaded if sess else None
+        if ls is None:
+            return
+        text = f"{formats.count(ls.files, 'file')} read · {formats.count(ls.rows_to_load, 'row')} to load"
+        self.result_banner = Banner("success", text, closable=False, auto_hide=False, parent=self)
+        self.banner_slot.addWidget(self.result_banner)
+        self.tiles["files"].setText(f"{formats.count(ls.files, 'file')} · {formats.count(ls.sheets, 'sheet')}")
+        self.tiles["rows"].setText(formats.number(ls.rows_read))
+        self.tiles["load"].setText(formats.number(ls.rows_to_load))
+        self.tiles["text"].setText(formats.number(ls.text_total))
+        lines = []
+        if ls.blank_rows:
+            lines.append(f"Blank rows skipped: {formats.number(ls.blank_rows)}")
+        if ls.hidden_rows:
+            lines.append(f"Hidden rows skipped: {formats.number(ls.hidden_rows)}")
+        self.skipped.setText("\n".join(lines))
+        self.skipped.setVisible(bool(lines))
+        cols = [c for c in sess.columns if ls.text_counts.get(c.id)]
+        with QSignalBlocker(self.columns):
+            self.columns.setRowCount(len(cols))
+            for r, c in enumerate(cols):
+                items = [QTableWidgetItem(c.name), QTableWidgetItem(c.type),
+                         QTableWidgetItem(formats.number(ls.text_counts[c.id]))]
+                items[0].setData(Qt.ItemDataRole.UserRole, c.id)
+                items[2].setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                for i, it in enumerate(items):
+                    self.columns.setItem(r, i, it)
+        self.none.setText("" if cols else "Every value in the Number and Date columns is a number or a date.")
+
+    def stat_values(self) -> dict[str, str]:
+        return {k: v.text() for k, v in self.tiles.items()}
+
+    def column_rows(self) -> list[tuple[str, str, str]]:
+        return [tuple(self.columns.item(r, c).text() for c in range(3)) for r in range(self.columns.rowCount())]
+
+    def value_rows(self) -> list[tuple[str, ...]]:
+        return [tuple(self.values.item(r, c).text() for c in range(5)) for r in range(self.values.rowCount())]
+
+    def _column_picked(self) -> None:
+        rows = self.columns.selectionModel().selectedRows()
+        if rows:
+            self.show_values(self.columns.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole))
+
+    def show_values(self, column_id: str):
+        """Selecting a column lists its values (NCK-8): ≤ 1,000, most frequent first, with where each first
+        appears. A short Job; the list is empty while it runs."""
+        sess = self.wizard.session
+        if sess is None or sess.loaded is None:
+            return None
+        col = next(c for c in sess.columns if c.id == column_id)
+        self.column_id = column_id
+        self.values.setRowCount(0)
+        self.values_title.setText(f"{col.name}: values as typed")
+        self.values_info.setText("Reading values…")
+
+        def done(values: list[pl.TextValue]):
+            self.values_job = None
+            if self.column_id != column_id:
+                return
+            self.values.setRowCount(len(values))
+            for r, v in enumerate(values):
+                items = [QTableWidgetItem(v.text), QTableWidgetItem(formats.number(v.count)),
+                         QTableWidgetItem(v.file_name), QTableWidgetItem(v.sheet),
+                         QTableWidgetItem(formats.number(v.row))]
+                for i in (1, 4):
+                    items[i].setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                for i, it in enumerate(items):
+                    self.values.setItem(r, i, it)
+            shown = len(values)
+            more = shown >= textvalues_limit()
+            self.values_info.setText((f"The {formats.number(shown)} most frequent values, " if more else
+                                      f"{formats.count(shown, 'value')}, ") +
+                                     "most frequent first, with where each first appears.")
+
+        def failed(error):
+            self.values_job = None
+            from sankalan.ui.screens.new_run import plain_error
+            self.values_info.setText(plain_error(error))
+
+        self.values_job = self.wizard.start("Read values", lambda ctx: sess.text_values(ctx, column_id), done,
+                                            failed, cancellable=True)
+        return self.values_job
+
+    def footer_text(self) -> str:
+        sess = self.wizard.session
+        ls = sess.loaded if sess else None
+        if ls is None:
+            return "Reading the files…" if self.wizard.job is not None else ""
+        return f"{formats.count(ls.rows_to_load, 'row')} will load"
+
+
+def textvalues_limit() -> int:
+    from sankalan.query.textvalues import VALUES_LIMIT
+    return VALUES_LIMIT
+
+
 class ValidateStep(QWidget):
     def __init__(self, wizard: "NewRunScreen"):
         super().__init__(wizard)
@@ -339,8 +550,8 @@ class ValidateStep(QWidget):
         info = wz.start_info
         req = ex.prefill("issues", info.template.export, template_id=info.template.id, client=info.client_name,
                          template=info.template.name, run_label=wz.run_label)
-        req = ex.ExportRequest(**{**req.__dict__, "items": lambda _ctx: [(qx.issue_list(issues, names, col_names),
-                                                                           req.file_name)]})
+        req = ex.ExportRequest(**{**req.__dict__, "items": lambda ctx: [
+            (qx.issue_list(ctx.cursor(), issues, names, col_names), req.file_name)]})
         return wz.window_.go("export", request=req)
 
 
@@ -584,6 +795,9 @@ class CommitStep(QWidget):
         self.totals.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.totals.setMaximumHeight(theme.ROW_HEIGHT * 6)
         right.addWidget(self.totals)
+        self.totals_note = note(TEXT_AS_ZERO, self)          # runs without checks (NCK-9)
+        self.totals_note.hide()
+        right.addWidget(self.totals_note)
         self.comment_label = heading("Comment · optional", self, theme.GRID_TEXT_PX)
         right.addWidget(self.comment_label)
         self.comment = LimitedText(pl.COMMENT_MAX, self)
@@ -638,10 +852,14 @@ class CommitStep(QWidget):
                         w.deleteLater()
         self.summary: dict[str, str] = {}
         self.summary_lay.addWidget(heading(f"{wz.run_label} · what will be committed", self, theme.BODY_PX))
-        v = sess.validation
         files = sess.readable_files
         self._row("Files and sheets", f"{formats.count(len({f.path for f in files}), 'file')} · "
                                       f"{formats.count(len(files), 'sheet')}")
+        self.totals_note.setVisible(not sess.checks)
+        if not sess.checks:
+            self._load_unchecked(sess)
+            return
+        v = sess.validation
         self._row("Rows to load", formats.number(v.rows_to_load - (v.left_out_on_override if sess.override_reason
                                                                    is not None else 0)))
         err = formats.number(v.errors) + (" · continued with a reason" if sess.override_reason is not None else "")
@@ -673,6 +891,41 @@ class CommitStep(QWidget):
         self.totals_state.setText("Checking totals…")
         wz.run("Check totals", sess.check_totals, lambda _t: self.show_totals(), progress=False)
 
+    def _load_unchecked(self, sess: pl.RunSession) -> None:
+        """4.5b (NCK-9, NCK-10, T45): no errors or warnings; "Data checks: Not checked", nothing left out, blank rows,
+        and a line per Number and Date column with text values. The comment is optional."""
+        ls = sess.loaded
+        self._row("Rows to load", formats.number(ls.rows_to_load))
+        self._row("Data checks", "Not checked · template setting")
+        self._row("Rows left out", "None")
+        if ls.blank_rows:
+            self._row("Blank rows skipped", formats.number(ls.blank_rows))
+        self._row("Default outputs", "Skipped: this template has none" if sess.outputs_skipped else
+                  f"{formats.number(len(sess.outputs))} generated")
+        self.text_lines = [text_line(c.name, c.type, ls.text_counts[c.id]) for c in sess.columns
+                           if ls.text_counts.get(c.id)]
+        if self.text_lines:
+            self.summary_lay.addSpacing(6)
+            self.summary_lay.addWidget(heading("Values kept as text", self, theme.GRID_TEXT_PX))
+            for ln in self.text_lines:
+                lab = note(ln, self)
+                lab.setWordWrap(True)
+                self.summary_lay.addWidget(lab)
+        lines = runs.mapping_lines(sess._mapping_result.decisions if sess._mapping_result else [])
+        self.decisions = lines
+        if lines:
+            self.summary_lay.addSpacing(6)
+            self.summary_lay.addWidget(heading("Decisions in this run", self, theme.GRID_TEXT_PX))
+            for ln in lines:
+                lab = note(ln, self)
+                lab.setWordWrap(True)
+                self.summary_lay.addWidget(lab)
+        self.summary_lay.addStretch(1)
+        self.comment_label.setText("Comment · optional")
+        self.totals.setRowCount(0)
+        self.totals_state.setText("Checking totals…")
+        self.wizard.run("Check totals", sess.check_totals, lambda _t: self.show_totals(), progress=False)
+
     def show_totals(self) -> None:
         sess = self.wizard.session
         lines = sess.totals or []
@@ -691,7 +944,8 @@ class CommitStep(QWidget):
         if not lines:
             self.totals_state.setText("No column is ticked for the totals check.")
         elif sess.totals_passed:
-            self.totals_state.setText("All totals match: In the files = Loaded + Left out.")
+            self.totals_state.setText("All totals match: In the files = Loaded + Left out." if sess.checks else
+                                      "All totals match: In the files = Loaded.")
             self.totals_state.setStyleSheet(f"color: {theme.SUCCESS};")
         else:
             names = ", ".join(t.name for t in lines if not t.passed)
@@ -736,7 +990,8 @@ def commit_run(wz: "NewRunScreen") -> bool:
         wz.finished = True
         n_out = len(sess.outputs)
         v = sess.validation
-        loaded = v.rows_to_load - (v.left_out_on_override if sess.override_reason is not None else 0)
+        loaded = (sess.loaded.rows_to_load if not sess.checks else
+                  v.rows_to_load - (v.left_out_on_override if sess.override_reason is not None else 0))
         text = f"{c.label} committed: {formats.count(loaded, 'row')}"
         text += f" and {formats.count(n_out, 'output')} saved." if n_out else " saved."
         wz.window_.go("run", run_id=c.run_id, template_id=template_id, name=name, banner=Banner("success", text))

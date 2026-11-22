@@ -7,7 +7,7 @@ from sankalan import formats, manage
 from sankalan.manage import NameRefused, check_name, copy_name
 from sankalan.model import definition as d
 from sankalan.model import export as ex
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 
 
 @spec("C1-03", "C1-04", "C2-05")
@@ -78,8 +78,8 @@ def test_builder_round_trip(app):
     out = Definition("t1", [Filter("c002", d.LATEST_QUARTER), Filter("c005", d.ONE_OF, ["Delhi", "Goa"]),
                             Filter("c006", d.BETWEEN, ["0", "100.5"]), Filter("c003", d.NOT_BLANK)],
                      [Group("c002", "month"), Group("c007")],
-                     [Measure("c006", d.SUM, "Taxable"), Measure(None, d.COUNT, None),
-                      Measure("c003", d.COUNT_DISTINCT, "Customers"), Measure("c002", d.MAX, None)], True)
+                     cards(FlatMeasure("c006", d.SUM, "Taxable"), FlatMeasure(d.ROWS, d.COUNT, None),
+                      FlatMeasure("c003", d.COUNT_DISTINCT, "Customers"), FlatMeasure("c002", d.MAX, None)), True)
     b = DefinitionBuilder(cols, output=True)
     b.set_definition(out)
     assert b.definition().to_dict() == out.to_dict()
@@ -87,7 +87,7 @@ def test_builder_round_trip(app):
     analysis = Definition("t1", [Filter("c002", d.MONTH, [2026, 10]),
                                  Filter("c002", d.BETWEEN, ["2026-04-01", None]),
                                  Filter("c007", d.EQUALS, ["18"]), Filter("c005", d.CONTAINS, ["ra"])],
-                          [Group("c002")], [Measure("c009", d.AVG, None)], False)
+                          [Group("c002")], cards(FlatMeasure("c009", d.AVG, None)), False)
     b2 = DefinitionBuilder(cols, output=False)
     b2.set_definition(analysis)
     assert b2.definition().to_dict() == analysis.to_dict()

@@ -2,9 +2,9 @@
 The sample is read in the Job's thread (``WORKERS = 0``); the reader workers are covered by the ingestion tests."""
 import pytest
 
-from conftest import spec
+from conftest import settle_window, spec
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 from sankalan.model.rule import (ALLOWED_VALUES, DATE_RANGE, NOT_BLANK, NUMBER_RANGE, PATTERN, TEXT_LENGTH, UNIQUE,
                                  WARNING)
 from sankalan.model.template import SHEETS_ALL_VISIBLE, SHEETS_BY_NAME, SHEETS_FIRST_VISIBLE
@@ -20,10 +20,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=30_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked and not getattr(w.current, "_dry_again", False)
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout, extra=lambda: not getattr(w.current, "_dry_again", False))
 
 
 @pytest.fixture(autouse=True)
@@ -297,7 +294,21 @@ def test_text_dates_offer_formats(env, qtbot, fixtures_dir):
     fmt = cs.widget(3, DATE_FORMAT)
     assert fmt.isEnabled() and [fmt.itemText(i) for i in range(fmt.count())] == ["DD-MM-YYYY", "DD/MM/YYYY"]
     assert rows[5][6].startswith("00123")                          # leading zeros: Text, as typed
-    assert rows[1][5] == "90.9% numbers"                            # 12abc
+    assert rows[1][5] == "90.9% numbers · 9.09% aren't numbers and are kept as text"     # 12abc
+
+
+@spec("AC-TXT-10", "TXT-1")
+def test_type_note_states_the_text_share(env, qtbot, tmp_path):
+    """A sample with 2% text in a Number column (Feature Spec A2 6.2)."""
+    rows = ["Code,Amount,Doc Date"] + [f"A{i},{'NA' if i in (10, 60) else str(100 + i) + '.50'},"
+                                         f"{'31-02-2026' if i < 3 else f'{(i % 28) + 1:02d}-11-2026'}"
+                                         for i in range(100)]
+    (tmp_path / "Text_Share.csv").write_text("".join(r + "\n" for r in rows), encoding="utf-8")
+    wz = open_wizard(qtbot, env, name="Text share", sample="Text_Share.csv", fx=tmp_path)
+    to_step(qtbot, wz, COLUMNS)
+    got = wz.columns_step.rows()
+    assert got[1][2] == "Number" and got[1][5] == "98% numbers · 2% aren't numbers and are kept as text"
+    assert got[2][2] == "Date" and got[2][5] == "97% dates · DD-MM-YYYY · 3% aren't dates and are kept as text"
 
 
 @spec("C3-12", "TPL-3")
@@ -403,10 +414,10 @@ def test_dry_run_counts_and_show(env, qtbot, fixtures_dir, answers):
 
 
 # ---------------------------------------------------------------------------------------------- 2.5 Default outputs
-DO1 = Definition("", [], [Group(STATE)], [Measure(TAXABLE, d.SUM, "Taxable"), Measure(TAX, d.SUM, "Tax"),
-                                           Measure(INV, d.COUNT, "Invoices")])
+DO1 = Definition("", [], [Group(STATE)], cards(FlatMeasure(TAXABLE, d.SUM, "Taxable"), FlatMeasure(TAX, d.SUM, "Tax"),
+                                           FlatMeasure(INV, d.COUNT, "Invoices")))
 DO2 = Definition("", [Filter(DATE_, d.LATEST_MONTH)], [Group(DATE_, "month"), Group(RATE)],
-                 [Measure(TAXABLE, d.SUM)], subtotals=True)
+                 cards(FlatMeasure(TAXABLE, d.SUM)), subtotals=True)
 
 
 def add_output(qtbot, wz, name, definition):
@@ -445,11 +456,19 @@ def test_outputs_review_and_save(env, qtbot, fixtures_dir):
     assert rows[:6] == [["Aug-2026", "0", "297,375.00"], ["Aug-2026", "5", "299,425.00"],
                         ["Aug-2026", "12", "301,475.00"], ["Aug-2026", "18", "303,525.00"],
                         ["Aug-2026", "28", "305,575.00"], ["Aug-2026", "Total", "1,507,375.00"]]
-    # C3-19: date filters are relative only
+    # 2.5 uses the measure cards; a preview rename names the measure without running again (MEA-8, T51)
+    assert [c.column_id for c in st.builder.measures.cards] == [TAXABLE]
+    st.rename_header(2, "Taxable")
+    assert st.table.horizontalHeaderItem(2).text() == "Taxable" and st.table.isEnabled()
+    assert st.outputs[1].definition["measures"][0]["ops"] == [{"fn": "sum", "name": "Taxable"}]
+    st.rename_header(2, "")
+    assert st.table.horizontalHeaderItem(2).text() == "Taxable Value · Sum"
+    assert st.outputs[1].definition["measures"][0]["ops"] == [{"fn": "sum", "name": None}]
+    # C3-19: date filters are relative only, plus Blank, Not blank and Is not a date (T55)
     row = st.builder.filters.rows[0]
     assert [row.op.itemText(i) for i in range(row.op.count())] == [
         "latest month in this run", "latest quarter in this run", "latest year in this run", "is blank",
-        "is not blank"]
+        "is not blank", "is not a date"]
     # C3-18: a name is required
     st.name.setText("  ")
     st._edited()
@@ -525,6 +544,40 @@ def test_save_and_start_opens_new_run(env, qtbot, fixtures_dir):
     wz.save(True)
     settle(qtbot, wz.window_)
     assert wz.window_.current.title == "New run"
+
+
+@spec("AC-NCK-1", "NCK-2", "NCK-3", "T43")
+def test_check_data_before_loading_no(env, qtbot, fixtures_dir):
+    s = env["s"]
+    wz = open_wizard(qtbot, env, client="bharat", name="No checks", sample="Conversion_Values.csv", fx=fixtures_dir)
+    to_step(qtbot, wz, RULES)
+    rs = wz.rules_step
+    bar = rs.checks_bar
+    assert bar.label.text() == "Check data before loading" and bar.yes.isChecked() and not bar.no.isChecked()
+    assert bar.hint.text() == "Applies to every run of this template. Can be changed later in Settings."
+    assert rs.editor.isVisible() and not rs.no_panel.isVisible()
+    rs.select("c006")
+    assert rs.add_rule(NOT_BLANK, {}, WARNING) is not None
+    settle(qtbot, wz.window_)
+    bar.no.click()
+    settle(qtbot, wz.window_)
+    assert not rs.checks and not rs.editor.isVisible() and rs.no_panel.isVisible()
+    n = f"{wz.sample_rows:,}"
+    assert rs.no_panel.lines() == [f"Amount · 1 of {n}", f"Amount0 · 1 of {n}", f"Doc Date · 2 of {n}",
+                                   f"Due Date · 1 of {n}"]                      # Number and Date columns
+    assert rs.no_panel.footer.text() == "No rules will be set for this template"
+    bar.yes.click()                                                             # rules entered come back
+    settle(qtbot, wz.window_)
+    assert rs.editor.isVisible() and [r.type for r in rs.rules] == [NOT_BLANK]
+    assert counts_by_name(wz)[("Code", "Not blank")] is not None
+    bar.no.click()
+    settle(qtbot, wz.window_)
+    to_step(qtbot, wz, REVIEW)
+    assert wz.review_step.summary()["Rules"] == "None · this template loads without checks"
+    wz.save(False)
+    settle(qtbot, wz.window_)
+    t = q.load_template(s.con, next(iter(q.template_names(s.con, env["bharat"]))))
+    assert t.checks is False and t.rules == []                                 # no rules saved with No
 
 
 # ---------------------------------------------------------------------------------------------- Back

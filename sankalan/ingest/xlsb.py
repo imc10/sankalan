@@ -195,6 +195,19 @@ class XlsbBook:
         return result
 
     # ------------------------------------------------------------------------------------------ probe
+    def last_row(self, name: str) -> int | None:
+        """The last row from ``BrtWsDim``, which comes before the first row record (T47); None when absent."""
+        try:
+            with self._open(name) as fh:
+                for typ, body in _records(fh):
+                    if typ == WS_DIM:
+                        return struct.unpack_from("<I", body, 4)[0] + 1 if len(body) >= 8 else None
+                    if typ in (ROW_HDR, END_SHEET_DATA):
+                        return None
+        except (zipfile.BadZipFile, OSError, EOFError, struct.error) as e:
+            raise ExcelError(type(e).__name__) from None
+        return None
+
     def peek(self, name: str, n: int = detect.HEADER_SCAN_ROWS) -> Peek:
         """The first ``n`` visible rows, values typed as the .xlsx peek types them (numbers as floats, dates as
         serial numbers, text as text), and the last row from the dimension record."""

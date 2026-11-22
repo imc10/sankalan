@@ -1,5 +1,6 @@
-"""Read and convert: F02, F03, F04, F16, F17, F18 and F19 stage to the right data.parquet and conversion failures
-(Phase 2 exit; CONV-01 to CONV-05, RUNV-02 counts, IN-8, IN-13, T11 to T14)."""
+"""Read and convert: F02, F03, F04, F16, F17, F18 and F19 stage to the right data.parquet, with the text of values
+that don't convert kept in their companions (Phase 2 exit; CONV-01 to CONV-05, RUNV-02 counts, IN-8, IN-13, T11 to
+T14; Feature Spec A2 TXT-1, Tech spec A2 5.1)."""
 import csv
 import multiprocessing
 import time
@@ -44,7 +45,7 @@ def _sums(storage, res, *ids):
 def test_f02(storage, fixtures_dir):
     cols = tpl_a_columns()
     st, res = _load(storage, fixtures_dir, ["Sales_Oct.xlsx"], tpl_a_settings(), cols)
-    assert (res.rows_loaded, res.rows_read, res.blank_rows, res.hidden_rows, res.failures) == (5000, 5000, 0, 0, {})
+    assert (res.rows_loaded, res.rows_read, res.blank_rows, res.hidden_rows, res.text_counts) == (5000, 5000, 0, 0, {})
     assert _sums(storage, res, "c006", "c008") == {"c006": Decimal("7536875.00"), "c008": Decimal("956722.50")}
     rows = _rows(storage, res, cols)
     assert rows[0] == (0, "Sales", 2, "INV-10001", date(2026, 10, 1), "Shree Ganesh Traders", "27ABCDE0001F1Z5",
@@ -54,7 +55,8 @@ def test_f02(storage, fixtures_dir):
         f"DESCRIBE SELECT * FROM read_parquet('{res.data.as_posix()}')").fetchall()}
     assert types == {"run_id": "VARCHAR", "_src_file": "INTEGER", "_src_sheet": "VARCHAR", "_src_row": "BIGINT",
                      "c001": "VARCHAR", "c002": "DATE", "c003": "VARCHAR", "c004": "VARCHAR", "c005": "VARCHAR",
-                     "c006": "DECIMAL(38,2)", "c007": "DECIMAL(38,0)", "c008": "DECIMAL(38,2)"}
+                     "c002_t": "VARCHAR", "c006": "DECIMAL(38,2)", "c006_t": "VARCHAR", "c007": "DECIMAL(38,0)",
+                     "c007_t": "VARCHAR", "c008": "DECIMAL(38,2)", "c008_t": "VARCHAR"}
     assert storage.con.execute(f"SELECT DISTINCT run_id FROM read_parquet('{res.data.as_posix()}')").fetchall() \
         == [(st.id,)]
     assert (st.raw / "0.csv").is_file()                          # raw text stays until commit (T20)
@@ -69,7 +71,7 @@ def test_f03_hidden_and_blank_rows(storage, fixtures_dir):
     rows = _rows(storage, res, cols)
     assert rows[0][2] == 3                                       # title row 1, header row 2
     assert not any(r[3].startswith("INV-29") for r in rows)       # the hidden rows' invoices
-    assert res.failures == {}
+    assert res.text_counts == {}
 
 
 @spec("RUNF-15", "RUNV-02", "IN-13", "T11", "D38")
@@ -80,7 +82,7 @@ def test_xls_and_xlsb_load_like_f03(storage, fixtures_dir, name):
     _st, res = _load(storage, fixtures_dir, [name], tpl_a_settings(), cols)
     assert (res.rows_loaded, res.hidden_rows, res.blank_rows) == (4000, 25, 10)
     assert _sums(storage, res, "c006", "c008") == {"c006": Decimal("6029500.00"), "c008": Decimal("765378.00")}
-    assert res.failures == {}
+    assert res.text_counts == {}
     assert _rows(storage, res, cols) == _rows(storage, ref, cols)     # same rows and sheet row numbers
 
 
@@ -89,8 +91,8 @@ def test_f04_conversion_failures(storage, fixtures_dir):
     cols = tpl_a_columns()
     _st, res = _load(storage, fixtures_dir, ["Sales_Errors.xlsx"], tpl_a_settings(), cols)
     assert res.rows_loaded == 2000
-    assert res.failures == {"c006": 15, "c002": 4}
-    fails = convert.read_failures(storage.con, res.failures_file)
+    assert res.text_counts == {"c006": 15, "c002": 4}
+    fails = convert.read_text_values(storage.con, res.data, cols)
     taxable = [(r[2], r[4]) for r in fails if r[3] == "c006"]
     assert taxable == [(row, "abc") for row in range(214, 229)]  # sheet rows 214-228
     assert [(r[2], r[4]) for r in fails if r[3] == "c002"] == [(n + 1, "31-02-2026") for n in range(501, 505)]
@@ -135,11 +137,11 @@ def test_f17_conversion_values(storage, fixtures_dir):
             for k, (a, b, dd, du, code) in CONV_EXPECTED.items()}
     assert rows == want
     assert str(rows["C02"][0]) == "1234567.50" and str(rows["C06"][1]) == "3"
-    fails = convert.read_failures(storage.con, res.failures_file)
+    fails = convert.read_text_values(storage.con, res.data, cols)
     assert sorted((r[2], r[3], r[4]) for r in fails) == [
         (4, "c004", "31-11-2026"), (4, "c005", "32/01/2027"), (6, "c004", "29-02-2027"),
         (12, "c002", "12abc"), (12, "c003", "12abc")]
-    assert res.failures == {"c002": 1, "c003": 1, "c004": 2, "c005": 1}      # C12, C13: blank, no issue
+    assert res.text_counts == {"c002": 1, "c003": 1, "c004": 2, "c005": 1}      # C12, C13: blank, no issue
 
 
 @spec("CONV-04", "IN-4", "T12", "C3-08")
@@ -161,7 +163,7 @@ def test_f19_formulas_errors_times(storage, fixtures_dir):
     assert rows["C01"] == (Decimal("2.35"), None, date(2026, 11, 5), None, "00123")
     assert rows["C02"][0] == Decimal("150.00")                   # last calculated value
     assert rows["C03"][0] is None
-    assert convert.read_failures(storage.con, res.failures_file) == [(0, "Data", 4, "c002", "#N/A")]
+    assert convert.read_text_values(storage.con, res.data, cols) == [(0, "Data", 4, "c002", "#N/A")]
     with open(st.raw / "0.csv", encoding="utf-8", newline="") as f:
         raw = list(csv.reader(f))
     assert raw[0] == ["_src_row", "v0", "v1", "v2", "v3", "v4", "v5"]
@@ -179,7 +181,7 @@ def test_xls_and_xlsb_formulas_errors_times(storage, fixtures_dir, name):
     assert rows["C01"] == (Decimal("2.35"), None, date(2026, 11, 5), None, "00123")
     assert rows["C02"][0] == Decimal("150.00")
     assert rows["C03"][0] is None
-    assert convert.read_failures(storage.con, res.failures_file) == [(0, "Data", 4, "c002", "#N/A")]
+    assert convert.read_text_values(storage.con, res.data, cols) == [(0, "Data", 4, "c002", "#N/A")]
     with open(st.raw / "0.csv", encoding="utf-8", newline="") as f:
         raw = list(csv.reader(f))
     assert raw[1] == ["2", "C01", "2.345", "", "2026-11-05 14:30:00", "", "00123"]
@@ -201,7 +203,7 @@ def test_recheck_reruns_on_the_same_staging(storage, fixtures_dir):
     st = storage.folder.new_staging()
     first = run_job(storage.runner, lambda ctx: stage.load(ctx, storage.folder, st, parts, cols, workers=0))
     second = run_job(storage.runner, lambda ctx: stage.load(ctx, storage.folder, st, parts, cols, workers=0))
-    assert (first.rows_loaded, first.failures) == (second.rows_loaded, second.failures)
+    assert (first.rows_loaded, first.text_counts) == (second.rows_loaded, second.text_counts)
     assert sorted(p.name for p in st.raw.iterdir()) == ["0.csv"]
 
 
@@ -247,5 +249,5 @@ def test_same_result_inline_and_in_workers(storage, fixtures_dir, workers):
     cols = tpl_a_columns()
     _st, res = _load(storage, fixtures_dir, ["Sales_Nov.xlsx", "Sales_Errors.xlsx"], tpl_a_settings(), cols,
                      workers=workers)
-    assert (res.rows_loaded, res.hidden_rows, res.blank_rows, res.failures) == (6000, 25, 10,
+    assert (res.rows_loaded, res.hidden_rows, res.blank_rows, res.text_counts) == (6000, 25, 10,
                                                                                 {"c006": 15, "c002": 4})

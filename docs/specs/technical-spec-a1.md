@@ -1,5 +1,7 @@
 # Sankalan — Technical Spec A1: Rows view, Measures by column, Export in parts
 
+> **Superseded** by Technical Spec A2 (`docs/specs/technical-spec-a2.md`, 21-11-2026). Kept for history; its T28–T44 are replaced by A2's T32–T67.
+
 20-11-2026 · Chetan Mundhada · Builds on Technical Spec v1.0 (`docs/specs/technical-spec-v1.0.md`)
 
 ## 1. Purpose and scope

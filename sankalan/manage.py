@@ -239,6 +239,7 @@ class RunItem:
     status: str
     comment: str
     damaged: bool
+    checks: bool = True                 # False: loaded without checks, "Not checked" (NCK-12)
 
     @property
     def label(self) -> str:
@@ -302,8 +303,13 @@ def template_detail(ctx: JobContext, folder: DataFolder, template_id: str) -> Te
 
 
 def save_template(ctx: JobContext, t: Template) -> Template:
-    """Save a tab's edits as a new version (TPL-7). Raises ``NameRefused`` or ``TemplateError`` (TPL-9, MAP-11)."""
+    """Save a tab's edits as a new version (TPL-7). Raises ``NameRefused`` or ``TemplateError`` (TPL-9, MAP-11).
+    With Check data before loading = Yes the automatic type rules are made sure of (Tech spec A2 6.3: No → Yes puts
+    them in a template created with No)."""
+    from sankalan.model.rule import with_type_rules
     con = ctx.cursor()
+    if t.checks:
+        t.rules = with_type_rules(t.columns, t.rules)
     t.name = check_name(t.name, q.template_names(con, t.client_id), what="template", exclude=t.id)
     q.save_template(con, t)
     return q.load_template(con, t.id)
@@ -314,8 +320,8 @@ def run_delete_summary(ctx: JobContext, run_id: str) -> DeleteSummary:
     row = q.run_delete_figures(ctx.cursor(), run_id)
     if row is None:
         raise KeyError(run_id)
-    number, template, rows, outputs = row
-    items = [count(rows, "row"), "The issue list"]
+    number, template, rows, outputs, checks = row
+    items = [count(rows, "row")] + (["The issue list"] if checks else [])      # none without checks (NCK-4)
     if outputs:
         items.append(count(outputs, "saved output"))
     return DeleteSummary(f"Delete {run_label(number)}?", f"This removes the run from {template}:", items,
@@ -344,6 +350,7 @@ class Preview:
     seconds: float
     note: str | None
     groups: int
+    hovers: list[str | None] = field(default_factory=list)     # header hover text (MEA-8)
 
 
 def output_preview(ctx: JobContext, definition, columns, data: Path, *, subtotals: bool | None = None,
@@ -363,7 +370,20 @@ def output_preview(ctx: JobContext, definition, columns, data: Path, *, subtotal
     finally:
         layer.drop(cur, res)
     return Preview([c.label for c in res.columns], [(c.type, c.decimals, c.grain) for c in res.columns], rows,
-                   total, n, res.input_rows, time.monotonic() - start, res.note, res.levels)
+                   total, n, res.input_rows, time.monotonic() - start, res.note, res.levels,
+                   [c.hover for c in res.columns])
+
+
+def rename_problem(preview: Preview, section: int, name: str | None) -> str | None:
+    """MEA-8 in a Default outputs preview (3.2, 2.5): why a typed header can't be used, or None."""
+    from sankalan.query.headers import rename_problem as problem
+    return problem(preview.headers, section, name)
+
+
+def preview_headers(definition, columns) -> list[str]:
+    """The preview's headers after a rename (no Job: names only)."""
+    from sankalan.query.headers import resolve_headers
+    return resolve_headers(definition, columns)
 
 
 def test_rules(ctx: JobContext, run_dir: Path, columns, rules) -> dict[str, int]:

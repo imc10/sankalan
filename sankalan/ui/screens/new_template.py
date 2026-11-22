@@ -638,7 +638,8 @@ class ReviewStep(QWidget):
         outs = t.outputs
         texts = {"Client": w.client_name, "Template name": t.name, "Sample file": w.info.file_name,
                  "Sheets to read": sheets_text(t.source, w.info),
-                 "Columns": columns_summary(cols, left_out), "Rules": rules_summary(t.rules),
+                 "Columns": columns_summary(cols, left_out),
+                 "Rules": rules_summary(t.rules) if t.checks else "None · this template loads without checks",
                  "Default outputs": (f"{len(outs)} · {', '.join(o.name for o in outs)}" if outs else "0")}
         for k, v in texts.items():
             self.values[k].setText(v)
@@ -677,6 +678,8 @@ class NewTemplateScreen(DataScreen):
         self._dry_job = None
         self._dry_again = False
         self._dry_sig = None
+        self._count_again = False           # 2.4b text counts queued behind another Job
+        self._count_sig = None
         self.bridge.busyChanged.connect(self._runner_free)
 
         self.steps = StepBar(nt.STEPS, self)
@@ -686,6 +689,7 @@ class NewTemplateScreen(DataScreen):
         self.sheets_step = SheetsStep(self)
         self.columns_step = ColumnsStep(self)
         self.rules_step = RulesStep(self)
+        self.rules_step.checks_changed.connect(self.checks_changed)
         self.outputs_step = OutputsStep(self)
         self.review_step = ReviewStep(self)
         for p in (self.sample_step, self.sheets_step, self.columns_step, self.rules_step, self.outputs_step,
@@ -871,7 +875,11 @@ class NewTemplateScreen(DataScreen):
             self.columns_step.load()
         elif step == RULES:
             self.rules_step.load(nt.included(self.drafts), self.rules_step.rules)
-            self.run_dry()
+            self.rules_step.set_checks(self.rules_step.checks)
+            if self.rules_step.checks:
+                self.run_dry()
+            else:
+                self.count_text()
         elif step == OUTPUTS:
             self.outputs_step.load_draft(self.draft_template())
         elif step == REVIEW:
@@ -989,9 +997,41 @@ class NewTemplateScreen(DataScreen):
     def _runner_free(self, busy: bool) -> None:
         if not busy and self._dry_again and self.alive and self.step == RULES:
             QTimer.singleShot(0, lambda: self.alive and self._dry_again and self.run_dry(force=True))
+        if not busy and self._count_again and self.alive and self.step == RULES:
+            QTimer.singleShot(0, lambda: self.alive and self._count_again and self.count_text())
 
     def rules_changed(self) -> None:
         self.run_dry()
+
+    def checks_changed(self, yes: bool) -> None:
+        """Yes / No on step 4 (NCK-2): Yes counts the rules again, No counts the sample's text values (2.4b)."""
+        if yes:
+            self.run_dry()
+        else:
+            self.count_text()
+
+    # ------------------------------------------------------------------------------------------ 2.4b counts (NCK-3)
+    def count_text(self) -> None:
+        """The sample's values that aren't numbers or dates per Number and Date column, for the 2.4b panel."""
+        if self.staged is None or not self.alive:
+            return
+        sig = nt.columns_signature(self.drafts)
+        if sig == self._count_sig and self.rules_step.text_lines is not None:
+            return
+        if self.bridge.busy:
+            self._count_again = True
+            self.rules_step.set_text_counts(None)
+            return
+        self._count_again = False
+        staged, drafts = self.staged, copy.deepcopy(self.drafts)
+        self.rules_step.set_text_counts(None)
+
+        def done(lines):
+            self._count_sig = sig
+            self.rules_step.set_text_counts(lines)
+
+        self.start("Count values in the sample", lambda ctx: nt.sample_text_counts(ctx, staged, drafts), done,
+                   lambda e: self.rules_step.show_error(error_text(e)), cancellable=True)
 
     # ------------------------------------------------------------------------------------------ preview (DO-8)
     def preview_work(self, definition: Definition):
@@ -1003,15 +1043,16 @@ class NewTemplateScreen(DataScreen):
         """The template as entered so far (draft column IDs; ``build_template`` renumbers them on save)."""
         cols = nt.included(self.drafts)
         outs = copy.deepcopy(self.outputs_step.outputs)
+        checks = self.rules_step.checks
         return Template("", self.client_id, self.sample_step.name.text().strip(), copy.deepcopy(self.source),
-                        copy.deepcopy(cols), self.rules_step.all_rules(), outs)
+                        copy.deepcopy(cols), self.rules_step.all_rules() if checks else [], outs, checks=checks)
 
     def save(self, start_run: bool) -> None:
         """C3-20 Save template → the client's templates; C3-21 Save and start first run → New run, step 1."""
         if self.job is not None:
             return
         t = nt.build_template(self.client_id, self.sample_step.name.text(), self.source, self.drafts,
-                              self.rules_step.all_rules(), self.outputs_step.outputs)
+                              self.rules_step.all_rules(), self.outputs_step.outputs, checks=self.rules_step.checks)
 
         def done(tid: str):
             self.finished = True

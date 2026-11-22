@@ -5,14 +5,15 @@ from decimal import Decimal
 
 import pytest
 
-from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, settle_window, spec, tpl_a_template
 from sankalan import formats
 from sankalan.model import definition as d
 from sankalan.model import export as ex
-from sankalan.model.definition import Definition, Group, Measure
+from sankalan.model.definition import Definition, Group, FlatMeasure, cards
 from sankalan.model.rule import NOT_BLANK, WARNING
 from sankalan.query import catalogue as q
 from sankalan.ui.jobs import JobBridge
+from sankalan.ui.screens import template_outputs
 from sankalan.ui.screens.template import COLUMNS_TAB, OUTPUTS, RUNS, SETTINGS, TemplateScreen
 from sankalan.ui.window import MainWindow
 
@@ -21,10 +22,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=20_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(scope="module")
@@ -135,37 +133,69 @@ def test_outputs_list_and_preview_on_latest_run(screen, qtbot):
     assert rows[0] == ["Sep-2026", "0", "578,776.25"] and rows[5] == ["Sep-2026", "Total", "2,946,994.00"]
 
 
+@spec("AC-MEA-8", "MEA-8", "T51", "3.2")
+def test_preview_header_rename_marks_the_tab_changed(screen, qtbot, answers):
+    go_tab(qtbot, screen, OUTPUTS)
+    tab = screen.outputs_tab
+    tab.select(0)
+    tab.preview()
+    settle(qtbot, screen.window_)
+    hh = tab.table.horizontalHeader()
+
+    def headers():
+        return [tab.table.horizontalHeaderItem(i).text() for i in range(tab.table.columnCount())]
+    assert headers() == ["State", "Taxable", "Tax", "Invoices"] and not tab.dirty
+    assert not hh.renamable(0) and all(hh.renamable(i) for i in (1, 2, 3))
+    assert [hh._tooltip(i) for i in range(4)] == [None, "Taxable Value · Sum", "Tax Amount · Sum",
+                                                  "Invoice No · Count"]
+    tab.rename_header(3, "taxable")
+    assert hh.editor is not None and hh.error.text() == "Another column is already called taxable"
+    hh.finish()
+    assert not tab.dirty
+    tab.rename_header(3, "Invoice count")
+    assert headers() == ["State", "Taxable", "Tax", "Invoice count"] and hh.editor is None
+    assert tab.dirty and tab.table.isEnabled() and tab.preview_info.text() != template_outputs.STALE
+    assert tab.outputs[0].definition["measures"][2]["ops"] == [{"fn": "count", "name": "Invoice count"}]
+    card = tab.builder.add_card(CUST)                   # AC-MEA-4: Preview shows the check and starts nothing
+    tab.preview()
+    assert card.error.text() == "Tick at least one operation for Customer, or remove it" and tab.progress.isHidden()
+    answers.append("discard")
+    screen.select_tab(RUNS)
+    settle(qtbot, screen.window_)
+    assert answers.asked[-1] == ("Save your changes?", ["Stay", "Discard", "Save"])
+    assert screen.pages.currentIndex() == RUNS and not tab.dirty
+    assert tab.outputs[0].definition["measures"][2]["ops"] == [{"fn": "count", "name": "Invoices"}]
+
+
 @spec("C4-08", "UX §5")
 def test_unsaved_outputs_prompt(screen, qtbot, answers):
     go_tab(qtbot, screen, OUTPUTS)
     tab = screen.outputs_tab
     tab.select(0)
-    tab.builder.measures.rows[0].label.setText("Taxable value")
-    tab.builder.measures.rows[0].label.textEdited.emit("Taxable value")
+    tab.builder.measures.cards[0].tick(d.MAX)
     assert tab.dirty and tab.bar.dirty_label.isVisible()
     answers.append("stay")
     screen.select_tab(RUNS)
-    assert screen.pages.currentIndex() == OUTPUTS and tab.builder.measures.rows[0].label.text() == "Taxable value"
+    assert screen.pages.currentIndex() == OUTPUTS and tab.builder.measures.cards[0].ticked() == [d.SUM, d.MAX]
     assert answers.asked[-1] == ("Save your changes?", ["Stay", "Discard", "Save"])
     answers.append("discard")
     screen.select_tab(RUNS)
     settle(qtbot, screen.window_)
     assert screen.pages.currentIndex() == RUNS and not tab.dirty
-    assert tab.outputs[0].definition["measures"][0]["label"] == "Taxable"
+    assert tab.outputs[0].definition["measures"][0]["ops"] == [{"fn": "sum", "name": "Taxable"}]
     go_tab(qtbot, screen, OUTPUTS)
-    tab.builder.measures.rows[0].label.setText("Taxable value")
-    tab.builder.measures.rows[0].label.textEdited.emit("Taxable value")
+    tab.builder.measures.cards[0].tick(d.MAX)
     answers.append("save")
     screen.select_tab(RUNS)
     settle(qtbot, screen.window_)
     assert screen.pages.currentIndex() == RUNS and not tab.dirty
     t = q.load_template(screen.storage.con, screen.template_id)
-    assert t.outputs[0].definition["measures"][0]["label"] == "Taxable value"
+    assert t.outputs[0].definition["measures"][0]["ops"] == [{"fn": "sum", "name": "Taxable"},
+                                                             {"fn": "max", "name": None}]
     # put it back
     go_tab(qtbot, screen, OUTPUTS)
     tab.select(0)
-    tab.builder.measures.rows[0].label.setText("Taxable")
-    tab.builder.measures.rows[0].label.textEdited.emit("Taxable")
+    tab.builder.measures.cards[0].tick(d.MAX, False)
     tab.save()
     settle(qtbot, screen.window_)
 
@@ -177,8 +207,8 @@ def test_edit_and_reorder_outputs_future_runs_only(screen, qtbot, tpla):
     con = screen.storage.con
     v = q.template_version(con, screen.template_id)
     tab.select(0)
-    row = tab.builder.add_measure(Measure(CUST, d.COUNT_DISTINCT, "Customers"))
-    assert row.measure.currentText() == "Count distinct of Customer"
+    card = tab.builder.add_measure(FlatMeasure(CUST, d.COUNT_DISTINCT, "Customers"))
+    assert card.name.text() == "Customer" and card.ticked() == [d.COUNT_DISTINCT]
     tab.move(1, -1)                                   # C4-07: DO2 above DO1
     assert [i.name.text() for i in tab.items()] == ["Latest month by GST rate", "State-wise sales"]
     tab.save()
@@ -186,7 +216,8 @@ def test_edit_and_reorder_outputs_future_runs_only(screen, qtbot, tpla):
     t = q.load_template(con, screen.template_id)
     assert q.template_version(con, screen.template_id) == v + 1
     assert [o.name for o in t.outputs] == ["Latest month by GST rate", "State-wise sales"]
-    assert [m["label"] for m in t.outputs[1].definition["measures"]] == ["Taxable", "Tax", "Invoices", "Customers"]
+    assert [o["name"] for m in t.outputs[1].definition["measures"] for o in m["ops"]] == [
+        "Taxable", "Tax", "Invoices", "Customers"]
     saved = q.run_outputs(con, tpla["runs"][0].run_id)            # R-0001's saved DO1 keeps 3 measures (DO-6)
     assert [len(o.definition["measures"]) for o in saved] == [3, 1]
     tab.move(1, -1)                                               # restore the order
@@ -214,7 +245,7 @@ def test_output_checks(screen, qtbot):
     f = tab.builder.add_filter()
     f.column.setCurrentIndex(f.column.findData(DATE_))
     ops = [f.op.itemData(i) for i in range(f.op.count())]
-    assert ops == [d.LATEST_MONTH, d.LATEST_QUARTER, d.LATEST_YEAR, d.BLANK, d.NOT_BLANK]     # DO-3 / C3-19
+    assert ops == [d.LATEST_MONTH, d.LATEST_QUARTER, d.LATEST_YEAR, d.BLANK, d.NOT_BLANK, d.NOT_DATE]  # DO-3, T55
     assert isinstance(f, FilterRow)
     tab.discard()
 
@@ -334,7 +365,7 @@ def test_add_column_null_in_older_runs(screen, qtbot, tpla):
     from conftest import run_job
     data = s.folder.run_dir(screen.template_id, tpla["runs"][0].run_id) / "data.parquet"
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(
-        ctx, Definition(screen.template_id, [], [Group(new)], [Measure(INV, d.COUNT)]), t.columns, [data]))
+        ctx, Definition(screen.template_id, [], [Group(new)], cards(FlatMeasure(INV, d.COUNT))), t.columns, [data]))
     assert layer.rows(s.con, res, subtotals=False) == [(1, None, 5000)]
     tab.select(new)
     assert tab.remove_selected()                  # locked now (the template has runs): kept as removed
@@ -429,7 +460,7 @@ def test_delete_run_dialog(screen, qtbot, tpla, fixtures_dir):
 def test_remove_column_used_only_in_saved_analysis(screen, qtbot, tpla):
     """Last: removes GSTIN from TPL-A."""
     s = tpla["storage"]
-    an2 = Definition(screen.template_id, [], [], [Measure(GSTIN, d.COUNT_DISTINCT)])
+    an2 = Definition(screen.template_id, [], [], cards(FlatMeasure(GSTIN, d.COUNT_DISTINCT)))
     q.insert_saved_analysis(s.con, screen.template_id, "AN-2", an2.to_dict())
     go_tab(qtbot, screen, COLUMNS_TAB)
     tab = screen.columns_tab
@@ -444,7 +475,7 @@ def test_remove_column_used_only_in_saved_analysis(screen, qtbot, tpla):
     from conftest import run_job
     data = s.folder.run_dir(screen.template_id, tpla["runs"][0].run_id) / "data.parquet"
     res = run_job(s.runner, lambda ctx: analysis.run_analysis(ctx, an2, t.columns, [data]))
-    assert [c.label for c in res.columns] == ["Count distinct of GSTIN (removed)"]
+    assert [c.label for c in res.columns] == ["GSTIN (removed) · Count distinct"]
     assert layer.grand_total(s.con, res) == (5000,)
 
 

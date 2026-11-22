@@ -1,7 +1,7 @@
 """Storage start-up and shutdown, and the data-folder move Job.
 
 Start-up order (T7, T9, T10, SEC-4):
-  settings.json → data folder created → %TEMP%\\Sankalan emptied → log → catalogue backed up (last 5 kept) →
+  settings.json → catalogue version read (a version-1 folder is refused untouched, T40) → data folder created → %TEMP%\\Sankalan emptied → log → catalogue backed up (last 5 kept) →
   hardened connection opened → schema created or upgraded → recovery (staging emptied, orphan folders removed,
   missing runs marked damaged) → JobRunner ready.
 """
@@ -17,6 +17,11 @@ from sankalan.db import catalogue, connection, datafolder
 from sankalan.db.datafolder import DataFolder, DestinationCheck, RecoveryReport
 from sankalan.jobs import Job, JobContext, JobRunner
 from sankalan.query import catalogue as q
+
+
+def own_spill_file(name: str) -> bool:
+    """A DuckDB spill file of this process's connection: ``duckdb_temp_<pid>_…`` (spike S8h)."""
+    return name.startswith(f"duckdb_temp_{os.getpid()}_")
 
 
 class MoveRefused(Exception):
@@ -44,7 +49,9 @@ class Storage:
         settings = app_paths.load_settings(self.paths)
         if not self.paths.settings_file.exists():
             app_paths.save_settings(self.paths, settings)
-        self.folder = DataFolder(Path(settings["data_folder"]))
+        folder = DataFolder(Path(settings["data_folder"]))
+        catalogue.check_file(folder.catalogue)              # T40: a refused folder is left exactly as it was
+        self.folder = folder
         self.folder.ensure()
         self.paths.temp.mkdir(parents=True, exist_ok=True)
         app_paths.empty_folder(self.paths.temp)
@@ -62,7 +69,9 @@ class Storage:
                                           memory_limit=self._memory_limit, threads=self._threads)
 
     def _job_end(self, _job: Job) -> None:
-        app_paths.empty_folder(self.paths.temp)            # SEC-4: spill files gone after every Job
+        """SEC-4 after every Job, except the open connection's own spill files (BUG-1, T54): DuckDB still uses
+        them for temporary tables kept between Jobs, frees their blocks itself and deletes them on close."""
+        app_paths.empty_folder(self.paths.temp, keep=own_spill_file)
 
     def close(self) -> None:
         if self.runner is not None:

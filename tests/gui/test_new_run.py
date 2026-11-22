@@ -4,7 +4,7 @@ with the discarded runs in between, as in the Test Cases sheet (RUNF, RUNM, RUNV
 in the Job's thread (``WORKERS = 0``); the reader workers are covered by the ingestion tests."""
 import pytest
 
-from conftest import OVERRIDE_REASON, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, open_storage, settle_window, spec, tpl_a_template
 from sankalan.model.rule import ERROR as SEV_ERROR, WARNING as SEV_WARNING
 from sankalan.model.run import STATUS_OVERRIDE
 from sankalan.query import catalogue as q
@@ -21,10 +21,7 @@ PLENTY = 50 * 1024 ** 3
 
 
 def settle(qtbot, w, timeout=60_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(autouse=True)
@@ -203,6 +200,7 @@ def job_ctx(tpla):
     """A Job context for calling Job work from a test on the main thread while the runner is idle."""
     class Ctx:
         cancel_requested = False
+        job_id = "test"
 
         def cursor(self):
             return tpla["s"].con
@@ -214,6 +212,7 @@ def job_ctx(tpla):
             pass
 
         add_rows = set_rows
+        set_detail = set_rows
 
         def check_cancelled(self):
             pass
@@ -269,10 +268,12 @@ def test_files_in_error_exclude_and_recheck(win, qtbot, tpla, tmp_path):
     assert status["Sales_WrongSheet.xlsx"] == "Can't read" and status["~$Sales_Locked.xlsx"] == "Skipped"
     texts = [b.plain_text for b in file_banners(wz)]
     assert "Sales_Protected.xlsx is password-protected. Remove the password at source, or exclude the file." in texts
-    assert "Sheet Sales not found." in texts
+    sheet = "Sales_WrongSheet.xlsx: sheets to read not found. Sheets found: Data."      # one row per file (T47)
+    assert sheet in texts
     if held is not None:
         assert "Sales_Locked.xlsx is open in another program. Close it, then Re-check." in texts
-    assert all(set(b.buttons) == {"Exclude file", "Re-check"} for b in file_banners(wz) if b.kind == "error")
+    assert all(set(b.buttons) == ({"Choose sheets…", "Exclude file"} if b.plain_text == sheet else
+                                  {"Exclude file", "Re-check"}) for b in file_banners(wz) if b.kind == "error")
     assert not wz.next_button.isEnabled()
     assert wz.footer.text() == f"Exclude or fix {4 if held else 3} files to continue"
     if held is not None:                                             # RUNF-06: Excel closed, Re-check → Ready
@@ -380,10 +381,12 @@ def test_f04_validate_issues_and_rules_for_this_run_only(win, qtbot, tpla, tmp_p
     assert vs.issues.filter_note.text() == "Unique within the run · Invoice No · showing all 6"
     # RUNV-07: the full issue list from Validate, before commit
     assert vs.export_issues()
+    settle(qtbot, win)                                   # the Export dialog's size check
     req = win.last_export
     assert req.kind == "issues" and req.file_name == "Acme Traders_Sales Register_R-0003_Issues.csv"
     items = runs.export_items(job_ctx(tpla), tpla["s"].folder, req)
-    out = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, items[0][0], tmp_path / "issues.csv", req.options)
+    out, = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, [items[0][0]], tmp_path, ["issues.csv"],
+                            req.options)
     assert out.rows == 98
     text = (tmp_path / "issues.csv").read_text(encoding="utf-8-sig").splitlines()
     assert text[0] == "File,Sheet,Row,Column,Value,Rule,Severity,Message"
@@ -687,18 +690,21 @@ def test_run_screen_outputs_and_exports(win, qtbot, tpla, tmp_path):
     assert (req.kind, req.output, req.subtotals) == ("output", 2, False)
     assert req.file_name == "Acme Traders_Sales Register_R-0001_Latest month by GST rate.csv"
     ot.export_all_button.click()
+    settle(qtbot, win)                                   # the Export dialog's size check
     req = win.last_export
     items = runs.export_items(job_ctx(tpla), tpla["s"].folder, req)
     dest = tmp_path / "all"
     dest.mkdir()
-    exporting.export_many(job_ctx(tpla), tpla["s"].paths.temp, [(qq, dest / n) for qq, n in items], req.options)
+    exporting.export(job_ctx(tpla), tpla["s"].paths.temp, [x for x, _n in items], dest, [n for _x, n in items],
+                     req.options)
     assert sorted(p.name for p in dest.iterdir()) == [
         "Acme Traders_Sales Register_R-0001_Latest month by GST rate.csv",
         "Acme Traders_Sales Register_R-0001_State-wise sales.csv"]
     sc.export("data")
+    settle(qtbot, win)                                   # the Export dialog's size check
     assert win.last_export.kind == "data" and win.last_export.run_id == sc.run_id
     data = runs.export_items(job_ctx(tpla), tpla["s"].folder, win.last_export)
-    out = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, data[0][0], tmp_path / "data.csv", req.options)
+    out, = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, [data[0][0]], tmp_path, ["data.csv"], req.options)
     assert out.rows == 5000
 
 
@@ -709,13 +715,16 @@ def test_run_screen_left_out_and_issue_exports(win, qtbot, tpla, tmp_path):
     settle(qtbot, win)
     sc = win.current
     sc.export("left_out")
+    settle(qtbot, win)                                   # the Export dialog's size check
     req = win.last_export
     items = runs.export_items(job_ctx(tpla), tpla["s"].folder, req)
-    out = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, items[0][0], tmp_path / "left.csv", req.options)
+    out, = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, [items[0][0]], tmp_path, ["left.csv"], req.options)
     assert out.rows == 63
     sc.export("issues")
+    settle(qtbot, win)                                   # the Export dialog's size check
     items = runs.export_items(job_ctx(tpla), tpla["s"].folder, win.last_export)
-    out = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, items[0][0], tmp_path / "issues.csv", req.options)
+    out, = exporting.export(job_ctx(tpla), tpla["s"].paths.temp, [items[0][0]], tmp_path, ["issues.csv"],
+                            req.options)
     assert out.rows == 98
 
 

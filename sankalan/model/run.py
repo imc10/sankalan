@@ -27,6 +27,7 @@ class RunFile:
     hidden_rows: int = 0
     sheets_skipped: list = field(default_factory=list)
     duplicate_decision: str = ""
+    sheets_chosen: bool = False             # SHT-10: sheets chosen by hand (A2-2 sets it)
 
 
 @dataclass
@@ -44,6 +45,7 @@ class RunOutput:
     name: str
     definition: dict
     file: str
+    headers: list[str] = field(default_factory=list)     # the result's headers at commit (T50)
 
 
 @dataclass
@@ -64,6 +66,8 @@ class NewRun:
     files: list[RunFile] = field(default_factory=list)
     issue_counts: list[IssueCount] = field(default_factory=list)
     outputs: list[RunOutput] = field(default_factory=list)
+    checks: bool = True                     # the template's Check data before loading (T43; A2-2 sets False)
+    text_counts: dict = field(default_factory=dict)      # column ID -> text values in the loaded rows (T56)
 
 
 @dataclass(frozen=True)

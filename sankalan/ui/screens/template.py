@@ -54,7 +54,14 @@ def status_text(status: str, damaged: bool = False) -> str:
     return "Committed with override" if status == STATUS_OVERRIDE else "Committed"
 
 
+NOT_CHECKED = "Not checked"
+
+
 def issues_text(v) -> str:
+    """"2 errors · 1 warning", or "Not checked" for a run loaded without checks (NCK-12), held as (-1, -1) so the
+    column still sorts."""
+    if v is None or v[0] < 0:
+        return NOT_CHECKED
     errors, warnings = v
     return f"{formats.count(errors, 'error')} · {formats.count(warnings, 'warning')}"
 
@@ -143,7 +150,7 @@ class RunsTab(QWidget):
         return t in (row[6] or "").casefold() or any(t in f.casefold() for f in row[2])
 
     def load(self, d: manage.TemplateDetail) -> None:
-        self.source.rows = [(r.number, r.loaded_on, r.files, r.rows, (r.errors, r.warnings),
+        self.source.rows = [(r.number, r.loaded_on, r.files, r.rows, (r.errors, r.warnings) if r.checks else (-1, -1),
                              status_text(r.status, r.damaged), r.comment, None, r.id) for r in d.runs]
         self._show()
 
@@ -182,8 +189,10 @@ class RunsTab(QWidget):
         menu = QMenu(self)
         run_id, label = row[RUN_ID], f"R-{row[0]:04d}"
         menu.addAction("Open", partial(self.open_row, r))
-        for text, kind in (("Export data", "data"), ("Export issue list", "issues"),
-                           ("Export left-out rows", "left_out")):
+        items = [("Export data", "data")]
+        if row[4][0] >= 0:                  # not for a run loaded without checks (NCK-12)
+            items += [("Export issue list", "issues"), ("Export left-out rows", "left_out")]
+        for text, kind in items:
             menu.addAction(text, partial(self.screen.export, kind, run_id, label))
         menu.addAction("Delete", partial(self.screen.delete_run, run_id)).setEnabled(not self.screen.bridge.busy)
         self.menu = menu

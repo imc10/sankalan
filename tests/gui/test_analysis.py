@@ -9,12 +9,13 @@ import threading
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel
 
-from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, spec, tpl_a_template
+from conftest import OVERRIDE_REASON, commit_tpl_a_run, open_storage, settle_window, spec, tpl_a_template
 from sankalan import analyses, exporting
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, Group, FlatMeasure, cards
 from sankalan.query import catalogue as q
 from sankalan.ui import theme
 from sankalan.ui.dialogs import export_dialog
@@ -28,10 +29,7 @@ INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1
 
 
 def settle(qtbot, w, timeout=30_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture(scope="module")
@@ -109,8 +107,9 @@ def setup(sc, filters=(), groups=(), measures=(), subtotals=False):
         b.add_filter(f)
     for g in groups:
         b.add_group(g)
-    for m in measures:
-        b.add_measure(m)
+    for c in measures:                       # cards
+        for o in c.ops:
+            b.add_measure(FlatMeasure(c.column_id, o.fn, o.name))
     b.subtotals.setChecked(subtotals)
 
 
@@ -156,7 +155,7 @@ def test_layout_and_data_selection(win, qtbot):
 @spec("A1-02", "ANA-3")
 def test_changing_template_clears_settings(win, qtbot, answers):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE)], measures=[Measure(TAXABLE, d.SUM)])
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM)))
     answers.append("cancel")
     sc.choose_template("Acme Traders", "Sales Register (copy)")
     assert answers.asked[-1][0] == "Change template?"
@@ -166,7 +165,7 @@ def test_changing_template_clears_settings(win, qtbot, answers):
     sc.choose_template("Acme Traders", "Sales Register (copy)")
     settle(qtbot, win)
     assert sc.template.currentText() == "Sales Register (copy)"
-    assert not sc.builder.filters.rows and not sc.builder.groups.rows and not sc.builder.measures.rows
+    assert not sc.builder.filters.rows and not sc.builder.groups.rows and not sc.builder.measures.cards
     assert sc.runs.count() == 0 and sc.ticked_runs() == []
     assert sc.runs_note.text() == "No runs selected. Tick the runs to include."
 
@@ -174,10 +173,10 @@ def test_changing_template_clears_settings(win, qtbot, answers):
 @spec("A1-03", "ANA-5", "ANA-7")
 def test_basic_result_with_grand_total(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE)], measures=[Measure(TAXABLE, d.SUM), Measure(INV, d.COUNT)])
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM), FlatMeasure(INV, d.COUNT)))
     o = run(qtbot, sc)
     assert [sc.model.headerData(i, Qt.Orientation.Horizontal) for i in range(3)] == [
-        "State", "Sum of Taxable Value", "Count of Invoice No"]
+        "State", "Taxable Value · Sum", "Invoice No · Count"]
     assert rows(qtbot, sc) == [("Delhi", "1,903,437.50", "1,250"), ("Gujarat", "1,877,812.50", "1,250"),
                                ("Karnataka", "1,890,625.00", "1,250"), ("Maharashtra", "1,865,000.00", "1,250")]
     assert sc.total_row() == ["Grand total", "7,536,875.00", "5,000"]
@@ -189,21 +188,21 @@ def test_basic_result_with_grand_total(win, qtbot):
 @spec("A1-04", "ANA-6")
 def test_measures_and_renaming(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, measures=[Measure(TAXABLE, d.SUM), Measure(TAXABLE, d.COUNT), Measure(TAXABLE, d.AVG, "Avg value"),
-                        Measure(TAXABLE, d.MIN), Measure(TAXABLE, d.MAX), Measure(CUST, d.COUNT_DISTINCT),
-                        Measure(GSTIN, d.COUNT_DISTINCT)])
+    setup(sc, measures=cards(FlatMeasure(TAXABLE, d.SUM), FlatMeasure(TAXABLE, d.COUNT), FlatMeasure(TAXABLE, d.AVG, "Avg value"),
+                        FlatMeasure(TAXABLE, d.MIN), FlatMeasure(TAXABLE, d.MAX), FlatMeasure(CUST, d.COUNT_DISTINCT),
+                        FlatMeasure(GSTIN, d.COUNT_DISTINCT)))
     run(qtbot, sc)
     assert rows(qtbot, sc) == []
     headers = [sc.model.headerData(i, Qt.Orientation.Horizontal) for i in range(sc.model.columnCount())]
-    assert headers == ["Sum of Taxable Value", "Count of Taxable Value", "Avg value", "Min of Taxable Value",
-                       "Max of Taxable Value", "Count distinct of Customer", "Count distinct of GSTIN"]
+    assert headers == ["Taxable Value · Sum", "Taxable Value · Count", "Avg value", "Taxable Value · Min",
+                       "Taxable Value · Max", "Customer · Count distinct", "GSTIN · Count distinct"]
     assert sc.total_row() == ["7,536,875.00", "5,000", "1,507.38", "1,000.00", "2,014.75", "10", "5,000"]
 
 
 @spec("A1-05", "ANA-7", "T23")
 def test_subtotals_and_sorting_within_groups(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE), Group(RATE)], measures=[Measure(TAXABLE, d.SUM)], subtotals=True)
+    setup(sc, groups=[Group(STATE), Group(RATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM)), subtotals=True)
     run(qtbot, sc)
     got = rows(qtbot, sc)
     assert len(got) == 24 and sum(1 for r in got if r[1] == "Total") == 4
@@ -229,7 +228,7 @@ def test_subtotals_and_sorting_within_groups(win, qtbot):
 @spec("A1-06", "ANA-5")
 def test_group_levels_reorder_and_date_grain(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(DATE_)], measures=[Measure(INV, d.COUNT)])
+    setup(sc, groups=[Group(DATE_)], measures=cards(FlatMeasure(INV, d.COUNT)))
     run(qtbot, sc)
     got = rows(qtbot, sc)
     assert len(got) == 31 and got[0] == ("01-10-2026", "162") and got[-1] == ("31-10-2026", "161")
@@ -255,7 +254,7 @@ def test_date_filters(win, qtbot):
              (Filter(DATE_, d.BETWEEN, ["2026-11-01", "2026-11-15"]), ["2,005"]),
              (Filter(DATE_, d.BLANK), ["0"])]
     for f, expected in cases:
-        ms = [Measure(INV, d.COUNT)] + ([Measure(TAXABLE, d.SUM)] if len(expected) == 2 else [])
+        ms = cards(FlatMeasure(INV, d.COUNT)) + (cards(FlatMeasure(TAXABLE, d.SUM)) if len(expected) == 2 else [])
         setup(sc, filters=[f], measures=ms)
         run(qtbot, sc)
         assert sc.total_row()[:len(expected)] == expected, f
@@ -266,7 +265,7 @@ def test_date_filters(win, qtbot):
     row.edits[1].setText("15-11-2026")
     run(qtbot, sc)
     assert sc.total_row()[0] == "2,005"
-    setup(sc, filters=[Filter(DATE_, d.BLANK)], measures=[Measure(INV, d.COUNT)])
+    setup(sc, filters=[Filter(DATE_, d.BLANK)], measures=cards(FlatMeasure(INV, d.COUNT)))
     sc.tick(["R-0001", "R-0002"], False)
     sc.tick("R-0004")
     run(qtbot, sc)
@@ -294,18 +293,18 @@ def test_text_filters_and_value_picker(win, qtbot):
     dlg.tick("Laxmi Stores")
     dlg.apply.click()
     assert row.picked == ["Patel Agencies", "Laxmi Stores"] and row.edits[0].text() == "Patel Agencies, Laxmi Stores"
-    setup(sc, filters=[Filter(CUST, d.ONE_OF, ["Patel Agencies", "Laxmi Stores"])], measures=[Measure(INV, d.COUNT)])
+    setup(sc, filters=[Filter(CUST, d.ONE_OF, ["Patel Agencies", "Laxmi Stores"])], measures=cards(FlatMeasure(INV, d.COUNT)))
     run(qtbot, sc)
     assert sc.total_row() == ["1,000"]
-    setup(sc, filters=[Filter(CUST, d.CONTAINS, ["patel"])], measures=[Measure(INV, d.COUNT)])
+    setup(sc, filters=[Filter(CUST, d.CONTAINS, ["patel"])], measures=cards(FlatMeasure(INV, d.COUNT)))
     run(qtbot, sc)
     assert sc.total_row() == ["500"]
     sc.tick("R-0001", False)
     sc.tick("R-0003")
-    setup(sc, filters=[Filter(CUST, d.BLANK)], measures=[Measure(None, d.COUNT)])
+    setup(sc, filters=[Filter(CUST, d.BLANK)], measures=cards(FlatMeasure(d.ROWS, d.COUNT)))
     run(qtbot, sc)
     assert sc.total_row() == ["7"]
-    setup(sc, filters=[Filter(STATE, d.ONE_OF, ["Goa"])], measures=[Measure(None, d.COUNT)])
+    setup(sc, filters=[Filter(STATE, d.ONE_OF, ["Goa"])], measures=cards(FlatMeasure(d.ROWS, d.COUNT)))
     run(qtbot, sc)
     assert sc.total_row() == ["25"]
 
@@ -316,11 +315,11 @@ def test_number_filters_and_and(win, qtbot):
     row = sc.builder.add_filter(Filter(RATE, d.EQUALS, ["18"]))
     assert row.edits[0].accessibleName() == "Number"        # typed, no value list for Number filters
     setup(sc, filters=[Filter(RATE, d.EQUALS, ["18"]), Filter(STATE, d.ONE_OF, ["Maharashtra"])],
-          measures=[Measure(None, d.COUNT), Measure(TAXABLE, d.SUM)])
+          measures=cards(FlatMeasure(d.ROWS, d.COUNT), FlatMeasure(TAXABLE, d.SUM)))
     run(qtbot, sc)
     assert sc.total_row() == ["250", "373,000.00"]
     setup(sc, filters=[Filter(TAXABLE, d.BETWEEN, ["1000", "1010.25"])],
-          groups=[Group(TAXABLE)], measures=[Measure(None, d.COUNT)])
+          groups=[Group(TAXABLE)], measures=cards(FlatMeasure(d.ROWS, d.COUNT)))
     run(qtbot, sc)
     assert [r[0] for r in rows(qtbot, sc)] == ["1,000.00", "1,010.25"]
     assert sc.total_row() == ["Grand total", "100"]
@@ -329,7 +328,7 @@ def test_number_filters_and_and(win, qtbot):
 @spec("A1-10", "T23", "T18")
 def test_count_counts_non_blank_values(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0003")
-    setup(sc, measures=[Measure(CUST, d.COUNT), Measure(INV, d.COUNT)])
+    setup(sc, measures=cards(FlatMeasure(CUST, d.COUNT), FlatMeasure(INV, d.COUNT)))
     run(qtbot, sc)
     assert sc.total_row() == ["1,930", "1,937"]
 
@@ -337,7 +336,7 @@ def test_count_counts_non_blank_values(win, qtbot):
 @spec("A1-11", "ANA-8", "UI-5")
 def test_run_cancel_and_changed_settings(win, qtbot, monkeypatch):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE)], measures=[Measure(TAXABLE, d.SUM)])
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM)))
     run(qtbot, sc)
     first = sc.total_row()
     started = threading.Event()
@@ -349,8 +348,7 @@ def test_run_cancel_and_changed_settings(win, qtbot, monkeypatch):
             ctx.check_cancelled()
             threading.Event().wait(0.01)
     monkeypatch.setattr(analyses, "run", slow)
-    sc.builder.measures.rows[0].label.setText("Taxable")
-    sc.builder.measures.rows[0].label.textEdited.emit("Taxable")
+    sc.builder.measures.cards[0].tick(d.MAX)                  # a settings change greys the result
     assert sc.greyed and sc.stale_note.isVisible() and sc.stale_note.text() == "Settings changed: Run again"
     assert not sc.export_button.isEnabled()
     assert sc.run()
@@ -364,34 +362,116 @@ def test_run_cancel_and_changed_settings(win, qtbot, monkeypatch):
     monkeypatch.setattr(analyses, "run", real)
     run(qtbot, sc)
     assert not sc.greyed and sc.export_button.isEnabled()
-    assert sc.model.headerData(1, Qt.Orientation.Horizontal) == "Taxable"
+    assert [sc.model.headerData(i, Qt.Orientation.Horizontal) for i in (1, 2)] == ["Taxable Value · Sum",
+                                                                                "Taxable Value · Max"]
+
+
+@spec("AC-MEA-8", "MEA-8", "MEA-9", "T51", "6.3")
+def test_rename_a_result_header(win, qtbot):
+    sc = new_analysis(qtbot, win, "R-0001")
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(INV, d.COUNT), FlatMeasure(TAXABLE, d.SUM),
+                                                    FlatMeasure(TAXABLE, d.MAX)))
+    o = run(qtbot, sc)
+    hh = sc.grid.horizontalHeader()
+    seconds, summary = o.seconds, sc.summary.text()
+
+    def header(i):
+        return sc.model.headerData(i, Qt.Orientation.Horizontal)
+
+    def type_name(section, text, enter=True):
+        hh.start_edit(section)
+        assert hh.editor is not None and hh.editor.text() == header(section)
+        hh.editor.setText(text)
+        if enter:
+            hh.editor.returnPressed.emit()
+
+    assert not hh.renamable(0) and all(hh.renamable(i) for i in (1, 2, 3))
+    assert [hh._tooltip(i) for i in range(4)] == [None, "Invoice No · Count", "Taxable Value · Sum",
+                                                  "Taxable Value · Max"]
+    QTest.mouseClick(hh.viewport(), Qt.MouseButton.LeftButton, pos=hh.pencil_rect(1).center())   # the ✎
+    assert hh.editing == 1 and not sc.model.sort_spec
+    hh.editor.setText("Invoices")
+    QTest.keyClick(hh.editor, Qt.Key.Key_Return)                     # Enter saves
+    assert header(1) == "Invoices" and hh.editor is None
+    type_name(2, "  Taxable value  ")
+    assert header(2) == "Taxable value"
+    type_name(3, "Something", enter=False)
+    QTest.keyClick(hh.editor, Qt.Key.Key_Escape)                     # Esc cancels
+    assert header(3) == "Taxable Value · Max" and hh.editor is None
+    for clash in ("invoices", "state"):                              # another measure, a group header
+        type_name(3, clash)
+        assert hh.editor is not None and hh.error.text() == f"Another column is already called {clash}"
+        QTest.keyClick(hh.editor, Qt.Key.Key_Escape)
+    assert header(3) == "Taxable Value · Max"
+    type_name(2, "   ")                                              # blank: back to the default
+    assert header(2) == "Taxable Value · Sum"
+    type_name(2, "Taxable value")
+    # never greyed or run again; the names go with the result and the settings
+    assert not sc.greyed and sc.outcome is o and o.seconds == seconds and sc.summary.text() == summary
+    assert o.headers == ["State", "Invoices", "Taxable value", "Taxable Value · Max"]
+    defn = sc.builder.definition()
+    assert [m.name for m in d.flat_measures(defn)] == ["Invoices", "Taxable value", None]
+    assert analyses.describe(defn, sc.data.columns)["Measures"] == [
+        "Invoice No: Count, shown as Invoices", "Taxable Value: Sum, shown as Taxable value", "Taxable Value: Max"]
+    QTest.mouseClick(hh.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(hh.sectionViewportPosition(1) + 10, 20))
+    assert sc.model.sort_spec == [("m1", True)]                     # a click away from ✎ still sorts
+    settle(qtbot, win)
+    sc.builder.measures.cards[1].tick(d.MIN)                         # a settings change: no ✎ until run again
+    assert sc.greyed and not hh.renamable(1)
+    o = run(qtbot, sc)
+    assert o.headers == ["State", "Invoices", "Taxable value", "Taxable Value · Min", "Taxable Value · Max"]
+    assert hh.renamable(4)
+
+
+@spec("AC-MEA-4", "AC-MEA-11", "MEA-11", "T39", "9.2")
+def test_checks_before_run_and_save_then_no_measures(win, qtbot, monkeypatch):
+    sc = new_analysis(qtbot, win, "R-0001")
+    setup(sc)
+    calls = []
+    real = analyses.run
+    monkeypatch.setattr(analyses, "run", lambda *a, **k: calls.append(1) or real(*a, **k))
+    m = sc.builder.measures
+    assert not sc.run() and m.error.isVisibleTo(sc) and m.error.text() == "Add a group level or a measure"
+    assert sc.save_dialog() is None and not calls
+    card = sc.builder.add_card(TAXABLE)
+    msg = "Tick at least one operation for Taxable Value, or remove it"
+    assert not sc.run() and card.error.text() == msg and card.error.isVisibleTo(sc) and not m.error.isVisibleTo(sc)
+    assert sc.save_dialog() is None and not calls and not sc.error.isVisible()
+    m.remove_card(card)
+    sc.builder.add_group(Group(STATE))
+    assert not sc.builder.subtotals.isEnabled()
+    o = run(qtbot, sc)
+    assert calls and o.total is None and o.result.measures == [] and sc.total.isHidden()
+    assert rows(qtbot, sc) == [("Delhi",), ("Gujarat",), ("Karnataka",), ("Maharashtra",)]
+    assert sc.export_request().rows == 4
 
 
 @spec("A1-12", "ANA-7", "ANA-9")
 def test_result_capped_on_screen_export_has_every_row(win, qtbot, monkeypatch, tmp_path):
     monkeypatch.setattr(analyses, "ROW_CAP", 1000)
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(INV)], measures=[Measure(None, d.COUNT)])
+    setup(sc, groups=[Group(INV)], measures=cards(FlatMeasure(d.ROWS, d.COUNT)))
     o = run(qtbot, sc)
     assert o.count == 5000 and sc.model.rowCount() == 1000
     assert sc.cap.isVisible() and sc.cap.text() == "Showing the first 1,000 of 5,000 rows. Export (.csv) writes every row."
     assert sc.total_row() == ["Grand total", "5,000"]
     assert sc.export()
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     assert dlg.title.text() == "Export Analysis" and dlg.info.text() == "5,001 rows · CSV file"
     assert dlg.name.text() == "Acme Traders_Sales Register_Analysis.csv"
     dlg.folder.setText(str(tmp_path))
     assert dlg.export()
     settle(qtbot, win)
     lines = (tmp_path / "Acme Traders_Sales Register_Analysis.csv").read_text(encoding="utf-8-sig").splitlines()
-    assert lines[0] == "Invoice No,Count of rows" and len(lines) == 5002 and lines[-1] == "Grand total,5000"
+    assert lines[0] == "Invoice No,Rows · Count" and len(lines) == 5002 and lines[-1] == "Grand total,5000"
 
 
 # ---------------------------------------------------------------------------------------------- 7.8, 7.7
 @spec("A1-13", "ANA-1")
 def test_save_an_analysis(win, qtbot):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE)], measures=[Measure(TAXABLE, d.SUM), Measure(INV, d.COUNT)])
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM), FlatMeasure(INV, d.COUNT)))
     run(qtbot, sc)
     dlg = sc.save_dialog()
     assert dlg.title.text() == "Save analysis"
@@ -409,7 +489,7 @@ def test_save_an_analysis(win, qtbot):
     assert sc.breadcrumb.text() == "Analyses › State sales" and sc.leave_guard() is None
     # AN-2
     sc2 = new_analysis(qtbot, win, "R-0001")
-    setup(sc2, groups=[Group(STATE)], measures=[Measure(GSTIN, d.COUNT_DISTINCT)])
+    setup(sc2, groups=[Group(STATE)], measures=cards(FlatMeasure(GSTIN, d.COUNT_DISTINCT)))
     dlg = sc2.save_dialog()
     dlg.edit.setText("state SALES ")
     dlg.save.click()
@@ -433,7 +513,7 @@ def test_save_an_analysis(win, qtbot):
 @spec("A1-14", "ANA-2")
 def test_leaving_an_unsaved_result(win, qtbot, answers):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE)], measures=[Measure(TAXABLE, d.SUM)])
+    setup(sc, groups=[Group(STATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM)))
     assert sc.leave_guard() is None                  # nothing to lose before a result
     run(qtbot, sc)
     answers.append("stay")
@@ -451,7 +531,7 @@ def test_leaving_an_unsaved_result(win, qtbot, answers):
 
 def test_save_from_the_leave_prompt(win, qtbot, answers, monkeypatch):
     sc = new_analysis(qtbot, win, "R-0002")
-    setup(sc, measures=[Measure(None, d.COUNT)])
+    setup(sc, measures=cards(FlatMeasure(d.ROWS, d.COUNT)))
     run(qtbot, sc)
 
     def save(dlg):
@@ -462,6 +542,7 @@ def test_save_from_the_leave_prompt(win, qtbot, answers, monkeypatch):
     monkeypatch.setattr(analysis_screen, "save_hook", save)
     answers.append("save")
     assert win.open_area("clients")
+    settle(qtbot, win)                         # the Clients screen's read holds the connection until it ends
     s = win.storage
     assert "Rows in November" in q.saved_analysis_names(s.con, sc.data.template.id).values()
 
@@ -477,7 +558,7 @@ def an_screen(qtbot, win) -> AnalysesScreen:
 def test_list_and_search(win, qtbot, tpla):
     s = win.storage
     q.insert_saved_analysis(s.con, tpla["regional"], "Regional by state",
-                            Definition(tpla["regional"], [], [Group(STATE)], [Measure(None, d.COUNT)]).to_dict())
+                            Definition(tpla["regional"], [], [Group(STATE)], cards(FlatMeasure(d.ROWS, d.COUNT))).to_dict())
     a0 = an_screen(qtbot, win)
     assert a0.h1.text() == "Analyses"
     assert a0.subtitle.text() == "4 saved analyses. Open one to rerun it on the runs you pick."
@@ -518,7 +599,7 @@ def test_open_saved_settings_locked(win, qtbot):
     assert sc.settings.currentWidget() is sc.locked and sc.locked_note.text() == analysis_screen.LOCKED
     assert not sc.choose.isVisible() and sc.data_label.text() == "Acme Traders · Sales Register"
     assert sc.locked_lines() == {"Filters": "None", "Group by": "1. State",
-                                 "Measures": "Sum of Taxable Value\nCount of Invoice No", "Subtotals": "Off"}
+                                 "Measures": "Taxable Value: Sum\nInvoice No: Count", "Subtotals": "Off"}
     assert sc.ticked_runs() == [] and sc.runs_note.text() == "No runs selected. Tick the runs to include."
     assert sc.empty_title.text() == "Pick runs, then press Run"
     assert not sc.run_button.isEnabled()
@@ -526,6 +607,7 @@ def test_open_saved_settings_locked(win, qtbot):
     assert sc.run_button.isEnabled()
     run(qtbot, sc)
     assert sc.total_row() == ["Grand total", "7,536,875.00", "5,000"]
+    assert not any(sc.grid.horizontalHeader().renamable(i) for i in range(3))     # no ✎ on a saved analysis
     assert sc.leave_guard() is None
 
 
@@ -540,9 +622,10 @@ def test_duplicate_saved_analysis(win, qtbot, answers):
     assert dup.settings.currentWidget() is dup.builder and dup.builder.isEnabled()
     defn = dup.builder.definition()
     assert [g.column_id for g in defn.groups] == [STATE]
-    assert [(m.column_id, m.fn) for m in defn.measures] == [(TAXABLE, d.SUM), (INV, d.COUNT)]
+    assert [(m.column_id, m.fn) for m in d.flat_measures(defn)] == [(TAXABLE, d.SUM), (INV, d.COUNT)]
     assert dup.template.currentText() == "Sales Register" and dup.ticked_runs() == [dup.data.runs[2].id]
-    dup.builder.measures.rows[1].measure.setCurrentIndex(0)          # Count of rows
+    dup.builder.measures.remove_card(dup.builder.measures.cards[1])      # Invoice No → Rows · Count
+    dup.builder.add_card(d.ROWS, (d.COUNT,))
     run(qtbot, dup)
     assert dup.total_row() == ["Grand total", "6,029,500.00", "4,000"]
     answers.append("stay")
@@ -620,11 +703,11 @@ def test_saved_analysis_with_a_removed_column(tpla):
     """A saved analysis on a column removed later keeps working, labelled "(removed)" (in its own template)."""
     s = tpla["s"]
     copy = q.load_template(s.con, tpla["copy"])
-    aid = analyses.save(_ctx(s), copy, "By GSTIN", Definition(copy.id, [], [], [Measure(GSTIN, d.COUNT_DISTINCT)]))
+    aid = analyses.save(_ctx(s), copy, "By GSTIN", Definition(copy.id, [], [], cards(FlatMeasure(GSTIN, d.COUNT_DISTINCT))))
     saved = analyses.open_saved(_ctx(s), aid)
-    assert analyses.describe(saved.definition, saved.data.columns)["Measures"] == ["Count distinct of GSTIN"]
+    assert analyses.describe(saved.definition, saved.data.columns)["Measures"] == ["GSTIN: Count distinct"]
     with pytest.raises(analyses.NameRefused):
-        analyses.save(_ctx(s), copy, " by gstin", Definition(copy.id, [], [], [Measure(None, d.COUNT)]))
+        analyses.save(_ctx(s), copy, " by gstin", Definition(copy.id, [], [], cards(FlatMeasure(d.ROWS, d.COUNT))))
 
 
 # ---------------------------------------------------------------------------------------------- 7.4, 7.5 Export
@@ -632,7 +715,9 @@ def export_dialog_for(qtbot, win, tpla, kind, label) -> export_dialog.ExportDial
     assert win.go("run", run_id=tpla["runs"][label], template_id=tpla["tid"])
     settle(qtbot, win)
     assert win.current.export(kind)
-    return win.export_dialog
+    dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)            # the size check (EXP-13)
+    return dlg
 
 
 @spec("EXP-01", "EXP-2", "EXP-3", "EXP-4", "C4-18")
@@ -652,6 +737,7 @@ def test_export_dialog_contents(win, qtbot, tpla):
 
 
 def do_export(qtbot, win, dlg, folder, name=None, delimiter=None, bom=None):
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     export_dialog.folder_hook = lambda _d: str(folder)
     try:
         dlg.change.click()
@@ -747,7 +833,7 @@ def test_export_progress_cancel_and_open_folder(win, qtbot, tpla, tmp_path, monk
     def hold():
         waiting.set()
         release.wait(10)
-    monkeypatch.setattr(exporting, "_after_chunk", hold)
+    monkeypatch.setattr(exporting, "_after_block", hold)
     dlg = export_dialog_for(qtbot, win, tpla, "data", "R-0002")
     export_dialog.folder_hook = lambda _d: str(tmp_path)
     dlg.change.click()
@@ -764,9 +850,10 @@ def test_export_progress_cancel_and_open_folder(win, qtbot, tpla, tmp_path, monk
     dlg.progress.cancel_button.click()
     release.set()
     settle(qtbot, win)
-    assert list(tmp_path.iterdir()) == []                 # neither the file nor a .part
-    assert win.current.banners()[-1].plain_text == "Export cancelled. The part-written file was deleted."
-    monkeypatch.setattr(exporting, "_after_chunk", lambda: None)
+    assert list(tmp_path.iterdir()) == []                 # neither the file nor a .partial
+    assert win.current.banners()[-1].plain_text == export_dialog.CANCELLED == (
+        "Export cancelled. No files were written; files that would have been replaced are unchanged.")
+    monkeypatch.setattr(exporting, "_after_block", lambda: None)
     opened = []
     from sankalan.ui.widgets import banner as banner_mod
     monkeypatch.setattr(banner_mod, "open_folder", lambda p: opened.append(p))
@@ -783,9 +870,10 @@ def test_export_all_outputs_by_pattern(win, qtbot, tpla, tmp_path, answers):
     settle(qtbot, win)
     assert win.current.export("outputs")
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     assert dlg.title.text() == "Export all outputs of R-0001"
     assert dlg.name.accessibleName() == "Name pattern" and dlg.name.text() == "{Client}_{Template}_{RunID}_{Output}"
-    assert dlg.info.text() == "one CSV file per output"
+    assert dlg.info.text() == "12 rows · one CSV file per output"
     assert do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
     assert sorted(p.name for p in tmp_path.iterdir()) == ["R-0001_Latest month by GST rate.csv",
                                                           "R-0001_State-wise sales.csv"]
@@ -793,9 +881,12 @@ def test_export_all_outputs_by_pattern(win, qtbot, tpla, tmp_path, answers):
     # again: the files exist, so Export asks before replacing them (EXP-4)
     assert win.current.export("outputs")
     dlg = win.export_dialog
+    settle_window(qtbot, win, extra=lambda: not dlg._checking)
     answers.append("cancel")
-    assert do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
-    assert answers.asked[-1] == ("Replace “R-0001_State-wise sales.csv”?", ["Cancel", "Replace"])
+    assert not do_export(qtbot, win, dlg, tmp_path, "{RunID}_{Output}")
+    assert answers.asked[-1] == ("Replace 2 files?", ["Cancel", "Replace"])            # every file listed (EXP-10)
+    assert answers.texts[-1] == ("These files are already in the folder:\nR-0001_State-wise sales.csv\n"
+                                 "R-0001_Latest month by GST rate.csv\nReplacing them can't be undone.")
     assert dlg.form.isVisible() and dlg.isVisible()
     dlg.reject()
 
@@ -803,7 +894,7 @@ def test_export_all_outputs_by_pattern(win, qtbot, tpla, tmp_path, answers):
 @spec("ANA-9", "EXP-1")
 def test_analysis_export_with_subtotals(win, qtbot, tmp_path):
     sc = new_analysis(qtbot, win, "R-0001")
-    setup(sc, groups=[Group(STATE), Group(RATE)], measures=[Measure(TAXABLE, d.SUM, "Taxable")], subtotals=True)
+    setup(sc, groups=[Group(STATE), Group(RATE)], measures=cards(FlatMeasure(TAXABLE, d.SUM, "Taxable")), subtotals=True)
     run(qtbot, sc)
     assert sc.export()
     dlg = win.export_dialog
@@ -811,3 +902,68 @@ def test_analysis_export_with_subtotals(win, qtbot, tmp_path):
     lines = (tmp_path / "by state.csv").read_text(encoding="utf-8").splitlines()
     assert lines[0] == "State,GST Rate,Taxable" and len(lines) == 1 + 24 + 1
     assert "Maharashtra,Total,1865000.00" in lines and lines[-1] == "Grand total,,7536875.00"
+
+
+# ---------------------------------------------------------------------------------------------- A2-1: text values
+@pytest.fixture
+def rwin(app, qtbot, tpl_r_runs):
+    s = tpl_r_runs["s"]
+    w = MainWindow(JobBridge(s.runner), s)
+    w.resize(1366, 768)
+    w.show()
+    yield w
+    w.bridge.wait_all(30)
+    w.bridge.poll()
+    from sankalan.ui.dialogs import base
+    hook, base.answer_hook = base.answer_hook, (lambda _d: "leave")
+    try:
+        w.close()
+    finally:
+        base.answer_hook = hook
+    w.deleteLater()
+
+
+@spec("TXT-6", "TXT-7", "T55", "AC-TXT-1", "AC-TXT-5", "TXT-10")
+def test_text_filters_and_group_labels(rwin, qtbot, tpl_r_runs):
+    assert rwin.go("analysis")
+    settle(qtbot, rwin)
+    sc = rwin.current
+    sc.choose_template("Rao & Co", "Sales Register R")
+    settle(qtbot, rwin)
+    sc.tick(["R-0001", "R-0002"])
+    b = sc.builder
+    b.clear()
+    b.add_filter(Filter("c006", d.NOT_NUMBER))
+    row = b.filters.rows[0]
+    ops = [row.op.itemText(i) for i in range(row.op.count())]
+    assert ops == ["equals", "is between", "is blank", "is not blank", "is not a number"]
+    assert row.help.isVisibleTo(row) and row.help.text() == "Cells with text such as NA or Nil instead of a number"
+    i = row.op.findData(d.NOT_NUMBER)
+    assert row.op.itemData(i, Qt.ItemDataRole.ToolTipRole) == row.help.text()
+    row.op.setCurrentIndex(row.op.findData(d.EQUALS))
+    assert not row.help.isVisibleTo(row)
+    row.op.setCurrentIndex(i)
+    assert b.definition().filters[0].op == d.NOT_NUMBER and b.definition().filters[0].values == []
+    b.add_filter(Filter("c002", d.NOT_DATE))
+    date_row = b.filters.rows[1]
+    assert "is not a date" in [date_row.op.itemText(k) for k in range(date_row.op.count())]
+    assert date_row.help.text() == "Cells with text such as NA instead of a date"
+    # Summary grid: text groups labelled, separate from (Null); counts as the engine's
+    b.clear()
+    b.add_group(Group("c006"))
+    b.add_measure(FlatMeasure(d.ROWS, d.COUNT))
+    run(qtbot, sc)
+    got = {r[0]: r[1] for r in rows(qtbot, sc)}
+    m1, m2 = tpl_r_runs["m"].run(1), tpl_r_runs["m"].run(2)
+    assert got["(Not a number)"] == "16" and got["(Null)"] == str(m1.taxable_blank + m2.taxable_blank)
+    b.clear()
+    b.add_group(Group("c002", "month"))
+    b.add_measure(FlatMeasure(d.ROWS, d.COUNT))
+    run(qtbot, sc)
+    got = rows(qtbot, sc)
+    assert [r[0] for r in got] == ["Oct-2026", "Nov-2026", "(Not a date)", "(Null)"]
+    assert got[2][1] == "5"
+    assert analyses.describe(Definition("", [Filter("c006", d.NOT_NUMBER), Filter("c002", d.NOT_DATE)], [],
+                                        cards(FlatMeasure(d.ROWS, d.COUNT))),
+                             sc.data.template.columns)["Filters"] == ["Taxable Value is not a number",
+                                                                     "Invoice Date is not a date"]

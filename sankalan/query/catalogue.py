@@ -182,7 +182,7 @@ def load_template(con, template_id: str) -> Template:
         [template_id]).fetchall()]
     source = settings.get("source") if isinstance(settings.get("source"), dict) else None
     return Template(template_id, client_id, name, settings_from_dict(source), cols, load_rules(con, template_id),
-                    outputs, dict(settings.get("export") or {}), int(version))
+                    outputs, dict(settings.get("export") or {}), int(version), bool(settings.get("checks", True)))
 
 
 def duplicate_template(con, template_id: str, name: str, client_id: str | None = None) -> str:
@@ -221,18 +221,18 @@ def list_runs(con, template_id: str | None = None) -> list[RunRow]:
 def run_details(con, run_id: str) -> dict | None:
     """One committed run for the Run screen (RUN-2, RUN-12, C6): the run row with its JSON fields parsed, its files
     and its saved outputs. None when no such run."""
-    row = con.execute(f"SELECT {_RUN_COLS}, left_out_by_reason, errors, warnings, run_changes, totals FROM run "
-                      f"WHERE id = ?", [run_id]).fetchone()
+    row = con.execute(f"SELECT {_RUN_COLS}, left_out_by_reason, errors, warnings, run_changes, totals, checks, "
+                      f"text_counts FROM run WHERE id = ?", [run_id]).fetchone()
     if row is None:
         return None
     keys = [k.strip() for k in _RUN_COLS.split(",")] + ["left_out_by_reason", "errors", "warnings", "run_changes",
-                                                        "totals"]
+                                                        "totals", "checks", "text_counts"]
     out = dict(zip(keys, row))
-    for k in ("left_out_by_reason", "run_changes", "totals"):
+    for k in ("left_out_by_reason", "run_changes", "totals", "text_counts"):
         out[k] = json.loads(out[k])
     out["label"] = RunRow(*row[:len(_RUN_COLS.split(","))]).label
     fcols = ("file_index", "file_name", "path", "size", "modified", "sheet", "sha256", "header_row", "rows_read",
-             "hidden_rows", "sheets_skipped", "duplicate_decision")
+             "hidden_rows", "sheets_skipped", "duplicate_decision", "sheets_chosen")
     out["files"] = []
     for r in con.execute(f"SELECT {', '.join(fcols)} FROM run_file WHERE run_id = ? ORDER BY file_index",
                          [run_id]).fetchall():
@@ -244,9 +244,10 @@ def run_details(con, run_id: str) -> dict | None:
 
 
 def run_outputs(con, run_id: str) -> list[RunOutput]:
-    """A run's saved default outputs with the definition used for that run (DO-6), in order."""
-    return [RunOutput(r[0], r[1], json.loads(r[2]), r[3]) for r in con.execute(
-        "SELECT position, name, definition, file FROM run_output WHERE run_id = ? ORDER BY position",
+    """A run's saved default outputs with the definition used for that run (DO-6) and the headers stored at commit
+    (T50), in order."""
+    return [RunOutput(r[0], r[1], json.loads(r[2]), r[3], json.loads(r[4])) for r in con.execute(
+        "SELECT position, name, definition, file, headers FROM run_output WHERE run_id = ? ORDER BY position",
         [run_id]).fetchall()]
 
 
@@ -277,20 +278,23 @@ def insert_run(con, run_id: str, run: NewRun) -> int:
         con.execute("UPDATE run_id_counter SET last_number = ? WHERE template_id = ?", [number, run.template_id])
     else:
         con.execute("INSERT INTO run_id_counter VALUES (?, ?)", [run.template_id, number])
-    con.execute("INSERT INTO run VALUES (?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+    con.execute("INSERT INTO run VALUES (?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
         run_id, run.template_id, number, run.template_version, _now(), run.status, run.comment, run.rows_read,
         run.rows_loaded, run.rows_left_out, json.dumps(run.left_out_by_reason), run.errors, run.warnings,
-        json.dumps(run.run_changes, ensure_ascii=False), json.dumps(run.totals, ensure_ascii=False)])
+        json.dumps(run.run_changes, ensure_ascii=False), json.dumps(run.totals, ensure_ascii=False),
+        bool(run.checks), json.dumps({k: int(v) for k, v in run.text_counts.items()})])
     for f in run.files:
-        con.execute("INSERT INTO run_file VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        con.execute("INSERT INTO run_file VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             run_id, f.file_index, f.file_name, f.path, f.size, f.modified, f.sheet, f.sha256, f.header_row,
-            f.rows_read, f.hidden_rows, json.dumps(f.sheets_skipped, ensure_ascii=False), f.duplicate_decision])
+            f.rows_read, f.hidden_rows, json.dumps(f.sheets_skipped, ensure_ascii=False), f.duplicate_decision,
+            bool(f.sheets_chosen)])
     for c in run.issue_counts:
         con.execute("INSERT INTO run_issue_count VALUES (?, ?, ?, ?, ?, ?)",
                     [run_id, c.rule, c.file_index, c.sheet, c.errors, c.warnings])
     for o in run.outputs:
-        con.execute("INSERT INTO run_output VALUES (?, ?, ?, ?, ?)",
-                    [run_id, o.position, o.name, json.dumps(o.definition, ensure_ascii=False), o.file])
+        con.execute("INSERT INTO run_output VALUES (?, ?, ?, ?, ?, ?)",
+                    [run_id, o.position, o.name, json.dumps(o.definition, ensure_ascii=False), o.file,
+                     json.dumps(list(o.headers), ensure_ascii=False)])
     return number
 
 
@@ -432,9 +436,10 @@ def template_header(con, template_id: str) -> tuple | None:
 
 def run_rows(con, template_id: str) -> list[tuple]:
     """C4 Runs grid (UX-4, RUN-2), newest first: (id, run number, loaded on, file names (list, in file order),
-    rows loaded, errors, warnings, status, comment, damaged)."""
+    rows loaded, errors, warnings, status, comment, damaged, loaded with checks)."""
     rows = con.execute("""
-        SELECT r.id, r.run_number, r.loaded_on, r.rows_loaded, r.errors, r.warnings, r.status, r.comment, r.damaged
+        SELECT r.id, r.run_number, r.loaded_on, r.rows_loaded, r.errors, r.warnings, r.status, r.comment, r.damaged,
+               r.checks
         FROM run r WHERE r.template_id = ? ORDER BY r.run_number DESC""", [template_id]).fetchall()
     files: dict[str, list[str]] = {}
     for run_id, name in con.execute("""
@@ -443,7 +448,23 @@ def run_rows(con, template_id: str) -> list[tuple]:
         names = files.setdefault(run_id, [])
         if name not in names:                       # one row per file and sheet; a file is listed once
             names.append(name)
-    return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+    return [(r[0], r[1], r[2], files.get(r[0], []), r[3], r[4], r[5], r[6], r[7], r[8], r[9]) for r in rows]
+
+
+def rows_view_runs(con, template_id: str, run_ids: list[str]) -> list[tuple]:
+    """The Rows view's runs (Tech spec A2 10.1), in Run ID order: (id, run number, rows loaded, {file index: file
+    name}). Runs not of the template, or not committed, are left out."""
+    if not run_ids:
+        return []
+    marks = ", ".join("?" for _ in run_ids)
+    rows = con.execute(f"SELECT id, run_number, rows_loaded FROM run WHERE template_id = ? AND id IN ({marks}) "
+                       f"ORDER BY run_number", [template_id, *run_ids]).fetchall()
+    names: dict[str, dict[int, str]] = {}
+    for run_id, index, name in con.execute(
+            f"SELECT run_id, file_index, file_name FROM run_file WHERE run_id IN ({marks}) "
+            f"ORDER BY run_id, file_index", list(run_ids)).fetchall():
+        names.setdefault(run_id, {})[int(index)] = name
+    return [(r[0], int(r[1]), int(r[2]), names.get(r[0], {})) for r in rows]
 
 
 def latest_run(con, template_id: str) -> tuple | None:
@@ -469,9 +490,9 @@ def saved_analysis_count(con, *, client_id: str | None = None, template_id: str 
 
 
 def run_delete_figures(con, run_id: str) -> tuple | None:
-    """For dialog 7.2: (run number, template name, rows loaded, saved outputs)."""
+    """For dialog 7.2: (run number, template name, rows loaded, saved outputs, loaded with checks)."""
     row = con.execute("""SELECT r.run_number, t.name, r.rows_loaded,
-                                (SELECT count(*) FROM run_output o WHERE o.run_id = r.id)
+                                (SELECT count(*) FROM run_output o WHERE o.run_id = r.id), r.checks
                          FROM run r JOIN template t ON t.id = r.template_id WHERE r.id = ?""", [run_id]).fetchone()
     return tuple(row) if row else None
 

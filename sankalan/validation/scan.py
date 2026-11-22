@@ -1,12 +1,12 @@
 r"""The validation scan as Job work (Tech spec, Validation and issues; VR-3 to VR-8, ISS-1, ISS-4).
 
-- ``validate``: after the load (``sankalan.ingest.stage.load``), one scan of the staged ``data.parquet`` and
-  ``conversion_failures.parquet`` writes ``_staging\<id>\issues.parquet`` and returns the counts. Editing rules
+- ``validate``: after the load (``sankalan.ingest.stage.load``), one scan of the staged ``data.parquet`` (values
+  with their text companions) writes ``_staging\<id>\issues.parquet`` and returns the counts. Editing rules
   for this run (VR-5) calls it again with the run's rules: only the scan reruns, never the read.
 - ``dry_run``: the New template wizard's counts and first 20 failing rows per rule on the staged sample (VR-8).
   Nothing is written.
 - ``test_rules_on_run``: "Test rules on latest run" on a committed run's ``data.parquet``, counts only (VR-8).
-  Nothing is written; values that failed conversion were stored blank, so they count as blank there.
+  Nothing is written. Committed rows keep their text companions, so type rules find text values there too.
 
 ``issues.parquet`` is written as ``issues.parquet.part`` and renamed, so a cancelled or failed scan never leaves a
 half-written issue list.
@@ -64,7 +64,6 @@ def validate(ctx: JobContext, staging: Staging, columns: list[Column], rules: li
              file_names: dict[int, str] | None = None) -> ScanResult:
     run_rules = prepare(columns, rules)
     data = staging.path / convert.DATA
-    failures = staging.path / convert.FAILURES
     out = staging.path / q.ISSUES
     part = out.with_name(out.name + ".part")
     ctx.on_abort(lambda: _remove(part))
@@ -72,7 +71,7 @@ def validate(ctx: JobContext, staging: Staging, columns: list[Column], rules: li
     _remove(out)                            # a rerun replaces the list; until then there is none
     _remove(part)
     cur = ctx.cursor()
-    q.write_issues(cur, data, failures, columns, run_rules, part, file_names)
+    q.write_issues(cur, data, columns, run_rules, part, file_names)
     ctx.check_cancelled()
     os.replace(part, out)
     errors, warnings = q.totals(cur, out)
@@ -82,19 +81,19 @@ def validate(ctx: JobContext, staging: Staging, columns: list[Column], rules: li
                       run_rules)
 
 
-def dry_run(ctx: JobContext, data: Path, failures: Path | None, columns: list[Column], rules: list[Rule],
+def dry_run(ctx: JobContext, data: Path, columns: list[Column], rules: list[Rule],
             file_names: dict[int, str] | None = None, keep: int = q.SHOW_FIRST):
     """(counts per rule ID, first ``keep`` issue rows per rule ID). Nothing is written."""
     run_rules = prepare(columns, rules)
     ctx.set_stage(STAGE)
-    return q.dry_run(ctx.cursor(), data, failures, columns, run_rules, keep, file_names)
+    return q.dry_run(ctx.cursor(), data, columns, run_rules, keep, file_names)
 
 
 def test_rules_on_run(ctx: JobContext, run_dir: Path, columns: list[Column], rules: list[Rule]) -> dict[str, int]:
     """Failure counts per rule ID on a committed run's rows (C4-12). Nothing is written."""
     run_rules = prepare(columns, rules)
     ctx.set_stage(STAGE)
-    counts, _ = q.dry_run(ctx.cursor(), Path(run_dir) / convert.DATA, None, columns, run_rules, keep=0)
+    counts, _ = q.dry_run(ctx.cursor(), Path(run_dir) / convert.DATA, columns, run_rules, keep=0)
     return counts
 
 

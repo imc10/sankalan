@@ -1,5 +1,7 @@
 # Plan: Feature Spec A1 — Rows view, Measures by column, Export in parts
 
+> **Superseded** (21-11-2026): A1 was never started; Feature Spec A2 and Technical Spec A2 replace it. The A2 plan is `docs/plans/a2-implementation-plan.md` (phases A2-1 to A2-6).
+
 Status: **planned** (20-11-2026). Not started. Sessions record progress in `docs/PROGRESS.md` (phases A1-0 to A1-7).
 
 ## Context

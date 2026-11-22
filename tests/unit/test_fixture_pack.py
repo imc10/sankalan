@@ -59,3 +59,29 @@ def test_f04_left_out_rows():
     """63 rows are left out: 60 with Error issues plus 3 later duplicates (n 702, 704, 706)."""
     assert len(generate.F04_LEFT_OUT) == 63
     assert generate.F04_LEFT_OUT[:3] == [101, 102, 103] and generate.F04_LEFT_OUT[-3:] == [702, 704, 706]
+
+
+@spec("A2-O1", "AC-BUG-1c")
+def test_tpl_r_small_generates_verifies_and_is_deterministic(tmp_path, tpl_r_small):
+    """TPL-R small (A2-1): the planted figures confirmed 21-11-2026, read back from the files; same bytes twice."""
+    import tpl_r
+    folder, m = tpl_r_small
+    assert m.run(1).taxable_text == {"NA": 10, "Nil": 5, "12,000/-": 1}
+    assert m.run(2).date_text == {"NA": 3, "31-02-2026": 2}
+    assert (m.run(2).left_out, m.run(3).no_invoice_no, m.rows_searched) == (63, 400, 7_437)
+    again = tpl_r.generate(tmp_path, tpl_r.SMALL)
+    tpl_r.verify(tmp_path, again)
+    assert _hashes(tmp_path) == _hashes(folder)
+
+
+@spec("A2-O1", "AC-NCK-2", "AC-NCK-4")
+def test_tpl_n_small_generates_verifies_and_is_deterministic(tmp_path, tpl_n_small):
+    """TPL-N small (A2-2): 2 × 5,000 rows, 20 repeated, 68 / 12 text values, 3 blank rows; same bytes twice."""
+    import tpl_n
+    folder, m = tpl_n_small
+    assert (m.rows_loaded, m.repeated, m.blank_rows, m.rows_read) == (10_000, 20, 3, 10_003)
+    assert (m.taxable_text_count, m.date_text_count) == (68, 12)
+    assert [t["text"] for t in m.taxable_text] == ["NA", "Nil", "-", "12,000/-", " NA "]
+    again = tpl_n.generate(tmp_path, tpl_n.SMALL)
+    tpl_n.verify(tmp_path, again)
+    assert _hashes(tmp_path) == _hashes(folder)

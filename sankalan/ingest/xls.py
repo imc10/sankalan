@@ -125,6 +125,25 @@ class XlsBook:
         return result
 
     # ------------------------------------------------------------------------------------------ probe
+    def last_row(self, name: str) -> int | None:
+        """The last row from the sheet's ``DIMENSIONS`` record, which comes before the cells (T47)."""
+        self.sheet(name)
+        data = self.data
+        pos = self._offsets[name]
+        n = len(data)
+        if pos + 4 > n or _HDR.unpack_from(data, pos)[0] != BOF:
+            raise ExcelError("sheet stream")
+        pos += 4 + _HDR.unpack_from(data, pos)[1]
+        while pos + 4 <= n:
+            typ, size = _HDR.unpack_from(data, pos)
+            body = pos + 4
+            pos = body + size
+            if typ == DIMENSIONS:
+                return (struct.unpack_from("<I", data, body + 4)[0] or None) if size >= 8 else None
+            if typ in (ROW, EOF):
+                return None
+        return None
+
     def peek(self, name: str, n: int = detect.HEADER_SCAN_ROWS) -> Peek:
         """The first ``n`` visible rows (values from calamine; an .xls sheet holds at most 65,536 rows, so loading
         it whole is cheap) and the last row from the dimension record."""

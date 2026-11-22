@@ -46,6 +46,25 @@ def test_job_states_and_rows_progress():
     assert job.progress().elapsed == e1                    # elapsed stops when the Job ends
 
 
+@spec("T53", "EXP-11")
+def test_set_detail_reaches_progress():
+    gate, shown = threading.Event(), threading.Event()
+
+    def work(ctx):
+        ctx.set_stage("Writing files", rows_total=3000)
+        ctx.set_detail("part 2 of 3")
+        shown.set()
+        gate.wait(5)
+        ctx.set_stage("Finishing")                         # a new stage clears the detail
+        return "ok"
+
+    job = JobRunner().start("Export", work)
+    assert shown.wait(5)
+    assert job.progress().detail == "part 2 of 3"
+    gate.set()
+    assert job.wait(5) and job.progress().detail is None
+
+
 @spec("T6", "SH-02")
 def test_only_one_long_job_at_a_time():
     gate = threading.Event()

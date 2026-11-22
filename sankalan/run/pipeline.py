@@ -5,10 +5,13 @@ A ``RunSession`` holds one run in progress. Steps that touch files or DuckDB are
 ``runner.run(name, lambda ctx: session.step(ctx, ...))`` (the commit with ``cancellable=False``). Everything else
 is plain state the wizard reads.
 
-    Files      add_files / remove_file / load_anyway → files_next() → MappingPlan (skipped when TPL-6 holds)
+    Files      add_files / remove_file / load_anyway / choose_sheets (SHT) → files_next() → MappingPlan (skipped
+               when TPL-6 holds)
     Mapping    session.mapping.map / leave_null / leave_out / add_column → mapping_next()
     Validate   validate (read + convert + scan) · edit_rules (scan only; optionally Save to template) · recheck
                → leave_validate(reason=None | override reason): the split Job (T18)
+    Load       (template without checks, T44) load_unchecked (read + convert + text counts; no scan, no split)
+               · text_values(column) for the values list (NCK-8)
     Outputs    run_outputs (per-output status; cancel → Retry by running it again) · skipped with none (DO-4)
     Commit     check_totals · commit_blockers(comment) · commit (rename + one catalogue transaction, T8)
     Leave      discard(): the staging folder is deleted and nothing is kept (RUN-14)
@@ -41,6 +44,8 @@ from sankalan.query import catalogue as q
 from sankalan.query import convert, layer
 from sankalan.query import totals as totals_q
 from sankalan.query.split import LEFT_OUT, left_out_breakdown, split
+from sankalan.query import textvalues
+from sankalan.query.textvalues import text_counts
 from sankalan.validation import scan
 
 COMMENT_MAX = 500                       # RUN-13
@@ -48,13 +53,17 @@ COMMIT_FREE_BYTES = 100 * 1024 * 1024   # decision confirmed 17-11-2026: commit 
 FAULT_ENV = "SANKALAN_FAULT_TOTALS"     # RUNC-10, read only when running from source (decision confirmed 17-11-2026)
 OUTPUTS_DIR = "outputs"
 
-# step names (the wizard's step bar)
+# step names (the wizard's step bar). A template without checks has Load in Validate's place (T44).
 FILES, MAPPING, VALIDATE, OUTPUTS, COMMIT = "files", "mapping", "validate", "outputs", "commit"
+LOAD = "load"
 
 # per-output status (DO-4, DO-5)
 PENDING, RUNNING, DONE, FAILED, CANCELLED = "pending", "running", "done", "failed", "cancelled"
 
 LOAD_ANYWAY = "load_anyway"             # RUN-7 duplicate decision
+
+EXCEL_KINDS = ("xlsx", "xlsm", "xlsb", "xls")                    # Choose sheets is offered on these (T46)
+NO_CHOICE_PROBLEMS = ("header", "locked", "password", "damaged", "missing", "unreadable")   # SHT-2, SHT-8
 
 
 class RunBlocked(Exception):
@@ -95,6 +104,13 @@ class OutputState:
     def file(self) -> str:
         return f"{OUTPUTS_DIR}/{self.position}.parquet"
 
+    def headers(self, columns) -> list[str]:
+        """The headers stored with the committed run (T50): those resolved when the output was generated at the
+        Outputs step (Tech spec A2 9.5), with that moment's column names."""
+        if self.result is not None:
+            return [c.label for c in self.result.columns]
+        return layer.headers(Definition.from_dict(self.definition), columns)
+
 
 @dataclass
 class Validation:
@@ -125,6 +141,33 @@ class Validation:
 
 
 @dataclass
+class LoadSummary:
+    """Figures shown on the Load step of a run without checks (NCK-8, T45, Tech spec A2 6.5)."""
+    files: int                  # files read
+    sheets: int                 # file-sheets read
+    rows_read: int              # data rows + blank rows (T45, as RUNV-02)
+    blank_rows: int
+    hidden_rows: int
+    rows_to_load: int
+    hidden_sheets: list[str]
+    text_counts: dict[str, int]  # column ID -> values kept as text, Number and Date columns with any
+
+    @property
+    def text_total(self) -> int:
+        return sum(self.text_counts.values())
+
+
+@dataclass(frozen=True)
+class TextValue:
+    """One line of the values list (NCK-8): a value as typed, how often, and where it first appears."""
+    text: str
+    count: int
+    file_name: str
+    sheet: str                  # "" for a CSV file
+    row: int                    # the row number in the sheet or file (header row counted)
+
+
+@dataclass
 class Committed:
     run_id: str                 # internal ID, also the folder name
     number: int
@@ -142,6 +185,7 @@ class RunSession:
     workers: int | None = None
     files: list[FileSheet] = field(default_factory=list)
     duplicate_decisions: dict[str, str] = field(default_factory=dict)      # path -> LOAD_ANYWAY
+    sheet_choice: dict[str, list[str]] = field(default_factory=dict)       # path -> sheets chosen (SHT-3)
     mapping: mapping_mod.MappingPlan | None = None
     rules: list[Rule] = field(default_factory=list)                         # this run's rules (VR-5)
     staging: Staging | None = None
@@ -152,9 +196,13 @@ class RunSession:
     totals: list[totals_q.TotalsLine] | None = None
     saved_rule_changes: list[dict] = field(default_factory=list)
     committed: Committed | None = None
+    loaded: LoadSummary | None = None       # figures shown on the Load step (runs without checks)
+    checks: bool | None = None              # Check data before loading, fixed when the run starts (NCK-1, T44)
 
     def __post_init__(self):
         self.template = self.template.copy()
+        if self.checks is None:
+            self.checks = bool(self.template.checks)
         if not self.rules:
             self.rules = copy_rules(self.template.rules)
         self._parts: list[stage.LoadPart] = []
@@ -171,7 +219,7 @@ class RunSession:
         existing = [f.path for f in self.files if f.status not in (SKIPPED, REFUSED)]
         rows = stage.probe(ctx, [str(p) for p in paths], settings=self.template.source,
                            columns=self.template.columns, template_id=self.template.id, existing=existing,
-                           workers=self.workers)
+                           workers=self.workers, choices=self.sheet_choice)
         self.files += [r for r in rows if r.status != REFUSED]
         self._invalidate(FILES)
         return rows
@@ -181,6 +229,7 @@ class RunSession:
         key = str(path)
         self.files = [f for f in self.files if f.path != key]
         self.duplicate_decisions.pop(key, None)
+        self.sheet_choice.pop(key, None)            # SHT-9: ✕ or Exclude drops the choice
         self._invalidate(FILES)
 
     def recheck_files(self, ctx: JobContext, paths=None) -> list[FileSheet]:
@@ -192,7 +241,8 @@ class RunSession:
             return []
         others = [f.path for f in self.files if f.path not in keys and f.status not in (SKIPPED, REFUSED)]
         fresh = stage.probe(ctx, keys, settings=self.template.source, columns=self.template.columns,
-                            template_id=self.template.id, existing=others, workers=self.workers)
+                            template_id=self.template.id, existing=others, workers=self.workers,
+                            choices=self.sheet_choice)
         by_path: dict[str, list[FileSheet]] = {}
         for r in fresh:
             if r.status != REFUSED:
@@ -211,6 +261,50 @@ class RunSession:
         self.files = out
         self._invalidate(FILES)
         return [r for rs in by_path.values() for r in rs]
+
+    # ------------------------------------------------------------------------------------------ Choose sheets
+    def file_rows(self, path) -> list[FileSheet]:
+        key = str(path)
+        return [f for f in self.files if f.path == key]
+
+    def can_choose_sheets(self, path) -> bool:
+        """SHT-2, T46: an Excel file whose sheet list was read, with a visible sheet, and not in Header not found or
+        unreadable (open in Excel, password, damaged, missing)."""
+        rows = self.file_rows(path)
+        if not rows or rows[0].kind not in EXCEL_KINDS:
+            return False
+        if not any(s.visible for s in rows[0].sheets):
+            return False
+        return not any(f.problem in NO_CHOICE_PROBLEMS for f in rows)
+
+    def choose_sheets(self, ctx: JobContext, path, names: list[str]) -> list[FileSheet]:
+        """Read Ns sheets (SHT-7): keep the choice for this file in this run (workbook order) and probe it again,
+        its rows swapped in place. Like any change on Files, the mapping and later steps are dropped."""
+        key = str(path)
+        rows = self.file_rows(key)
+        if not rows:
+            raise RunBlocked("That file isn't in this run.")
+        order = [s.name for s in rows[0].sheets]
+        want = {n.lower() for n in names}
+        chosen = [n for n in order if n.lower() in want]
+        if not chosen:
+            raise RunBlocked("Choose at least one sheet.")
+        self.sheet_choice[key] = chosen
+        return self.recheck_files(ctx, [key])
+
+    def dialog_ticks(self, path) -> list[str]:
+        """The sheets ticked when the Choose sheets dialog opens (SHT-5): the file's current choice (those still
+        visible), otherwise the visible sheets the template's rule selects."""
+        from sankalan.ingest.probe import rule_ticks
+        rows = self.file_rows(path)
+        if not rows:
+            return []
+        visible = [s.name for s in rows[0].sheets if s.visible]
+        choice = self.sheet_choice.get(str(path))
+        if choice is not None:
+            want = {c.lower() for c in choice}
+            return [v for v in visible if v.lower() in want]
+        return rule_ticks(self.template.source, rows[0].sheets)
 
     def load_anyway(self, path) -> None:
         """RUN-7: keep a file whose contents were loaded in an earlier run; it shows as Ready."""
@@ -269,8 +363,15 @@ class RunSession:
         return self.template.columns
 
     # ------------------------------------------------------------------------------------------ Validate (step 3)
+    @property
+    def third_step(self) -> str:
+        """The third step: Validate, or Load for a template without checks (T44)."""
+        return VALIDATE if self.checks else LOAD
+
     def validate(self, ctx: JobContext) -> Validation:
         """Read, convert and check the rules (RUN-3, VR-3). Also Re-check after a source is fixed (VR-6)."""
+        if not self.checks:
+            raise RunBlocked("This template loads without checks.")
         if self._mapping_result is None:
             self.mapping_next()
         self._invalidate(VALIDATE)
@@ -292,6 +393,8 @@ class RunSession:
     def edit_rules(self, ctx: JobContext, rules: list[Rule], *, save_to_template: bool = False) -> Validation:
         """Edit rules for this run (VR-5, TPL-8): only the scan reruns. ``save_to_template`` also saves them as a
         new template version now (RUNV-10)."""
+        if not self.checks:
+            raise RunBlocked("This template loads without checks.")       # NCK-13
         rules = copy_rules(rules)
         scan.prepare(self.columns, rules)          # RuleError before anything changes
         if save_to_template:
@@ -334,6 +437,60 @@ class RunSession:
         self.outputs = [OutputState(i, o.name, o.definition) for i, o in enumerate(self.template.outputs, 1)]
         return loaded, left
 
+    # ------------------------------------------------------------------------------------------ Load (step 3, no checks)
+    def load_unchecked(self, ctx: JobContext) -> LoadSummary:
+        """The Load Job of a run without checks (NCK-4, NCK-7, T44): read and convert every file and sheet into the
+        staged ``data.parquet`` (with text companions, sorted) and count the text values. No scan runs and no
+        ``issues.parquet`` or ``left_out.parquet`` is written: every row read is loaded except blank rows (T45).
+        Cancel or a failure deletes the staging folder (``stage.load``). Re-check loads again with this."""
+        if self.checks:
+            raise RunBlocked("This template checks data before loading.")
+        if self._mapping_result is None:
+            self.mapping_next()
+        self._invalidate(VALIDATE)
+        if self.staging is None or not self.staging.path.exists():
+            self.staging = self.folder.new_staging()
+        for name in (LEFT_OUT, "issues.parquet"):
+            (self.staging.path / name).unlink(missing_ok=True)
+        shutil.rmtree(self.staging.path / OUTPUTS_DIR, ignore_errors=True)
+        self._load = stage.load(ctx, self.folder, self.staging, self._parts, self.columns, workers=self.workers)
+        ld = self._load
+        files = self.readable_files
+        self.loaded = LoadSummary(len({f.path for f in files}), len(files), ld.rows_read + ld.blank_rows,
+                                  ld.blank_rows, ld.hidden_rows, ld.rows_loaded,
+                                  sorted({s for f in files for s in f.hidden_sheets}), dict(ld.text_counts))
+        self.split_done = True              # data.parquet is final: the rows are ready for Outputs and Commit
+        self.outputs = [OutputState(i, o.name, o.definition) for i, o in enumerate(self.template.outputs, 1)]
+        return self.loaded
+
+    def recheck_load(self, ctx: JobContext) -> str:
+        """Re-check files on the Load step (Tech spec A2 6.6): probe every file again. Returns the step to show:
+        FILES when a file now has a problem, MAPPING when a header changed and needs a decision, else LOAD (the
+        files are loaded again). Mapping decisions are kept while every file's headers are unchanged."""
+        before = [(f.path, f.sheet, tuple(f.headers)) for f in self.readable_files]
+        plan = self.mapping
+        self.recheck_files(ctx)
+        if self.files_blockers():
+            return FILES
+        if plan is not None and [(f.path, f.sheet, tuple(f.headers)) for f in self.readable_files] == before:
+            self.mapping = plan
+        else:
+            plan = self.files_next()
+            if not plan.skip:
+                return MAPPING
+        self.mapping_next()
+        self.load_unchecked(ctx)
+        return LOAD
+
+    def text_values(self, ctx: JobContext, column_id: str, limit: int = textvalues.VALUES_LIMIT) -> list[TextValue]:
+        """The values list of one column on the Load step (NCK-8): values as typed, most frequent first, up to
+        ``limit``, each with its count and where it first appears ("Read values" Job)."""
+        if self.loaded is None or self.staging is None:
+            raise RunBlocked("Load the files first.")
+        names = {p.file_index: Path(p.path).name for p in self._parts}
+        return [TextValue(t, n, names.get(fi, ""), sheet or "", row) for t, n, fi, sheet, row in
+                textvalues.text_values(ctx.cursor(), self.staging.path / convert.DATA, column_id, limit)]
+
     # ------------------------------------------------------------------------------------------ Outputs (step 4)
     @property
     def outputs_skipped(self) -> bool:
@@ -348,7 +505,7 @@ class RunSession:
         """Generate every output not yet done, in order, on this run's rows (DO-2, DO-4). Cancel or a failure
         marks the running output and those not started for Retry (DO-5); call again to retry."""
         if not self.split_done:
-            raise RunBlocked("Finish Validate first.")
+            raise RunBlocked(self._finish_third())
         out_dir = self.staging.path / OUTPUTS_DIR
         out_dir.mkdir(exist_ok=True)
         data = self.staging.path / convert.DATA
@@ -383,7 +540,7 @@ class RunSession:
         """The totals check, calculated when the Commit step opens (RUN-6, T20). ``fault`` (RUNC-10) defaults to
         the environment hook, which works only when running from source."""
         if not self.split_done:
-            raise RunBlocked("Finish Validate first.")
+            raise RunBlocked(self._finish_third())
         ctx.set_stage("Checking totals")
         raws = [convert.RawPart(p.file_index, p.sheet, stage.raw_path(self.staging, p.file_index), p.width,
                                 p.mapping) for p in self._parts]
@@ -404,7 +561,7 @@ class RunSession:
         """Why Commit is disabled, or [] when it can run (Tech spec, Commit button enabled when)."""
         out = []
         if not self.split_done:
-            return ["Finish Validate first."]
+            return [self._finish_third()]
         if self.totals is None:
             out.append("The totals check hasn't run yet.")
         elif not self.totals_passed:
@@ -431,7 +588,6 @@ class RunSession:
         ctx.set_stage("Committing")
         con = ctx.cursor()
         run = self._new_run(con, comment)
-        (self.staging.path / convert.FAILURES).unlink(missing_ok=True)   # issues.parquet keeps the text (Phase 3)
         result = self._mapping_result
 
         def save_template_changes(c) -> None:
@@ -446,39 +602,52 @@ class RunSession:
         self.staging = None
         return self.committed
 
+    def _finish_third(self) -> str:
+        return "Finish Validate first." if self.checks else "Finish Load first."
+
     def _new_run(self, con, comment: str) -> NewRun:
-        v = self.validation
-        sc = v.scan
         st = self.staging.path
         loaded = convert.parquet_rows(con, st / convert.DATA)
-        left = convert.parquet_rows(con, st / LEFT_OUT) if (st / LEFT_OUT).is_file() else 0
-        unique_ids = [r.id for r in sc.rules if r.type == UNIQUE]
-        errors_n, dups_n = left_out_breakdown(con, st, unique_ids)
+        if self.checks:
+            v = self.validation
+            sc = v.scan
+            left = convert.parquet_rows(con, st / LEFT_OUT) if (st / LEFT_OUT).is_file() else 0
+            unique_ids = [r.id for r in sc.rules if r.type == UNIQUE]
+            errors_n, dups_n = left_out_breakdown(con, st, unique_ids)
+            rows_read, left_total, blank = v.rows_read, left + v.blank_rows, v.blank_rows
+            errors, warnings = sc.errors, sc.warnings
+            counts = [IssueCount(c.rule, c.file_index, c.sheet, c.errors, c.warnings) for c in sc.counts]
+        else:           # NCK-4, Tech spec A2 6.7: nothing left out, no issues; blank rows = read - loaded (T45)
+            rows_read, left_total, blank, errors_n, dups_n = self.loaded.rows_read, 0, 0, 0, 0
+            errors, warnings, counts = 0, 0, []
         files = []
         parts = {p.file_index: p for p in self._load.parts}
         for i, f in enumerate(self.readable_files):
             p = parts[i]
             files.append(RunFile(i, f.file_name, f.path, f.size, f.sheet, f.sha256, p.rows + p.blank_rows,
                                  datetime.fromtimestamp(f.modified) if f.modified else None, f.header_row,
-                                 p.hidden_rows, list(f.hidden_sheets), self.duplicate_decisions.get(f.path, "")))
-        run_only = rule_changes(self.template.rules, self.rules)
+                                 p.hidden_rows, list(f.hidden_sheets), self.duplicate_decisions.get(f.path, ""),
+                                 f.path in self.sheet_choice))
+        run_only = rule_changes(self.template.rules, self.rules) if self.checks else []
         changes = {"mapping": self._mapping_result.decisions if self._mapping_result else [],
                    "rules_run_only": run_only, "rules_saved": self.saved_rule_changes,
                    "override_reason": self.override_reason}
         return NewRun(
-            template_id=self.template.id, template_version=self.template.version, rows_read=v.rows_read,
-            rows_loaded=loaded, rows_left_out=left + v.blank_rows,
-            left_out_by_reason={"blank": v.blank_rows, "errors": errors_n, "duplicates": dups_n},
-            errors=sc.errors, warnings=sc.warnings,
+            template_id=self.template.id, template_version=self.template.version, rows_read=rows_read,
+            rows_loaded=loaded, rows_left_out=left_total,
+            left_out_by_reason={"blank": blank, "errors": errors_n, "duplicates": dups_n},
+            errors=errors, warnings=warnings,
             status=STATUS_OVERRIDE if self.override_reason is not None else STATUS_COMMITTED,
             comment=comment, run_changes=changes, totals={t.column_id: t.to_dict() for t in self.totals or []},
-            files=files, issue_counts=[IssueCount(c.rule, c.file_index, c.sheet, c.errors, c.warnings)
-                                       for c in sc.counts],
-            outputs=[RunOutput(o.position, o.name, o.definition, o.file) for o in self.outputs])
+            files=files, issue_counts=counts,
+            outputs=[RunOutput(o.position, o.name, o.definition, o.file, o.headers(self.columns))
+                     for o in self.outputs],
+            checks=bool(self.checks), text_counts=text_counts(con, st / convert.DATA, self.columns))
 
     # ------------------------------------------------------------------------------------------ leaving
     def drop_staging(self) -> None:
-        """Cancel on Validate (RUNV-12): the staging folder goes, files and mapping decisions stay."""
+        """Cancel or Back on Validate (RUNV-12) or Load (NCK-7): the staging folder goes, files and mapping decisions
+        stay."""
         if self.staging is not None:
             self.folder.discard_staging(self.staging)
         self.staging = None
@@ -502,6 +671,7 @@ class RunSession:
                 self.mapping = None
         if i <= order.index(VALIDATE):
             self.validation = None
+            self.loaded = None
             self.split_done = False
             self.override_reason = None
             self._load = None

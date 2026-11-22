@@ -11,6 +11,10 @@ builder (AND filters, group levels, measures, Show subtotals), then Run. Right, 
 * Changing the template clears the settings after a confirmation (ANA-3).
 * Leaving a new analysis that has a result asks Save… / Leave without saving / Stay (7.7). Ad-hoc analyses are not
   kept when the user switches area (ANA-2).
+* Rows view (6.4, Feature Spec A2 2): a Summary | Rows switch beside the title of a new analysis. Rows shows the
+  same builder with filters only (group levels and measures are kept, hidden, and come back on Summary), a Columns
+  section, and the Rows result (``ui/screens/rows_view.py``). Row views aren't saved: no Save, no leave prompt;
+  leaving cancels a running Rows Job and drops the table (ROW-3).
 """
 from __future__ import annotations
 
@@ -22,15 +26,17 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGraphicsOpacityEff
                                QHeaderView, QLabel, QListWidget, QListWidgetItem, QMenu, QScrollArea,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from sankalan import analyses, formats
+from sankalan import analyses, formats, rowsview
 from sankalan.model import definition as d
 from sankalan.model import export as ex
 from sankalan.model.definition import Definition, DefinitionError
+from sankalan.model.rowspec import RowSpec
 from sankalan.ui import theme
 from sankalan.ui.dialogs.base import ask
 from sankalan.ui.dialogs.values_dialog import ValuesDialog
 from sankalan.ui.screens.base import LeaveGuard
 from sankalan.ui.screens.common import DataScreen, NameDialog, error_text
+from sankalan.ui.screens.rows_view import ROWS, SUMMARY, ColumnsSection, ModeSwitch, RowsResult
 from sankalan.ui.widgets.banner import Banner
 from sankalan.ui.widgets.breadcrumb import Crumb
 from sankalan.ui.widgets.builder import DefinitionBuilder
@@ -95,6 +101,9 @@ class AnalysisScreen(DataScreen):
         self.data: analyses.TemplateData | None = None
         self.outcome: analyses.Outcome | None = None
         self.stale = False
+        self.mode = SUMMARY                         # or ROWS (6.4)
+        self.rows_outcome: rowsview.RowsOutcome | None = None
+        self.rows_stale = ""                        # "" or the note on a greyed Rows result
         self.choices: list[tuple] = []
         self.job = None
         self._initial = (template_id, definition, list(runs or []))
@@ -107,6 +116,9 @@ class AnalysisScreen(DataScreen):
         self.badge.setStyleSheet(f"font-size: {theme.SMALL_PX}px; padding: 2px 8px; border-radius: 10px; "
                                  f"background: {theme.DIVIDER}; color: {theme.MUTED_2};")
         self.title_row.insertWidget(1, self.badge)
+        self.switch = ModeSwitch(self)
+        self.switch.picked.connect(self.choose_view)
+        self.title_row.insertWidget(2, self.switch)
         self.save_button = primary("Save…", self, "secondary")
         self.save_button.clicked.connect(lambda: self.save_dialog())
         self.actions.addWidget(self.save_button)
@@ -121,7 +133,17 @@ class AnalysisScreen(DataScreen):
         body.setSpacing(16)
         self.settings_box = self._settings_panel()
         body.addWidget(self.settings_box)
-        body.addWidget(self._result_panel(), 1)
+        self.modes = QStackedWidget(self)
+        self.summary_panel = self._result_panel()
+        self.modes.addWidget(self.summary_panel)
+        self.rows_panel = panel(self)
+        rpl = QVBoxLayout(self.rows_panel)
+        rpl.setContentsMargins(0, 0, 0, 0)
+        self.rows_result = RowsResult(self.bridge, self.rows_panel)
+        self.rows_result.export_button.clicked.connect(self.export_rows)
+        rpl.addWidget(self.rows_result)
+        self.modes.addWidget(self.rows_panel)
+        body.addWidget(self.modes, 1)
         self.content.addLayout(body, 1)
         self._set_mode()
         self._show_result()
@@ -173,6 +195,9 @@ class AnalysisScreen(DataScreen):
         lay.addWidget(self.runs)
         self.runs_note = note("", inner)
         lay.addWidget(self.runs_note)
+        self.runs_error = note("", inner, "error")          # Rows view: "Tick at least one run" (2.4)
+        self.runs_error.hide()
+        lay.addWidget(self.runs_error)
         sep = QFrame(inner)
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {theme.DIVIDER};")
@@ -194,7 +219,12 @@ class AnalysisScreen(DataScreen):
         ll.addLayout(self.locked_grid)
         ll.addStretch(1)
         self.settings.addWidget(self.locked)
-        lay.addWidget(self.settings, 1)
+        lay.addWidget(self.settings)
+        self.columns_section = ColumnsSection(inner)          # Rows view (ROW-7, ROW-8)
+        self.columns_section.columns_changed.connect(self._rows_columns_changed)
+        self.columns_section.hide()
+        lay.addWidget(self.columns_section)
+        lay.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
         foot = QWidget(box)
@@ -213,6 +243,8 @@ class AnalysisScreen(DataScreen):
         outer.addWidget(foot)
         if self.bridge is not None:
             self.bridge.guard(self.run_button, False)
+            for b in self.switch.buttons.values():
+                self.bridge.guard(b)
         return box
 
     # -------------------------------------------------------------------------------------------- result panel
@@ -268,6 +300,7 @@ class AnalysisScreen(DataScreen):
         if isinstance(self.grid, PagedGrid):
             self.grid.setFrameShape(QFrame.Shape.NoFrame)
             self.grid.horizontalHeader().sectionResized.connect(self._sync_total)
+            self.grid.horizontalHeader().rename_requested.connect(self._rename_requested)
             self.model.emphasis = lambda row: bool(self.outcome) and row[-1] < self.outcome.result.levels
         rl.addWidget(self.grid, 1)
         self.total = QTableWidget(1, 0, self.result_page)
@@ -304,17 +337,33 @@ class AnalysisScreen(DataScreen):
                 Crumb(self.saved.name if self.saved else analyses.NEW_NAME)]
 
     def leave_guard(self) -> LeaveGuard | None:
-        """7.7: a new analysis with a result that isn't saved."""
-        if self.saved is not None or self.outcome is None:
+        """7.7: a new analysis with a result that isn't saved. Row views aren't saved: no prompt (ROW-3)."""
+        if self.saved is not None or self.outcome is None or self.mode == ROWS:
             return None
         return LeaveGuard.unsaved_analysis(self._save_before_leaving)
 
     def closing(self) -> None:
         if self.values_dialog is not None:
             self.values_dialog.reject()
-        if self.outcome is not None and self.window_ is not None:
-            self.window_.drop_results([self.outcome.result])
+        drops = []
+        if self.job is not None:                # ROW-3: leaving cancels a running Run (it drops its new table)
+            if not self.job.cancel():
+                self.job.wait(5)                # it had already finished: drop what it made
+                drops.append(self._made(self.job.result))
+            self.job = None
+        drops += [self.outcome.result if self.outcome is not None else None, self.rows_outcome]
+        drops = [r for r in drops if r is not None]
+        if drops and self.window_ is not None:
+            self.window_.drop_results(drops)
+        self.outcome = self.rows_outcome = None
         super().closing()
+
+    @staticmethod
+    def _made(result):
+        """The temporary table a finished Run made: an analysis result or a Rows result."""
+        if isinstance(result, analyses.Outcome):
+            return result.result
+        return result if isinstance(result, rowsview.RowsOutcome) else None
 
     # -------------------------------------------------------------------------------------------- loading
     def shown(self) -> None:
@@ -386,6 +435,7 @@ class AnalysisScreen(DataScreen):
             defn = definition or Definition(data.template.id)
             defn.template_id = data.template.id
             self.builder.set_definition(defn, data.columns)
+            self.columns_section.set_columns(data.columns)
         self._set_mode()
         self._runs_changed()
         self._show_result()
@@ -393,9 +443,16 @@ class AnalysisScreen(DataScreen):
     # -------------------------------------------------------------------------------------------- mode and state
     def _set_mode(self) -> None:
         saved = self.saved is not None
+        rows = self.mode == ROWS and not saved
         self.set_title(self.saved.name if saved else analyses.NEW_NAME)
-        self.badge.setText(f"Saved {formats.date(self.saved.saved_on.date())}" if saved else NOT_SAVED)
-        self.save_button.setVisible(not saved)
+        self.badge.setText(f"Saved {formats.date(self.saved.saved_on.date())}" if saved else
+                           rowsview.HEADER_NOTE if rows else NOT_SAVED)
+        self.switch.setVisible(not saved)                       # ROW-4
+        self.switch.set_mode(self.mode)
+        self.save_button.setVisible(not saved and not rows)     # ROW-3
+        self.columns_section.setVisible(rows)
+        self.builder.set_sections(groups=not rows, measures=not rows, subtotals=not rows)
+        self.modes.setCurrentWidget(self.rows_panel if rows else self.summary_panel)
         self.duplicate_button.setVisible(saved)
         self.more.setVisible(saved)
         self.choose.setVisible(not saved)
@@ -464,6 +521,8 @@ class AnalysisScreen(DataScreen):
             self.select_all.setChecked(total > 0 and n == total)
         self.select_all.setEnabled(total > 0)
         self.runs_note.setText(runs_text(n, total) if self.data is not None else "")
+        if n:
+            self.set_runs_error("")
         self._mark_stale()
         self._update_buttons()
 
@@ -472,6 +531,11 @@ class AnalysisScreen(DataScreen):
         self._mark_stale()
 
     def _mark_stale(self) -> None:
+        if self.mode == ROWS:                   # ROW-9: client, template, runs or filters
+            if self.rows_outcome is not None and self.rows_stale != STALE and self.job is None:
+                self.rows_stale = STALE
+                self._show_rows()
+            return
         if self.outcome is not None and not self.stale and self.job is None:
             self.stale = True
             self.stale_note.setText(STALE)
@@ -479,6 +543,11 @@ class AnalysisScreen(DataScreen):
 
     def _update_buttons(self) -> None:
         if self.bridge is None:
+            return
+        if self.mode == ROWS and self.saved is None:    # Run is clickable with no runs ticked: it says why (2.4)
+            self.bridge.set_allowed(self.run_button, self.data is not None)
+            self.bridge.set_allowed(self.rows_result.export_button, self._rows_exportable(),
+                                    "Run again to export." if self.rows_stale else "")
             return
         self.bridge.set_allowed(self.run_button, self.data is not None and bool(self.ticked_runs()))
         self.bridge.set_allowed(self.export_button, self.outcome is not None and not self.stale,
@@ -489,10 +558,15 @@ class AnalysisScreen(DataScreen):
         self.error.setText(text)
         self.error.setVisible(bool(text))
 
+    def set_runs_error(self, text: str) -> None:
+        self.runs_error.setText(text)
+        self.runs_error.setVisible(bool(text))
+
     # -------------------------------------------------------------------------------------------- template change
     def _has_settings(self) -> bool:
         b = self.builder
-        return bool(b.filters.rows or b.groups.rows or b.measures.rows or self.ticked_runs() or self.outcome)
+        return bool(b.filters.rows or b.groups.rows or b.measures.cards or self.ticked_runs() or self.outcome
+                    or self.rows_outcome)
 
     def _confirm_clear(self) -> bool:
         if not self._has_settings():
@@ -545,11 +619,16 @@ class AnalysisScreen(DataScreen):
             self.builder.subtotals.setChecked(False)
         with QSignalBlocker(self.runs):
             self.runs.clear()
-        if self.outcome is not None:
-            self.window_.drop_results([self.outcome.result])
-        self.outcome = None
+        drops = [r for r in (self.outcome.result if self.outcome is not None else None, self.rows_outcome)
+                 if r is not None]
+        if drops:                                       # a template change drops the Rows table too (8.7)
+            self.window_.drop_results(drops)
+        self.outcome = self.rows_outcome = None
         self.stale = False
+        self.rows_stale = ""
+        self.columns_section.set_columns([])
         self.set_error("")
+        self.set_runs_error("")
         self._set_mode()
         self._runs_changed()
         self._show_result()
@@ -588,6 +667,8 @@ class AnalysisScreen(DataScreen):
 
     def run(self) -> bool:
         """ANA-8: progress and Cancel; the previous result stays (greyed) until the new one is ready."""
+        if self.mode == ROWS and self.saved is None:
+            return self.run_rows()
         self.set_error("")
         if self.data is None:
             self.set_error("Choose a client and a template.")
@@ -595,6 +676,8 @@ class AnalysisScreen(DataScreen):
         run_ids = self.ticked_runs()
         if not run_ids:
             self.set_error(analyses.NO_RUNS)
+            return False
+        if self.saved is None and self.builder.problem() is not None:     # under its section (Tech spec A2 9.2)
             return False
         try:
             defn = self.definition()
@@ -642,6 +725,8 @@ class AnalysisScreen(DataScreen):
             cols.append(GridColumn(c.name, c.label, right=c.role == "measure"))
         if self.model is not None:
             self.model.set_columns(cols, analyses.ResultSource(o))
+            hover = [c.hover for c in o.result.columns]
+            self.grid.horizontalHeader().set_tooltips(lambda s: hover[s] if s < len(hover) else None)
             self.grid.apply_widths()
             self.grid.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             self.grid._sorted = None
@@ -657,6 +742,7 @@ class AnalysisScreen(DataScreen):
         self.total.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         QTimer.singleShot(0, self._sync_total)
         self._sync_total()
+        self.total.setVisible(bool(o.result.measures))          # no measures, no grand total (MEA-11, T39)
         self.summary.setText(o.summary())
         self.cap.setText(cap_note(o.count))
         self.cap.setVisible(o.capped)
@@ -670,6 +756,9 @@ class AnalysisScreen(DataScreen):
             self.total.setColumnWidth(i, hh.sectionSize(i))
 
     def _show_result(self) -> None:
+        if self.mode == ROWS and self.saved is None:
+            self._show_rows()
+            return
         running = self.job is not None
         self.progress.setVisible(running)
         if self.outcome is None:
@@ -682,9 +771,30 @@ class AnalysisScreen(DataScreen):
             self.result_stack.setCurrentWidget(self.result_page)
         greyed = self.outcome is not None and (self.stale or running)
         self.dim.setOpacity(0.4 if greyed else 1.0)
+        if isinstance(self.grid, PagedGrid):
+            # ✎ on the measure columns of an unsaved, current result (MEA-8)
+            o = self.outcome
+            ok = o is not None and self.saved is None and not greyed
+            self.grid.horizontalHeader().set_renamable(
+                (lambda s: s >= o.result.levels and s < len(o.result.columns)) if ok else None)
         self.stale_note.setVisible(self.outcome is not None and self.stale and not running)
         self.export_button.setVisible(True)
         self._update_buttons()
+
+    def _rename_requested(self, section: int, text: str) -> None:
+        """MEA-8: Enter in the header's box. A clash keeps the box open; a rename never runs again or greys."""
+        o, hh = self.outcome, self.grid.horizontalHeader()
+        if o is None or self.data is None:
+            hh.finish()
+            return
+        name = d.clean_name(text)
+        problem = analyses.measure_name_problem(o, section, name)
+        if problem:
+            hh.show_error(problem)
+            return
+        self.builder.rename(section - o.result.levels, name)
+        self.model.set_titles(analyses.rename_measure(o, section, name, self.data.columns))
+        hh.finish()
 
     @property
     def greyed(self) -> bool:
@@ -702,6 +812,138 @@ class AnalysisScreen(DataScreen):
 
     def total_row(self) -> list[str]:
         return [self.total.item(0, i).text() for i in range(self.total.columnCount())]
+
+    # -------------------------------------------------------------------------------------------- Rows view (6.4)
+    def choose_view(self, mode: str) -> bool:
+        """ROW-1, ROW-2: Summary | Rows. Client, template, ticked runs and filters stay; the result is cleared; the
+        group levels and measures stay in the builder (hidden in Rows) and come back on Summary."""
+        if self.saved is not None or mode == self.mode or self.job is not None:
+            self.switch.set_mode(self.mode)
+            return False
+        drops = [r for r in (self.outcome.result if self.outcome is not None else None, self.rows_outcome)
+                 if r is not None]
+        if drops:                               # the Rows table is dropped on a switch to Summary (8.7)
+            self.window_.drop_results(drops)
+        self.outcome = self.rows_outcome = None
+        self.stale = False
+        self.rows_stale = ""
+        self.set_error("")
+        self.set_runs_error("")
+        self.columns_section.set_error("")
+        self.mode = mode
+        self._set_mode()
+        self._show_result()
+        return True
+
+    def run_rows(self) -> bool:
+        """ROW-9, ROW-10, ROW-11: count, then fetch the first 100,000, as one Job with Cancel. Runs and columns are
+        checked first, each message under its own list (2.4); the previous result stays greyed while it runs."""
+        self.set_error("")
+        self.set_runs_error("")
+        self.columns_section.set_error("")
+        if self.data is None:
+            self.set_error("Choose a client and a template.")
+            return False
+        run_ids = self.ticked_runs()
+        columns = self.columns_section.ticked()
+        if not run_ids:
+            self.set_runs_error(rowsview.NO_RUNS)
+        if not columns:
+            self.columns_section.set_error(rowsview.NO_COLUMNS)
+        if not run_ids or not columns:
+            return False
+        try:
+            filters = self.builder.definition().filters
+        except DefinitionError as e:
+            self.set_error(str(e))
+            return False
+        spec = RowSpec(self.data.template.id, filters, columns, self.columns_section.source)
+        drop = ([self.rows_outcome] if self.rows_outcome is not None else []) + list(self.window_.pending_drops)
+        template, folder = self.data.template, self.folder
+
+        def done(outcome: rowsview.RowsOutcome) -> None:
+            self.window_.pending_drops = [r for r in self.window_.pending_drops if r not in drop]
+            self.job = None
+            self.rows_outcome = outcome
+            self.rows_stale = ""
+            self.rows_result.show_outcome(outcome, self.columns_section.ticked(), self.columns_section.source)
+            self._show_rows()
+
+        def cancelled() -> None:
+            if not self.alive:
+                return
+            self.job = None
+            if self.rows_outcome is not None:
+                self.rows_stale = rowsview.CANCELLED
+            self._show_rows()
+
+        def failed(error) -> None:
+            self.job = None
+            self.set_error(error_text(error))
+            self._show_rows()
+
+        job = self.start(rowsview.OPERATION, lambda ctx: rowsview.run(ctx, folder, template, spec, run_ids, drop),
+                         done, failed, cancellable=True, on_cancelled=cancelled)
+        if job is None:
+            return False
+        self.job = job
+        self.rows_result.progress.bind(job)
+        self._show_rows()
+        return True
+
+    def _rows_columns_changed(self) -> None:
+        """ROW-9: ticks, order and Show them on screen redraw the grid from the rows already read: no Job, no
+        greying."""
+        o = self.rows_outcome
+        if o is not None:
+            ticked = self.columns_section.ticked()
+            if not ticked:
+                self.columns_section.set_error(rowsview.NO_COLUMNS)
+            self.rows_result.set_columns(o, ticked, self.columns_section.source)
+        self._show_rows()
+
+    def _rows_exportable(self) -> bool:
+        o = self.rows_outcome
+        return (o is not None and not self.rows_stale and self.job is None and o.match > 0
+                and bool(self.columns_section.ticked()))
+
+    def _show_rows(self) -> None:
+        """Feature Spec A2 2.4: before the first Run, running, no matches, no columns, cancelled, changed."""
+        r, o = self.rows_result, self.rows_outcome
+        running = self.job is not None
+        r.progress.setVisible(running)
+        if o is None:
+            r.summary.setText("")
+            r.show_message(rowsview.EMPTY)
+        elif o.match == 0:
+            r.show_message(rowsview.NO_MATCH)
+        elif not self.columns_section.ticked():
+            r.show_message(rowsview.NO_COLUMNS)
+        else:
+            r.show_grid()
+        r.export_button.setVisible(o is None or o.match > 0)          # no matches: Export rows isn't offered
+        r.set_greyed(o is not None and (bool(self.rows_stale) or running),
+                     self.rows_stale if o is not None and not running else "")
+        self._update_buttons()
+
+    def rows_shown(self) -> list[tuple | None]:
+        """The Rows grid's loaded rows, as shown (tests)."""
+        return self.rows_result.shown_rows()
+
+    def export_rows_request(self) -> ex.ExportRequest | None:
+        """Export rows (7.9): every match in stored order with the columns ticked now."""
+        o = self.rows_outcome
+        if o is None or self.data is None or not self._rows_exportable():
+            return None
+        ticked = self.columns_section.ticked()
+        t, client = self.data.template, self.data.client_name
+        return ex.prefill_rows(t.export, template_id=t.id, client=client, template=t.name, rows=o.match,
+                               items=rowsview.export_items(o, ticked), context=rowsview.context(o, client, t.name),
+                               details=rowsview.describe(o, ticked))
+
+    def export_rows(self) -> bool:
+        req = self.export_rows_request()
+        return req is not None and self.window_.go("export", request=req)
 
     # -------------------------------------------------------------------------------------------- export (ANA-9)
     def export_request(self) -> ex.ExportRequest | None:
@@ -722,6 +964,8 @@ class AnalysisScreen(DataScreen):
     # -------------------------------------------------------------------------------------------- save (7.8)
     def save_dialog(self, modal: bool = False) -> SaveAnalysisDialog | None:
         if self.data is None or self.saved is not None:
+            return None
+        if self.builder.problem() is not None:
             return None
         try:
             defn = self.definition()

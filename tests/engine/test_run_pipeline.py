@@ -9,11 +9,12 @@ from conftest import open_storage, run_job, spec, tpl_a_columns, tpl_a_rules, tp
 from sankalan import analysis, mapping
 from sankalan.db import datafolder
 from sankalan.model import definition as d
-from sankalan.model.definition import Definition, Filter, Group, Measure
+from sankalan.model.definition import Definition, Filter, FlatMeasure, Group, MeasureCard, Op, cards
 from sankalan.model.rule import IS_DATE, IS_NUMBER, NOT_BLANK, WARNING, ERROR, Rule, with_type_rules
 from sankalan.model.run import STATUS_COMMITTED, STATUS_OVERRIDE
 from sankalan.model.template import DefaultOutput, SourceSettings, Template, TemplateError
 from sankalan.query import catalogue as q
+from sankalan.query import export as qx
 from sankalan.query import layer
 from sankalan.run import pipeline as p
 from sankalan.run.pipeline import RunBlocked, RunSession
@@ -21,9 +22,9 @@ from sankalan.run.pipeline import RunBlocked, RunSession
 D = Decimal
 INV, DATE_, CUST, GSTIN, STATE, TAXABLE, RATE, TAX = (f"c00{i}" for i in range(1, 9))
 DO1 = Definition("", [], [Group(STATE)],
-                 [Measure(TAXABLE, d.SUM, "Taxable"), Measure(TAX, d.SUM, "Tax"), Measure(INV, d.COUNT, "Invoices")])
+                 cards(FlatMeasure(TAXABLE, d.SUM, "Taxable"), FlatMeasure(TAX, d.SUM, "Tax"), FlatMeasure(INV, d.COUNT, "Invoices")))
 DO2 = Definition("", [Filter(DATE_, d.LATEST_MONTH)], [Group(DATE_, "month"), Group(RATE)],
-                 [Measure(TAXABLE, d.SUM)], subtotals=True)
+                 cards(FlatMeasure(TAXABLE, d.SUM)), subtotals=True)
 REASON = "Client confirmed errors; revised file next month"
 PLENTY = 10 * 1024 ** 3          # free bytes passed to the commit check so tests never depend on this PC's disk
 
@@ -229,7 +230,7 @@ def seq(tmp_path_factory, fixtures_dir):
     seen["c415"] = str(err.value)
     orig = q.load_template(s.con, tid)
     defn = Definition.from_dict(orig.outputs[0].definition)
-    defn.measures.append(Measure(CUST, d.COUNT_DISTINCT, "Customers"))
+    defn.measures.append(MeasureCard(CUST, [Op(d.COUNT_DISTINCT, "Customers")]))
     orig.outputs[0].definition = defn.to_dict()
     seen["c406_version"] = (q.template_version(s.con, tid), q.save_template(s.con, orig))
 
@@ -259,7 +260,7 @@ def seq(tmp_path_factory, fixtures_dir):
     t5 = q.load_template(s.con, tid)
     runs = {r.label: r for r in q.list_runs(s.con, tid)}
     res = job(s, lambda ctx: analysis.run_analysis(
-        ctx, Definition(tid, [], [Group(branch)], [Measure(INV, d.COUNT)]), t5.columns,
+        ctx, Definition(tid, [], [Group(branch)], cards(FlatMeasure(INV, d.COUNT))), t5.columns,
         [s.folder.run_dir(tid, runs[k].id) / "data.parquet" for k in ("R-0001", "R-0005")]))
     seen["runm07_analysis"] = [(r[1], r[2]) for r in shown(s, res)]
 
@@ -708,3 +709,50 @@ def test_mapping_run_only_and_release():
     plan.leave_null(INV, 0)                                     # the header goes back to the extras
     assert plan.first_undecided() == ("extra", 0, 0)
     assert plan.null_warnings(INV) == ['Default output "DO" will show these rows as (Null).']
+
+
+# ---------------------------------------------------------------------------------------------- A2-1
+@spec("T50", "MEA-9", "DO-6", "AC-TXT-8")
+def test_stored_output_headers_survive_a_column_rename(tmp_path, fixtures_dir):
+    """run_output.headers holds the headers at commit (T50): renaming a template column afterwards changes neither
+    the stored headers nor what the Run screen and its exports show; a new run uses the new name."""
+    from conftest import commit_tpl_a_run, tpl_a_template
+    from sankalan import runs
+    s = open_storage(tmp_path)
+    try:
+        acme = q.insert_client(s.con, "Acme Traders")
+        tid = q.create_template(s.con, tpl_a_template(acme))
+        r1 = commit_tpl_a_run(s, tid, fixtures_dir, "Sales_Oct.xlsx")
+        stored = q.run_outputs(s.con, r1.run_id)
+        assert [o.headers for o in stored] == [["State", "Taxable", "Tax", "Invoices"],
+                                              ["Invoice Date", "GST Rate", "Taxable Value · Sum"]]
+        t = q.load_template(s.con, tid)
+        for cid, new, old in ((STATE, "Region", "State"), (TAXABLE, "Taxable Amt", "Taxable Value")):
+            col = next(c for c in t.columns if c.id == cid)
+            col.name, col.aliases = new, [*col.aliases, old]     # the files keep the old headers
+        q.save_template(s.con, t)
+        assert [o.headers for o in q.run_outputs(s.con, r1.run_id)] == [o.headers for o in stored]
+        cols = q.load_template(s.con, tid).columns
+        o = stored[1]
+        path = s.folder.run_dir(tid, r1.run_id) / o.file
+        shown = run_job(s.runner, lambda ctx: runs.stored_output(ctx, o.definition, cols, path, headers=o.headers))
+        assert shown.headers == ["Invoice Date", "GST Rate", "Taxable Value · Sum"]
+        r2 = commit_tpl_a_run(s, tid, fixtures_dir, "Sales_Nov.xlsx")
+        assert [o.headers for o in q.run_outputs(s.con, r2.run_id)][1] == ["Invoice Date", "GST Rate",
+                                                                           "Taxable Amt · Sum"]
+        assert q.run_details(s.con, r1.run_id)["text_counts"] == {"c002": 0, "c006": 0, "c007": 0, "c008": 0}
+        # AC-MEA-9: a default output's measure renamed, then a new run: it uses the name, earlier runs keep theirs
+        t = q.load_template(s.con, tid)
+        defn = Definition.from_dict(t.outputs[1].definition)
+        defn.measures[0].ops[0].name = "Taxable value"
+        t.outputs[1].definition = defn.to_dict()
+        q.save_template(s.con, t)
+        r3 = commit_tpl_a_run(s, tid, fixtures_dir, "Sales_Jan.xlsx")
+        got = [q.run_outputs(s.con, r.run_id)[1] for r in (r1, r2, r3)]
+        assert [o.headers[2] for o in got] == ["Taxable Value · Sum", "Taxable Amt · Sum", "Taxable value"]
+        o3 = got[2]
+        res = layer.open_output(Definition.from_dict(o3.definition), cols, s.folder.run_dir(tid, r3.run_id) / o3.file,
+                                s.con, o3.headers)
+        assert qx.result(s.con, res, subtotals=False).headers == ["Invoice Date", "GST Rate", "Taxable value"]
+    finally:
+        s.close()

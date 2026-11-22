@@ -1,4 +1,4 @@
-"""ProgressPanel (UI-5): a running Job's stage, bar, rows done of total, elapsed time and Cancel.
+"""ProgressPanel (UI-5): a running Job's stage, its detail line ("part 2 of 3", T53), bar, rows done of total, elapsed time and Cancel.
 
 It talks only to the Job interface (``progress()``, ``cancel()``), polling every ``POLL_INTERVAL_MS``. When the
 fraction isn't known the bar runs as a busy indicator. Cancel is hidden for a Job that can't be cancelled (the
@@ -37,6 +37,10 @@ class ProgressPanel(QWidget):
         self.stage = QLabel(self)
         self.stage.setProperty("kind", "body")
         lay.addWidget(self.stage)
+        self.detail = QLabel(self)
+        self.detail.setStyleSheet(f"color: {theme.MUTED_2}; font-size: {theme.GRID_TEXT_PX}px;")
+        self.detail.hide()
+        lay.addWidget(self.detail)
         self.bar = QProgressBar(self)
         self.bar.setRange(0, BAR_STEPS)
         self.bar.setTextVisible(False)
@@ -85,6 +89,8 @@ class ProgressPanel(QWidget):
             self.stage.setText("Cancelling…")
         else:
             self.stage.setText(p.stage or job.operation)
+        self.detail.setText(p.detail or "")
+        self.detail.setVisible(bool(p.detail) and p.state is not JobState.CANCELLING)
         if p.fraction is None:
             self.bar.setRange(0, 0)                     # busy indicator
         else:

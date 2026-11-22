@@ -19,14 +19,12 @@ The hand-over file between build sessions. Read it at the start of every session
 | 10 | 10 — Analysis and export dialogs | Done | `v2` (Phase 10 commit) | 6.1–6.3, 7.4/7.5, 7.7, 7.8; every export now runs through the Export dialog |
 | 11 | 11 — Packaging, signing, install/uninstall | Done | `v2` (Phase 11 commit) | Built and self-tested unsigned; signing and DEP-01…13 wait for R1 and the test laptop |
 | 12 | 12 — Hardening and release acceptance | Not started | | Partly manual on the 16 GB test laptop |
-| — | A1-0 — Fixtures, markers, baselines | Not started | | Feature Spec A1 build: plan in `docs/plans/a1-implementation-plan.md` |
-| — | A1-1 — Stored order and the export engine | Not started | | |
-| — | A1-2 — Export dialogs | Not started | | |
-| — | A1-3 — Measures v2 engine and catalogue version 2 | Not started | | |
-| — | A1-4 — Measures UI and header rename | Not started | | Fix the known `test_analysis.py` race first |
-| — | A1-5 — Rows view engine | Not started | | |
-| — | A1-6 — Rows view UI | Not started | | |
-| — | A1-7 — Docs, test sheet, performance suite | Not started | | |
+| A2-1 | A2-1 — Groundwork and text in Number/Date columns (Feature E, catalogue v2, BUG-1) | Done | `Feature-Updates` (A2-1 commit) | All 12 steps. Convert writes in two statements (memory, see log). AC-TXT-1 Rows-view half is A2-5 |
+| A2-2 | A2-2 — Template without checks (F), then Choose sheets (D) | Done | `Feature-Updates` (A2-2 commit) | Both parts. Slow TPL-N full test passes. New run wizard's min height with Mapping skipped is a known issue (below) |
+| A2-3 | A2-3 — Export in parts (C): engine and dialogs | Done | `Feature-Updates` (A2-3 commit) | All 7 steps. Full-size split test lives in `test_stored_order.py` (reuses its committed runs) |
+| A2-4 | A2-4 — Measures by column (B): engine and UI | Done | `Feature-Updates` (A2-4 commit) | All 9 steps (engine and UI). AC-MEA-10 test in `test_text_values.py` (reuses its committed TPL-R runs) |
+| A2-5 | A2-5 — Rows view (A): engine and UI | Done | `Feature-Updates` (A2-5 commit) | All 7 steps. Full-size Rows test lives in `test_stored_order.py` (reuses its committed runs). Every feature is now built |
+| A2-6 | A2-6 — Docs, full-size checks, performance suite | Done | `Feature-Updates` (A2-6 commits) | Docs, full-size `slow` and AC-EXP-9a (Excel) done. PERF-5 and PERF-14 missed and accepted as measured (Decisions); PERF-12, PERF-1, PERF-2 and the pre-A2 comparison skipped by the user. A2 complete |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
@@ -57,10 +55,23 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | DuckDB offline hardening (spike S1) | `enable_external_access=false` + `allowed_directories` (data folder, `%TEMP%\Sankalan`), empty `extension_directory`, missing local `custom_extension_repository`, then `lock_configuration` | Confirmed 16-11-2026 | Phase 1 |
 | Staging lifetime (T9, SEC-4) | `_staging\<id>\` lives for the whole new-run wizard: removed on commit (renamed), discard or leave, a cancelled or failed load Job, and at start-up. `%TEMP%\Sankalan` is emptied after every Job | Confirmed 16-11-2026 | Phase 1 |
 | Data-folder move destination (UX-11) | Must be new or empty. Also refused: network paths, the current folder or one inside or containing it, too little free space. OneDrive gives a warning only | Confirmed 16-11-2026 | Phase 1 |
-| Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts | Confirmed 17-11-2026 | Phase 4 |
+| Export path under S1 (spike S2) | DuckDB writes `<id>.csv.part` in `%TEMP%\Sankalan`; Python streams it into `<dest>.part` next to the chosen file (BOM + header first), then renames. Cancel or failure deletes both parts. **A2-3:** chunks (no header) in `%TEMP%\Sankalan`, parts written as `<name>.partial` and renamed in by the finish step (Tech spec A2 T33, T35) | Confirmed 17-11-2026 | Phase 4 |
 | EXP-04 Reason text | "Column: Rule" per Error rule that caused it, in rule order, joined by `; ` (e.g. "Invoice No: Character pattern; Taxable Value: Is a number"). `left_out.parquet` `_reason` holds the rule IDs comma-separated | Confirmed 17-11-2026 | Phase 4 |
 | Issue message wording (UI-6) | As listed in the Phase 3 session log; duplicates name the first occurrence; CSV messages omit the sheet | Confirmed 17-11-2026 | Phase 3 |
-| Input formats (D38, IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
+| Input formats (D81, was D38; renumbered 21-11-2026 because Feature Spec A2 uses D38–D60, Tech spec A2 T67; IN-3) | .xlsx, .xlsm, **.xlsb** and **.xls** (BIFF8) plus .csv. Refused: .txt, .ods, Excel templates, other types. Excel 5.0/95 (`Book` stream), other OLE files and web pages/XML with an Excel name are file errors with their own message. Plan: `docs/plans/xls-xlsb-support.md` | Confirmed 20-11-2026 | — |
+| A2 grand total in result exports (EXP-12) | Stays the last row, as on screen; when split, last row of the last part (Tech spec A2 T38) | Confirmed 21-11-2026 | A2-4 |
+| A2 Summary with no measures (MEA-11) | No subtotal or grand total rows; Show subtotals disabled (T39) | Confirmed 21-11-2026 | A2-6 |
+| A2 old data folders (D77) | Catalogue schema version 2 created whole; a version-1 (test build) catalogue is refused at start-up, no upgrade code (T40) | Confirmed 21-11-2026 | A2-0 |
+| A2 Choose sheets file types (SHT-2) | .xlsx, .xlsm, .xlsb and .xls (T46) | Confirmed 21-11-2026 | A2-3 |
+| A2 P8 / OA-5 text groups in sorts (TXT-11) | Values first in the chosen direction, then "(Not a number)" / "(Not a date)", then "(Null)", both directions | Confirmed 21-11-2026 | A2-1 |
+| A2 blank rows without checks (NCK-4) | Rows read includes blank rows; Rows left out "None"; "Blank rows skipped: N" line at Load, Commit and Run summary (T45) | Confirmed 21-11-2026 | A2-2 |
+| A2 small fixture figures (plan A2-O1) | TPL-R small: R-0001 Taxable Value text 10 "NA" / 5 "Nil" / 1 "12,000/-" (16); R-0002 Invoice Date 3 "NA" / 2 "31-02-2026" (5); 63 left out; R-0003 400 rows without Invoice No; rows searched 7,437. TPL-N small: 2 × 5,000 rows, 20 repeated, 68 / 12 text values, 3 blank rows. Full sizes as Feature Spec A2 §10.1 | Confirmed 21-11-2026 | A2-1, A2-2 |
+| A2 perf test-case IDs (plan A2-O2) | `A2-PERF-07`…`A2-PERF-14` in `test-cases.md` (v2.0 already uses PERF-07/PERF-08), feature ID in the Spec column | Confirmed 21-11-2026 | A2-6 |
+| A2 perf machine (plan A2-O3) | Dev PC with DuckDB pinned to 4 threads and 8 GB memory limit, 3 reader workers; the 16 GB 4-core laptop run stays a manual release step (T4) | Confirmed 21-11-2026 | A2-6 |
+| A2 pre-A2 comparison point (plan A2-O4) | Temporary git worktree at `25f4d98` for the PERF-1/PERF-2 and Probe before/after (R13, R14) | Confirmed 21-11-2026 | A2-6 |
+| A2 PERF misses (plan A2-6 step 5) | PERF-5 (187 s against 60 s) and PERF-14 (386 s against 120 s) on the dev PC (`tools/perf/RESULTS-A2.md`) are **accepted as measured**; no tuning. PERF-12, PERF-1, PERF-2 and the pre-A2 comparison (R13, R14) were skipped by the user and stay unmeasured; the release laptop run (T4) stays a manual step | Confirmed 22-11-2026 | A2-6 |
+| Unique within the run, blank keys (VAL-9; Tech spec A2 5.4 vs v1.0 T17) | A row is skipped only when **every** key column is blank; blank key parts count as equal (`IS NOT DISTINCT FROM`). Code changed: `query/validate.py` `_unique_sql` (it skipped a row with any blank part). Single-column keys behave as before, so no expected figure changes | Confirmed 22-11-2026 | A2-6 follow-up |
+| EXP-13 destination message | "including working space" only when the temp folder is on the destination's drive (its need is counted there); on another drive the message omits it (`exporting.DEST_SHORT`, `WITH_WORKING`) | Confirmed 22-11-2026 | A2-6 follow-up |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -76,15 +87,563 @@ before the phase that relies on them; mark them **Confirmed** with the date when
   `tests/conftest.py::collect_garbage` now collects after every test (suite ~95 s). In the app only the data-folder
   move closes one connection and opens another: Phase 12 should check the old connection object is released at
   once (no cycle) or collect right after the move, before the next Job.
-- (17-11-2026) `tests/gui/test_analysis.py` fails 1–2 tests per run, varying (`test_list_and_search`,
-  `test_rename_and_name_uniqueness`, `test_saved_analysis_rename_and_delete_from_its_screen`,
-  `test_save_from_the_leave_prompt`), also on the Phase 11 commit: the test reads `storage.con` on the main thread
-  while a Job is still on the shared connection, and DuckDB 2.0 raises `ResourceInUseException` instead of waiting.
-  Test-side race (the app never queries on the UI thread); fix by settling the bridge before direct catalogue reads.
+- (Fixed 21-11-2026, A2-1) The GUI test races (`test_analysis.py`, `test_dialog_buttons.py`, …): see the A2-1 log.
+- (Found in A2-2, not fixed) The New run wizard's minimum height is 691 px (> 640, FIT-04) whenever Mapping is
+  skipped: the stacked pages' hint is the tallest page's, and a Mapping page that was never loaded shows every
+  decision control (463 px). Checked runs are affected the same way; `test_new_run`'s fit test loads Mapping first so
+  it doesn't see it. Fix in Phase 12, agreed 22-11-2026 (hide the decision panel until a mapping is loaded, or size the stack
+  by its current page).
+- (A2-2) Time budgets were measured on AC power. On battery (Balanced plan) the same code runs about 25% slower and
+  files go over their budgets (seen 21-11-2026 on the A2-1 commit too): run the deciding suite on AC power.
 
 ## Session log
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
+
+### 22-11-2026 — A2-6: Docs, full-size checks, performance (Done; PERF misses accepted as measured, see Decisions)
+- **Spec edits (step 1):** the list in `docs/plans/a2-6-spec-edits.md` was approved by the user ("Approve as listed")
+  and applied:
+  - `docs/specs/test-cases.md`: 82 A2 cases in a new section "Test cases A2 (Feature-Updates)":
+    - 71 cases, one per AC: `A2-ROW-01`…, `A2-MEA-…`, `A2-EXP-…`, `A2-SHT-…`, `A2-TXT-…`, `A2-NCK-…`,
+      `A2-BUG-1a/1b/1c`. Corrected for T38 (EXP-12), T39 (MEA-11), T45 (NCK-2), T46 (SHT-1), T47 and T33.
+    - 8 cases `A2-PERF-07…14`.
+    - 3 extra cases: `A2-EXP-13b` (T34), `A2-CAT-01` (T40), `A2-SHT-10` (.xlsb/.xls).
+    - Read me phases P8 and P9; reference templates TPL-R, TPL-N and TPL-S; fixtures F-A2-01…11; coverage rows for
+      the A2 screens.
+    - Existing cases updated: RUNF-07, C3-13, C3-14, C3-18, C4-06, RUNV-12, A1-03, A1-04, A1-05, A1-12, EXP-08,
+      PERF-01, PERF-02 (no expected figure changed).
+    - A2-ROW-09a follows the A2-5 interpretation (a template change clears after the prompt).
+  - `feature-spec-v2.0.md`: §12.1's changes with Tech spec §15.1's corrections; new sections Choose sheets, Text in
+    Number and Date columns, Templates without checks, Measures, Rows view, Export in parts; PERF-7…14; D38 → **D81**
+    (T67) and D38…D80 added.
+  - `technical-spec-v1.0.md`: §12.2 + Tech spec §15.2 (T32–T56 and T67, storage, ingestion, validation, query layer,
+    exports pipeline, spill-file exception, tests).
+- **Full-size correctness (step 2):** `pytest -m slow tests`, 6 passed in 373 s (`test_stored_order.py` ≈ 287 s
+  within its 300 s budget; `test_unchecked_full.py` 57 s setup + 25 s, its TPL-N set rebuilt). Every AC in
+  Feature Spec A2 §10 is named by an automated test (checked by grep: 71 of 71).
+- **Excel check (step 3, AC-EXP-9a): verified.** `tools/perf/excel_open_check.ps1` (Excel COM, dev only) opened both
+  parts of a 1,999,698-row Rows export in Excel 16.0, and Excel's used rows equalled the CSV records (1,000,001 and
+  999,699). The plan's 2,100,000-row export was not built exactly (the filter gave 2 parts, not 3).
+- **Performance (step 4):**
+  - New: `tools/perf/build_a2_data.py` (12 × 10M-row committed runs through the real pipeline and commit, with
+    `data.parquet` generated by DuckDB; the TPL-R 10M CSV; P01 file 1; P02; the sheet files), `tools/perf/load_timing.py`
+    (PERF-1 / PERF-2 / Probe, runs against this build or a pre-A2 worktree), `tests/perf/test_a2_perf.py` (marker
+    `perf`, budget 5400 s, not yet measured whole), `tools/perf/report_a2.py`, `tools/perf/RESULTS-A2.md`, results in
+    `tools/perf/_results/`. Data in `C:\SankalanPerf` (outside OneDrive; about 9 GB, can be deleted).
+  - **Met:** PERF-7 1.3 s, PERF-8 3.1 s, PERF-9 20 ms, PERF-10 ≤ 18 ms, PERF-11 31.6 s, PERF-13 ≤ 0.14 s, PERF-3 0.53 s,
+    PERF-4 8.0 s, PERF-6 0.78 s.
+  - **Missed:** **PERF-5** 187 s (target 60 s; never measured before, not caused by A2); **PERF-14** 386 s (target
+    120 s; runs 405 / 386 / 220 s). What is known about each is in `RESULTS-A2.md`. Nothing tuned.
+  - **Skipped by the user:** PERF-12 (asked before the run); the pre-A2 before/after comparison (R13, R14) and PERF-1
+    / PERF-2 (stopped during the run).
+- **Suite (AC power):** 618 passed, 2 skipped (build-only), 18 deselected, in 215.6 s (213 s timed, budgets on).
+- **Doc points found while folding the specs (not changed; need the user):**
+  1. Unique within the run, blank keys: Tech spec A2 §5.4 says a row is skipped "only when every key part is null".
+     v1.0 VAL-9, T17 and the code (`query/validate.py` `_unique_sql`, any null key part skips the row) say a blank
+     key column skips it. The folded specs follow v1.0 and the code.
+  2. EXP-13's destination message says "including working space", but under T34 the working space is on the temp
+     drive.
+  3. Feature Spec A2 §12.1 edits TPL-10, MAP-14, VR-9 and RUN-15, which the local v2.0 copy didn't have; they were
+     added as new rows. T28–T31 don't exist in the local v1.0 copy; their content went into T23, T41, T42, T44 and
+     T55.
+  4. Not edited: the v1.0 technical spec's "Feature spec changes" and "Risks" sections; D34's format list (no
+     "Changed by D81" mark); T2 and R1 name the certificate's company.
+  5. Test-case setup choices made in the A2 cases: TPL-S (sheet files template, "Branch Sales"); TPL-R R-0004 and
+     R-0005 for A2-MEA-09 and A2-NCK-07; A2-EXP-08a on the TPL-P run, since no A2 fixture has exactly 1,000,000
+     rows; A2-MEA-08 tests the clash with "State" and another measure, since no TPL-R column is named "Invoices".
+- **Live claude.ai docs (not edited; for the user):** Feature Spec v2.0 and Technical Spec v1.0 need the same folds
+  as the repo copies (lists above). The Test Cases sheet needs the 82 A2 cases, F-A2 fixtures, coverage rows and the
+  13 updated cases. Feature Spec A2 §10 should say the test cases are now in the main sheet.
+- **Not verified:** the release laptop run (T4); PERF-12, PERF-1, PERF-2 and the R13 / R14 before/after; 125% / 150%
+  scaling; the app by hand; real Explorer and drag and drop; the live docs.
+- **Decision (user, 22-11-2026):** PERF-5 and PERF-14 accepted as measured, no tuning (Decisions).
+- **Follow-up (same day, user's answers):**
+  - Doc point 1 decided: a Unique row is skipped only when every key column is blank (Decisions). Code changed in
+    `query/validate.py` with a new test, `test_rules_sql.py::test_unique_skips_a_row_only_when_every_key_part_is_blank`
+    (it failed on the old code). Specs updated: v1.0 VAL-9, the text-cell rules row and "Feature spec changes";
+    Tech spec A2 5.4; Feature Spec v2.0 VAL-9.
+  - Doc point 2 decided: "including working space" only on one drive (Decisions); `exporting.py`, `test_export.py`,
+    `test_export_dialog.py`, A2-EXP-13, Feature Spec A2 EXP-13, Tech spec A2 8.4 and Feature Spec v2.0 EXP-13.
+  - Doc point 5 (test-case setup choices) confirmed by the user as written.
+  - Doc point 4 small fixes done: D34 "Changed by D81"; Tech spec v1.0 "Feature spec changes" A2 note and Risks
+    (R2, R3 outcome, R7 retired, R8–R15 added); Feature Spec A2 AC-ROW-9a corrected and R7 marked retired.
+  - Live docs: `docs/plans/live-docs-update.md` is the instruction file for an agent to update them (not done yet;
+    the Technical Spec A2 live link isn't recorded in the repository).
+  - The New run wizard height issue (Known issues) stays for Phase 12, as agreed.
+  - **Suite for this follow-up: not run in full, at the user's request.** The laptop was on battery and two runs
+    stopped on time budgets (`gui/test_analysis.py` 25.8 s against 23 s, `gui/test_clients.py` 5.8 s against 5 s;
+    neither file touched), with every test that ran passing (295 and 308). The files the changes touch passed on
+    their own: `engine/test_rules_sql.py`, `test_validation.py`, `test_text_values.py`, `test_export.py`,
+    `gui/test_export_dialog.py`. **Run the full suite on AC power at the start of the next session.**
+  - Perf data in `C:\SankalanPerf` (7.6 GB): the safety check stopped Claude from deleting a top-level folder on C:;
+    the user deletes it.
+- **Next:** A2 is complete. Open: updating the live docs (`docs/plans/live-docs-update.md`) and Phase 12 (hardening,
+  laptop run). Merging `Feature-Updates` into `main` only when the user asks.
+
+### 22-11-2026 — A2-5: Feature A (Rows view), engine and UI
+- **Model** (`model/rowspec.py`, Tech spec A2 10.1): `RowSpec(template_id, filters, columns, show_source)` (memory
+  only; `as_definition()` for the filter checks and `analyses.describe`) and `RunRef(id, number, label, data_path,
+  rows_loaded, file_names)`. `query.catalogue.rows_view_runs` reads the ticked runs in Run ID order with their
+  `run_file` names.
+- **Queries** (`query/rows.py`, 10.2–10.4): `count_rows` (one `GROUP BY run_id` scan over the ticked runs; with no
+  filters the catalogue's rows loaded, no scan); `fetch_rows` (`CREATE TEMP TABLE _rows_<uuid>` with `_seq`, every
+  active column and companion, `run_id`, `_src_file`, `_src_sheet`, `_src_row`; per run in Run ID order one `ORDER BY
+  _src_file, _src_row LIMIT <rows still needed>`, stops when full; `between` callback before each run); `rows_page`
+  (a `_seq` range); `export_source` (one chunk per run with matches, `nullif(_src_sheet, '')`, file-name `CASE`, Run
+  ID literal, chunk rows from the counts); `ROWS_CAP = 100_000` read at call time so tests lower it. Filters go
+  through the compiler's `filter_sql`; a column a run lacks is a typed null (ROW-14); filter checks are
+  `definition.check`'s.
+- **Job work** (`rowsview.py`): `run` (stages "Counting rows" / "Fetching the first 100,000"; `ctx.on_abort` drops
+  the new table, retrying while a cancel is still interrupting; previous tables dropped once the new one is full, as
+  `analyses.run` does); `RowsOutcome` (`table`, so `layer.drop` / `window.drop_results` drop it like an analysis
+  result; `summary()`, `footer()`); `RowsSource` (rows carry every column's display text via `formats.cell_text` plus
+  file name, sheet, row, Run ID); `export_items`, `describe`, `context`. Test hook `_before_fetch`.
+- **Grid** (T52): `PagedModel.rearrange(columns, positions)` shows other columns of the loaded rows (no read, no
+  Job); `PagedGrid.set_sorting(False)` (no arrow, clicks ignored), `set_frozen(True)` (an overlaid `QTableView` on
+  the same model and selection, column 0 only, medium weight, synced scroll and width), `resizable` (Interactive
+  header sections).
+- **Screen** (`ui/screens/rows_view.py`, `analysis.py`): `ModeSwitch` "Summary | Rows" beside the title (hidden on
+  a saved analysis); Rows mode = `builder.set_sections(filters only)` + `ColumnsSection` (ticks, ↑ ↓, "N of M
+  ticked", Show them on screen with a note that the source columns are always exported) + `RowsResult` (header line,
+  Export rows (.csv), progress, frozen grid, footer, 2.4 states). Badge "Row views aren't saved", no Save, no leave
+  prompt; Run clickable with no runs ("Tick at least one run" under the runs list) or no columns ("Tick at least one
+  column" under Columns), neither starts a Job. Filters, runs, client and template grey with "Settings changed: Run
+  again"; column changes redraw from the loaded rows. Switching clears and drops both results; template change drops
+  the table.
+- **Export rows (7.9):** `model.export.prefill_rows` (kind `rows`, title "Export N rows", file name
+  `{Client}_{Template}_Rows_{DD-MM-YYYY}.csv`, folder/delimiter/encoding from the template); `ExportRequest.context`
+  (summary "Client · Template · N runs · N filters · about X · CSV file / K CSV files") and `.details` (the box:
+  "Filters: …", the columns line, the order line), shown by the Export dialog.
+- **Also changed:** `MainWindow` retries pending result drops when a Job finishes (a table left while a cancelled Run
+  still held the runner was otherwise kept until the next analysis Run); `AnalysisScreen.closing()` cancels a running
+  Run — Summary too — and drops a result a just-finished Run made. **Pre-existing fix:** an "is one of" filter row
+  needed 414 px in the 368 px settings panel, so the panel clipped on the right in both modes (FIT-04): the builder's
+  combo boxes no longer size to their longest item (`builder.narrow`) and the picked-values button elides
+  (`ElidedButton`, full text in its tooltip and `text()`).
+- **Tests (new):** `engine/test_rows_view.py` (7: AC-ROW-10 counts vs independent `count(*)` for 7 filter sets incl.
+  Is not a number / date, rows searched 7,437, no scan without filters; cap 1,000 crossing R-0001 → R-0002 in stored
+  order, `_seq` paging; cancel keeps the old table and drops the new; AC-ROW-11b, 12a, 12b (8 parts, byte-identical),
+  AC-ROW-8 export half; AC-ROW-13; AC-ROW-14; AC-TXT-1 Rows half; refusals), `gui/test_rows_view_screen.py` (11: AC-ROW-1,
+  2, 3, 4, 6, 7, 8, 9a, 9b, 11a, 11b, S1, S2, TXT-3, Export rows dialog and file, fit 1280×640), and
+  `test_stored_order.py::test_full_size_rows_view_count_fetch_and_export` (`slow`: rows searched 7,499,937, first
+  100,000 in order, 1,510 Is not a number, all three runs exported in 8 parts at the real part size in stored order,
+  grid = first 100,000 export rows). **No existing test or expected figure changed.**
+- **Deviations (where, not what):** the full-size Rows test is in `test_stored_order.py`, not a new
+  `test_rows_view_big.py`, so it reuses the module's three committed full runs (~3 min) as A2-3 did. The previous
+  table is dropped inside the Run Job once the new one is full (as `analyses.run`), not by `window.drop_results`
+  after the Job; same effect, one Job fewer. The plan's `tests/gui/test_rows_view.py` is
+  `tests/gui/test_rows_view_screen.py`: pytest can't collect two test modules with the same basename (no packages).
+- **Interpretations** (change if wrong):
+  - AC-ROW-9a "the template greys the result": a template change asks first (ROW-5) and then **clears** the settings
+    and the result and drops the table, as in Summary; there is no greyed result left to show. Cancel on the prompt
+    keeps everything.
+  - Before the first Run, Export rows is shown disabled; with no matches it is hidden (2.4 "not offered").
+  - The Columns list's order decides the export order, not the order of ticking.
+  - The Export rows summary always gives the size ("about X"); one match reads "1 row matches"; Source Row on
+    screen has grouping ("1,502", UI-7), in the export it doesn't.
+  - Long text on screen: line breaks shown as spaces (one line, 2.2); the tooltip shows the same one-line text.
+  - Leaving the screen during a Summary Run now cancels it too (it used to finish and leak its table).
+- **Suite (AC power):** 618 passed, 2 skipped (build-only), 6 deselected (`slow`), no failures, in 3 min 12 s (190 s
+  timed, budgets on). That reached the old suite expectation exactly (190 s, the two new files add ~23 s), so
+  `SUITE` is raised 190 → 215 s (stop at 237 s; CLAUDE.md updated). `slow` once (AC power, budgets off for the durations listing):
+  `test_stored_order.py` 4 passed in 252 s (commits 177 s, Rows view 45 s, the two A2-3 exports 15 s each). Budget
+  raised 250 → 300 s (CLAUDE.md table too). New files: `engine/test_rows_view.py` 8 s (6 s), `gui/test_rows_view_screen.py`
+  21 s (16.6 s).
+- **Rendered offscreen at 1366×768 and 1280×640 and looked at:** Rows mode before Run, the result with source
+  columns and the grid scrolled sideways (first column stays, medium weight), greyed "Settings changed: Run again",
+  Export rows dialog (summary, box, file name; ~470 px tall). Fixed from that: the clipped settings panel (above).
+- **Not verified:** the app by hand; 125% / 150% scaling of the switch, Columns rows and frozen column; dragging a
+  header edge on a real desktop; the frozen column's look with a vertical scrollbar on a real display; Rows view
+  speed at 10M rows (PERF-7…10, A2-6).
+- **Next:** A2-6 (docs, full-size checks, performance). Start by showing the user the list of spec edits.
+
+### 21-11-2026 — A2-4: Feature B (measures by column), engine and UI
+- **Model** (`model/definition.py`, Tech spec A2 9.1, T49): `Op(fn, name)`, `MeasureCard(column_id, ops)`, `ROWS =
+  "_rows"`, `FlatMeasure`, `flat_measures()` (cards in order, ops in the fixed order sum, count, count_distinct,
+  avg, min, max), `cards(*flat)` (groups flat measures by column; used by tests and fixtures). `to_dict` writes
+  `"definition_version": 2` and ops in MEA-6 order; `from_dict` reads version 2 only (`DefinitionError` otherwise,
+  T40). `CARD_OPS` per type (no Count distinct on Number, D70; Rows count only), `CHIP_NAMES`, `card_name`,
+  `default_name`, `card_ops`, `no_op_message`, `name_taken_message`, `clean_name`. `Measure`, `measure_label` and
+  `MEASURE_TYPES` are gone.
+- **Checks** (9.2): `first_problem(definition, columns)` gives the screen checks 3 and 4 as `(where, card index,
+  message)`; `check()` refuses them too, plus the programming errors (a column or Rows on two cards, an op twice, an
+  op that doesn't fit the type, a custom name not 1–100 characters after trimming, or clashing, ignoring case, with
+  a group header or another custom name). A Summary with groups and no measures passes (MEA-11).
+- **Headers** (`query/headers.py`, 9.3): `resolve_headers` (groups, then MEA-6 order; "Taxable Value · Sum",
+  "Rows · Count", " (removed)"; group headers and custom names placed first, then defaults get " (2)", " (3)" …;
+  two group levels on one column too), `hover_texts` (the default form), `rename_problem`.
+- **Compiler** (9.4): loops over `flat_measures()`; Rows → `count(*)`; no measures → `SELECT _depth, g…, k… …
+  GROUP BY k1, g1, …` (no ROLLUP, every row at `_depth = n`). `OutColumn.hover` added; labels come from
+  `resolve_headers`. `layer.grand_total` returns None when there are no measures, so the export has no Grand total
+  row; `layer.headers` = `resolve_headers`.
+- **Where headers flow** (9.5): `OutputState.headers(columns)` takes the labels of the result written at the
+  Outputs step (columns at that moment) and the commit stores them in `run_output.headers` (replaces A2-1's interim
+  producer). `analyses.describe` reads "Invoice No: Count, shown as Invoices" / "Invoice No: Count" ("None" with no
+  measures). `template.definition_columns` skips the Rows card. The self-test's output definition is version 2.
+- **UI** (9.6, 9.7): `ui/widgets/measures.py` (`MeasuresSection`, `MeasureCardWidget`, `OpChip` with theme QSS
+  `QPushButton[kind="op"]` 26 px pills, `#MeasureCard` with a red border on error, `AddColumnPopup` with a search box
+  above 12 columns); `ui/widgets/header_rename.py` (`RenamableHeader`: an edit icon in the right 20 px of renamable
+  sections with the header text painted left of it; click → text box with the text selected; Enter →
+  `rename_requested`, Esc / focus loss cancel; `finish()` / `show_error()`; tooltip callback). New `edit` icon.
+  `DefinitionBuilder` uses the section: `add_card`, `add_measure(FlatMeasure)` (ticks one op, adding the card),
+  `set_sections(...)` (for A2-5), `problem()` (shows checks under the section or card and scrolls to them),
+  `rename(flat_index, name)`; Show subtotals disabled with no cards; the summary counts ticked ops. `PagedGrid`
+  always uses `RenamableHeader` (nothing renamable by default); `PagedModel.set_titles` changes header text without
+  reading again.
+- **Screens:** 6.2 runs the checks before Run and Save (message under its section, no Job); ✎ on the measure
+  headers of an unsaved, current result (not while greyed or running; never on a saved analysis); a rename updates
+  the outcome's definition and headers (so the export uses it) and the builder's names, without greying or running
+  (`analyses.measure_name_problem` / `rename_measure`); no measures hides the pinned total. 6.3 locked summary uses
+  the new wording. 3.2 / 2.5 (`OutputsTab`, shared by the wizard's `OutputsStep`): Preview runs the checks; ✎ on
+  the preview's measure headers with hover text; a rename sets the output's name, marks the tab changed and keeps the
+  preview as it is (`manage.rename_problem` / `preview_headers`, `Preview.hovers`).
+- **Tests (new):** `unit/test_definition_v2.py` (7), `unit/test_headers.py` (5), `gui/test_measures.py` (9); in
+  `engine/test_query.py` AC-MEA-6 and AC-MEA-11; `engine/test_text_values.py` AC-MEA-10; `engine/test_export.py`
+  AC-MEA-5 (Average at 2 decimals in the export) and AC-MEA-11 (no Grand total row); `engine/test_run_pipeline.py`
+  AC-MEA-9 (a renamed default-output measure: the next run's stored headers and export header use it, earlier runs
+  keep theirs); `gui/test_analysis.py` AC-MEA-8 (✎ click, Enter, Esc, clash with a measure and a group header,
+  blank → default, not greyed and same time, a click beside ✎ still sorts, no ✎ while greyed or on a saved
+  analysis) and AC-MEA-4 / AC-MEA-11 on screen (Run and Save start nothing; no-measure result with the total hidden
+  and Show subtotals off); `gui/test_template.py` 3.2 preview rename (clash, dirty, Discard restores) and AC-MEA-4
+  for Preview; `gui/test_new_template.py` 2.5 builder uses cards and preview rename. **Changed:** every version-1
+  definition in the tests (`Measure(…)` lists → `cards(FlatMeasure(…), …)`; the hand-written dict in
+  `test_clients.py`), default header strings ("Sum of Taxable Value" → "Taxable Value · Sum", "Count of rows" →
+  "Rows · Count"), 6.3 lines, and the GUI tests that typed in a measure's label box (they now tick a chip).
+  **No expected figure changed.**
+- **Deviations (where, not what):** AC-MEA-10 is in `test_text_values.py`, not `test_query.py` (that module already
+  has TPL-R R-0001…R-0003 committed; `test_query.py` works on TPL-A). AC-MEA-9 extends the existing T50 test in
+  `test_run_pipeline.py` (a third run, `Sales_Jan.xlsx`). `analysis.write_outputs` still returns results (their
+  labels are the headers); the pipeline writes outputs itself and takes the headers from `OutputState.result`.
+- **Interpretations** (change if wrong):
+  - The screen's rename check compares against every other header **as shown** (resolved), so renaming a measure to
+    another measure's current default name is refused too; `definition.check` only refuses clashes with group
+    headers and other custom names (defaults are suffixed by `resolve_headers`).
+  - ✎ shows only on a current result: after a settings change (greyed) it is hidden until Run, because the result's
+    columns may no longer match the builder's cards.
+  - With no measure cards, Show subtotals is disabled with the tooltip "Add a measure to show subtotals" (its tick
+    is kept and has no effect: such a result has no subtotal rows).
+  - The outputs list summary ("1 group · 3 measures") counts ticked operations, not cards.
+  - Hovering ✎ itself reads "Rename this column"; elsewhere on a measure header, the default form.
+- **Suite (on AC power, after the follow-up fix below):** 600 passed, 2 skipped (build-only), 5 deselected
+  (`slow`), no warnings, in 2 min 43 s (161 s timed; budget 190 s). No `slow` test belongs to this phase. The
+  packaged self-test's code passed when run from source (`--no-window`, every check true).
+  - **The A2-4 commit went in before this** (at the user's request, with no full run inside the budgets: the laptop
+    had gone onto battery, and each run stopped on a different file a fraction over its limit).
+  - **Found by those runs and fixed in the follow-up commit:** `gui/test_measures.py` left Add column popups open
+    as top-level windows, which made the GUI files after it slower (`test_shell.py` 7.6 → 12.1 s) and caused the
+    stray pytest warning. The popup now deletes itself when closed and a new one replaces an open one
+    (`MeasuresSection.open_popup`); the test file closes every popup and builder it makes.
+  - Budgets raised for added tests: `engine/test_run_pipeline.py` 7 → 9 s (AC-MEA-9 commits a third run),
+    `gui/test_analysis.py` 20 → 23 s (+2 tests with analysis runs; 20.8 s on AC), `gui/test_template.py` 17 → 19 s
+    (+1 preview test; 19.4 s on AC). New files: `unit/test_definition_v2.py`, `unit/test_headers.py`,
+    `gui/test_measures.py` 5 s each.
+  - Checked along the way, against the A2-3 code: `gui/test_new_template.py` takes the same time with and without
+    this phase (it sits near its limit); `gui/test_shell.py` on its own is about 0.4 s slower (every `PagedGrid` now
+    has `RenamableHeader`), far inside its budget. `engine/test_bug1.py` failed once in a full run (one of its
+    tests, 10.0 s) and passed 4 of 4 alone: the A2-2 retrying timing test, not touched here.
+- **Rendered offscreen at 1366×768 and 1280 wide and looked at:** 6.2 with five cards (Rows, Text, Number, Date),
+  the header icons, the rename box with the clash message, a card error after Run, the Add column popup; 3.2 preview
+  with a renamed header. Fixed from that: the icon overlapped right-aligned header text (now the text is painted
+  left of it, an SVG icon rather than a font glyph), the popup's type column (grey, right-aligned, full-height
+  rows), chips 28 px under the theme (QSS heights exclude the border; now 24 + 2), and a card error below the fold
+  (the builder now scrolls to it).
+- **Not verified:** the app by hand; the packaged build (build tests not run); 125% / 150% scaling of the cards and
+  the header icon; focus loss cancelling the rename box on a real desktop (offscreen focus events are unreliable;
+  Enter and Esc are tested).
+- **Next:** A2-5 (Feature A, Rows view). `DefinitionBuilder.set_sections(...)` is ready for the Rows mode.
+
+### 21-11-2026 — A2-3: Feature C (export in parts), engine and dialogs
+- **Progress detail (T53).** `JobContext.set_detail()`, `Progress.detail` (a new stage clears it), and a muted line
+  under the stage in `ProgressPanel` (hidden while cancelling).
+- **Splitter** (`sankalan/exporting_split.py`, Tech spec A2 8.5): `Splitter(open_part, header, bom, part_rows, *,
+  tick, block)`, `.feed(path) -> records`, `.close() -> records per part`, `.abandon()`. One scan for both paths:
+  `bytes.count(b"\n")` up to the next quote (or the block end), `bytes.find` to step to the exact record end when
+  the part fills inside the block; quote state carried across blocks. A chunk that ends inside quotes or in the
+  middle of a record raises `SplitError` (→ "Export check failed"). A new part is opened only when more data comes,
+  so N = k × part size gives k parts; no rows give one part with the header.
+- **Plan** (8.3): `exporting.PART_ROWS = 1_000_000`, `plan(rows, file_name, part_rows)`, `part_count`, `stem`.
+- **Sources** (8.1): `query.export.Chunk(select, rows, order)` (`sql` adds the ORDER BY; the size sample reads
+  `select` unsorted) and `ExportSource(headers, chunks, rows, label)`. `run_data`, `left_out` and `issue_list` count N
+  from the Parquet file, `result` counts visible rows + grand total (now takes `con` and `label`). `ExportQuery` and
+  `export_many` are gone: `runs.export_items` / `analyses.export_items` / the Validate step return
+  `[(ExportSource, name)]` and `exporting.export` takes a list of sources.
+- **Estimate** (8.4, T34): `exporting.estimate(ctx, temp, sources, options, part_rows) -> Estimate` (COPY of up to
+  10,000 rows per source, × N × 1.05, + header/BOM per part; largest chunk for the temp drive);
+  `space_problem(est, folder, temp)` (no DuckDB: `shutil.disk_usage`, margins max(1 GB, 10%), needs added on one
+  drive; destination and temp-drive wordings).
+- **Export** (8.2): `export(ctx, temp, sources, folder, names, options, *, replace, part_rows, estimate_,
+  missing_rows) -> [ExportResult(paths, rows)]`. Existing names not in `replace` → `ExportExists(paths)` before
+  anything; Check (space → `NotEnoughSpace`; T36 open-for-append → `FileInUse` "… is open in another program.
+  Close it, then export again."); per chunk COPY to `%TEMP%\Sankalan\<job>-<k>.csv`, split into `.partial` parts,
+  chunk deleted; count checks (`ExportCheckFailed` "Export check failed: wrote X of N rows"); finish not cancellable
+  (`.replaced` swap, restore on any error). Clean-up on any exception and through `ctx.on_abort`. Test hooks:
+  `part_rows`, `missing_rows`, `SPLIT_BLOCK`, `PROGRESS_EVERY_S`, `_after_block`, `_before_finish`, `_open_write`,
+  `_rename`.
+- **Dialog** (7.4/7.5, 8.6): "Checking size" quiet Job on open (retried every 250 ms while the runner is busy;
+  Export disabled until it returns, `export()` refuses meanwhile); summary "N rows · CSV file" / "N rows · 3 CSV
+  files · about X" / "N rows · one CSV file per output"; parts line under the file name (follows name edits); disk
+  message above the buttons, re-read on folder change with no Job; overwrite confirmation lists every planned file
+  that exists ("Replace 3 files?", up to 10 then "and N more") and passes `replace`; progress detail; split banner
+  "Exported 2,500 rows to 3 files" with Open folder on the folder; cancel banner "Export cancelled. No files were
+  written; files that would have been replaced are unchanged."; disk-full message. Part size hook
+  `export_dialog.part_rows_hook` (tests only).
+- **Tests (new):** `unit/test_export_split.py` (planted quotes / `\r\n` / delimiters on and around part boundaries
+  at block sizes 1…8 MB, random records, exact multiples, unbalanced quote, ticks), `unit/test_export_plan.py`,
+  `gui/test_export_dialog.py` (6), `engine/test_export_big.py` (`slow`), `test_jobs.py::test_set_detail_reaches_progress`,
+  and in `engine/test_export.py`: every kind split on small TPL-R (AC-EXP-8b, 9a, 9b byte-identical to the one-file
+  export), AC-EXP-12 (T38), cancel in extract / part 2 of 3 / before finish with SHA-256 of replaced files and an
+  untouched `_part04of04` (AC-EXP-14a, AC-EXP-10), forced finish failure, count mismatch and disk full (AC-EXP-14b),
+  a file held open the way Excel holds it (`CreateFileW` share-read; T36), free space (EXP-13), estimate within
+  −5…+25% of the written size. `test_stored_order.py` gains the full-size 3-part export of R-0002.
+  **Changed:** callers of the old interface, `.part` → `.partial`, the cancel banner, the overwrite prompt for Export
+  all outputs (now asked before the Job, listing both files), GUI tests settle for the size check
+  (`settle_window` waits for an open Export dialog's check). No expected figure changed.
+- **Deviations (where, not what):** the full-size TPL-R split test is in `test_stored_order.py`, not
+  `test_export_big.py`, so it reuses that module's three committed full runs instead of committing them again
+  (~3 min); `test_export_big.py` holds the 1,000,000 / 1,000,001-row cases (rows from DuckDB's `range`). Budgets:
+  `test_export.py` 12 → 16 s (9 new tests), `test_analysis.py` 17 → 20 s and `test_new_run.py` 14 → 16 s (every
+  Export dialog now runs a size check, and the tests settle for it); new files added.
+- **Interpretations** (change if wrong):
+  - Free-space margins follow T34 exactly, so **every export needs at least about 2 GB free** when the folder and
+    `%TEMP%` are on the same drive (1 GB margin each), even a 5 KB one. The packaged self-test's export needs it too.
+  - Progress detail: "part K of M" for a split file; Export all outputs says "file K of M" (counting every file of
+    every output); no detail for a single unsplit file.
+  - Summary: the size ("about X") is shown only when something is split; Export all outputs reads "N rows · one CSV
+    file per output" (rows of all outputs added) unless an output splits ("N rows · 5 CSV files · about X").
+  - The size check uses the delimiter and encoding at open (a later change alters the estimate by bytes only). If it
+    fails, its message shows and Export is enabled (the export Job estimates again and reports the same problem).
+  - Overwrite confirmation: one file keeps "Replace “name”?"; several read "Replace 3 files?" with the list. Export
+    all outputs now asks before starting (it used to ask after the Job found the first existing file).
+  - Disk full while writing: "The drive C: became full, so the export stopped. No files were written; files that
+    would have been replaced are unchanged. Free up space or choose a folder on another drive." The progress note
+    reads "Cancelling deletes the files written so far."
+  - The issue list keeps today's order (no ORDER BY; it is written in file, row, rule order), as Tech spec 8.1 says.
+- **Flaky test fixed (test only):** one full run failed `test_analysis.py::test_save_from_the_leave_prompt` with a
+  DuckDB error: it read `storage.con` on the main thread straight after opening Clients, whose "Read clients" quiet
+  Job held the connection (the A2-1 race pattern). It now settles first; the file passed 3 runs out of 3.
+- **Suite:** 571 passed, 2 skipped (build-only), 5 deselected (`slow`) in about 2 min 45 s (budget 190 s). `slow` once:
+  `test_export_big.py` 1 passed (2 s); `test_stored_order.py` 3 passed in 3 min 29 s (commits 181 s, the new 3-part
+  export of R-0002 15 s; budget 250 s).
+- **Rendered offscreen at 1366×768 and looked at:** 7.4 with the summary and parts line, the disk message with
+  Export disabled, 7.5 with "part 2 of 3", the split banner with Open folder. The dialog is about 430 px tall, so it
+  fits 1280×640.
+- **Not verified:** the app by hand; opening the parts in Excel 365 (AC-EXP-9a's Excel half, A2-6 as planned); a
+  real full disk and a real second drive (both simulated); 125% / 150% scaling of the parts line (long names without
+  spaces wrap only at spaces); export speed at 10M rows (PERF, A2-6).
+- **Next:** A2-4 (Feature B, measures by column).
+
+
+### 21-11-2026 — A2-2: Feature F (template without checks), then Feature D (choose sheets)
+- **Fixtures.** `tests/fixtures/tpl_n.py` (TPL-N): TPL-R's 20 columns, checks No, two CSV files. Small: 2 × 5,000
+  data rows, 20 repeated rows (file 2's first rows copy text-free rows of file 1), 68 Taxable Value text values
+  ("NA" 40, "Nil" 20, "-" 5, "12,000/-" 2, " NA " 1), 12 Invoice Date ("NA" 8, "31-02-2026" 4), 3 blank rows as extra
+  lines (Rows read 10,003, Rows loaded 10,000). Full: 2 × 500,000, 2,000 repeated, 6,802 (4,000/2,000/790/10/2) and
+  120 (100/20), 10 blank rows. The manifest (computed in Python) holds each value's count and first file and row.
+  Fixtures `tpl_n_small`, `tpl_n_full` (cached; a set that fails `verify` is not kept), helpers `load_tpl_n`,
+  `commit_unchecked`. Sheet files S01–S06 in `generate.py`: `Sales_Nov-2026_Central.xlsx` (Sales Nov 300, Returns
+  Nov 50, hidden Notes), `…_East.xlsx` (Sales 200), `…_West.xlsx` (Sales 100, Sales Returns 20, Cover: a cover page
+  with no header row), `…_Central_Renamed.xlsx` (Sales November), and Central saved by Excel as `.xlsb` / `.xls`
+  (checked in under `tests/fixtures/static`; `make_static_formats.ps1` lists them; only the Central job was run, so
+  F22–F27 are unchanged). `verify()` checks them all.
+- **Feature F engine.** `Template.checks` in the settings JSON (snapshot, `copy()`, Duplicate); `load_template` reads
+  `settings.get("checks", True)`. `RunSession.checks` fixed at start, `third_step`, `load_unchecked` (read + convert
+  + text counts; no scan, no `issues`/`left_out`; `split_done` set so Outputs and Commit work unchanged),
+  `LoadSummary`, `text_values` → `textvalues.text_values` (≤ 1,000, count desc then text, first file/sheet/row),
+  `recheck_load` (probe again → Files / Mapping / load again; mapping decisions kept while headers are unchanged).
+  `validate` and `edit_rules` refuse a run without checks (NCK-13). Commit: `checks = false`, errors/warnings 0,
+  `rows_left_out` 0, `left_out_by_reason` all 0, `rows_read` with blank rows, no issue counts.
+  `runs.RunView.checks` / `blank_rows`; `runs.export_items` and `model.export.prefill(checks=False)` refuse issues
+  and left-out rows. `newtemplate.build_template(checks=)` saves no rules with No; `sample_text_counts` (2.4b).
+  `manage.save_template` makes sure of the automatic type rules when checks is Yes (No → Yes).
+- **Feature F UI.** `controls.YesNoBar`. 2.4: the bar, No shows the 2.4b panel (explanation, Column · Type · "N of M"
+  table, footer), rules kept and back on Yes; Review says "None · this template loads without checks". 3.4: Check
+  data before loading under Template name (hint inline); the left panel now scrolls inside itself so the tab fits
+  1280×640. 3.3 with No: "Not in use" banner, rules greyed, add/edit/remove and severity off, Test rules hidden.
+  New run: step label "Load", page 2 = `LoadStep` (banner, four cards with "Blank rows skipped" / "Hidden rows
+  skipped", text-count table, values list via a "Read values" Job), Next labels, Cancel/Back → Mapping or Files,
+  Re-check. 4.5b Commit lines, "Values that aren't numbers count as 0 on both sides", comment optional. Run screen:
+  no Issues tab, "Data checks: Not checked", blank rows line, header line "· Not checked", ⋯ menu without the two
+  exports. Runs list: Issues "Not checked" (and its row menu without them); delete dialog doesn't list an issue list.
+- **Feature D.** `probe.SheetEntry`; every reader got a dimension-only `last_row` (xlsx `<dimension>` before
+  `sheetData`, xlsb `BrtWsDim`, xls `DIMENSIONS`); `sheet_entries`, `resolve_sheets` (choice, by name, first, all;
+  T47), `rule_ticks`. Sheet not found is one row per file (`sheet = ""`, "Sheets found: …"). `probe_file(…, chosen)`,
+  `stage.probe(choices=)`. Session: `sheet_choice`, `can_choose_sheets`, `choose_sheets` (probe that path again),
+  `dialog_ticks`, ✕/Exclude drop the choice, `run_file.sheets_chosen` at commit. Files step: "Choose sheets…" on a
+  file's first row next to ✕, the Sheet not found banner (Choose sheets… · Exclude file), footer "Choose sheets for
+  N files, or exclude them, to continue", drop-zone hint "reads sheets Sales and Sales Returns unless you choose
+  others for a file". `ui/dialogs/choose_sheets.py` (4.1c).
+- **Tests (new):** `engine/test_unchecked.py` (9), `engine/test_choose_sheets.py` (4), `engine/test_unchecked_full.py`
+  (`slow`, 1), `gui/test_unchecked_screens.py` (5), `gui/test_choose_sheets_screens.py` (3); probe tests for sheet
+  lists on all four Excel kinds, one row per file, choices, Cover; wizard test for AC-NCK-1; TPL-N fixture test.
+  **Changed:** Sheet not found expectations (one row per file; F10 "Sheets found: Data"; the by-name case on F16 is
+  now a file error); the Files-step banner test (Choose sheets… on the Sheet not found banner). No expected figure
+  changed.
+- **Deviations / test changes:** `text_values` takes the first sheet with `arg_min` in the same scan instead of a
+  second lookup (how, not what). `test_bug1.py::test_old_cleanup_breaks_spilled_tables` (A2-1) failed 1 run in 4 on
+  unchanged code (whether a spill file is deleted while still needed is timing): it now tries its scenario up to 3
+  times. Budgets: `test_bug1.py` 5 → 8 s (the retries), `test_fixture_pack.py` 6 → 8 s (TPL-N generated twice); new
+  files added. New strings were reworded where the offline SQL guard read "Load …" as a `LOAD` statement
+  (`LOAD_FILES = "Load" " files"`, as `LOAD_ANYWAY`).
+- **Interpretations** (change if wrong):
+  - Sheet not found banner: "<file>: sheets to read not found. Sheets found: Sales Nov, Returns Nov." (the row's
+    message names only the sheets). A file in Header not found after a choice offers only Exclude file in its
+    banner (AC-SHT-5); Re-check stays at the top of the step. Without a choice it keeps Exclude file · Re-check.
+  - Choose sheets dialog: a visible sheet with no dimension record reads "rows not known"; the total counts it as 0.
+  - Columns & rules of a template with No shows the automatic type rules greyed too (the tab always adds them), and
+    saving that tab stores them (rules are kept whatever the setting).
+  - Back from Outputs (or Commit with Outputs skipped) on a run without checks shows the Load step as it was,
+    without loading again (nothing was split).
+  - Run summary for a run without checks: "All totals matched: In the files = Loaded. Values that aren't numbers
+    count as 0 on both sides." Checked runs don't get a "Data checks" line.
+- **Suite:** 536 passed, 2 skipped (build-only), 3 deselected (`slow`) in 2 min 33 s on AC power (budget 190 s).
+  `slow`: `test_unchecked_full.py` 1 passed (1M rows loaded, values list and commit in 16 s; generation ~45 s once).
+  Its first run found a generator bug: file 2's repeated rows overwrote 14 planted text values at full size only;
+  plants now skip those rows. Earlier runs this session on battery went over several budgets on unchanged code too
+  (see Known issues).
+- **Rendered offscreen at 1366×768 and looked at:** 2.4b, 4.3b with the values list, 4.5b, 5.1 for a run without
+  checks, 3.3 "Not in use", 3.4, 4.1b with banners and links, 4.1c. Fixed from that: the Choose sheets… link was
+  clipped (action column 160 → 190 px, Status 140 → 120), the Settings scroll area's horizontal bar, the Run
+  summary's totals sentence.
+- **Not verified:** the app by hand; 125% / 150% scaling; the real file dialog / drag and drop; reader workers in the
+  GUI (tests read in the Job thread; the slow engine test uses 2 workers); `.xlsm` Choose sheets only via
+  `Sales_Macro.xlsm` (one sheet); probe time on many-sheet workbooks (R14, A2-6).
+- **Next:** A2-3 (Feature C, export in parts).
+
+### 21-11-2026 — Test time budgets (asked by the user: testing was delaying development)
+- `tests/time_budgets.py`: an expected time per test file, measured on the dev PC (normal suite 150 s, slow
+  `test_stored_order.py` 198 s with cached data) plus ~25% headroom, minimum 5 s; suite 190 s.
+- `tests/conftest.py` enforces them: a file more than 10% over its budget stops the run at once (`TIME BUDGET: …`,
+  exit code 3); a hung test is killed 10 s after that limit by a faulthandler watchdog that dumps every thread's
+  stack to pytest's real stderr. Building shared test data (fixture pack, TPL-R) is excluded from the clock.
+  `SANKALAN_NO_TIME_BUDGET=1` switches it off for debugging only.
+- CLAUDE.md → "Test time budgets (stop rule)": over budget by more than 10% → stop, investigate, fix, run again.
+  The plan's session checklist points to it.
+- Checked: a probe file over budget stopped the run with the message; a sleeping test was killed with a dump
+  naming it; the full suite (505 passed, 149 s) stays within every budget.
+
+### 21-11-2026 — A2-1: Groundwork and Feature E (text in Number and Date columns), catalogue v2, BUG-1
+- **Step 0, green baseline.** `test_many_issues_first_10000_then_discard` did **not** fail this session: it passed
+  in its module, in `tests/gui`, and in three repeated GUI runs (it can't run alone: it relies on R-0001/R-0002
+  committed by earlier tests in its module). No product bug found. The races that did show were in the tests'
+  `settle()`: it waited only for the window's own bridge, but tests share one Job runner between windows, so a Job
+  from the previous test's window (its teardown "Read clients") could hold the runner; the new screen's quiet read
+  was then deferred and retried only on its own bridge's `jobFinished`, which never came, and settle returned early
+  (`KeyError` in the builder, `IndexError` in Outputs, the `test_analysis.py` `ResourceInUseException`). New
+  `conftest.settle_window`: waits for the shared runner too and retries deferred reads; every GUI module uses it.
+  GUI suite 3 runs out of 3 green afterwards.
+- **Test tiers:** marker `slow` in `pytest.ini`, deselected by default (`addopts -m "not slow and not perf"`); run
+  with `pytest -m slow`. `generate.py` writes TPL-R small every time and TPL-R full with `--full`.
+- **TPL-R** (`tests/fixtures/tpl_r.py`): figures as plan A2-O1; each run one .xlsx (sheets Sales A, Sales B) plus
+  CSV files; R-0002 adds Place of Supply (c021); R-0003's `TPLR_R3_NoInvoiceNo.csv` has no Invoice No. `verify()`
+  reads the files back with calamine / csv; the manifest holds per-run figures computed in Python (the oracle).
+  Fixtures `tpl_r_small` (session), `tpl_r_full` (cached in `tests/fixtures/_generated/tpl_r_full_<hash>`, ~1.3 GB),
+  `tpl_r_runs` (module storage with R-0001…R-0003 committed through `RunSession`: Add as new column, override,
+  Leave as null).
+- **Catalogue version 2** (T40): `_V2` is the whole schema (`run.checks`, `run.text_counts`,
+  `run_file.sheets_chosen`, `run_output.headers`); `MIGRATIONS = {2: _V2}`. `catalogue.check_file` reads the
+  version with a read-only connection **before** the backup and before any folder is created;
+  `CatalogueFromTestBuild` for version 1. `ui/dialogs/data_folder_refused.py`: the §12.2 message with Close /
+  Create new folder… / Choose folder…; the chosen folder is written to `settings.json` and opened on the background
+  thread as at every start (refused again → asked again). Commit writes `checks = true`, `sheets_chosen = false`,
+  `text_counts` (commit Job, `query/textvalues.text_counts`) and `headers` (today's headers, `layer.headers`);
+  `layer.open_output` / `runs.stored_output` show the stored headers (T50).
+- **BUG-1** (T54): `paths.empty_folder(keep=)`, `Storage._job_end` keeps `duckdb_temp_<pid>_*`; open and close empty
+  everything. SEC-4 leftover checks (tests' `temp_leftovers`, `selftest.py`) allow only those files. **Reproduced
+  by hand and kept as a test:** a 2,000,000-row temp table at a 128 MiB limit, then a sort into a second table in
+  the next Job: the old clean-up fails with "Failed to delete file …duckdb_temp_<pid>_0_storage_S32K-0.tmp" and
+  then "Cannot open file …block…"; the fix passes. (A plain create-then-read did *not* fail on the old code:
+  Windows lets DuckDB keep reading a deleted file through its open handle.)
+- **Convert** (§5.1, §5.2): two-level `part_select` with `cNNN_t` companions; `conversion_failures.parquet`,
+  `write_failures`, `failure_counts`, `read_failures` and `StagedSample.failures` removed; `LoadResult.text_counts`
+  replaces `failures`; `convert_values` returns `(value, text)`; `read_text_values` for tests. **Deviation (how,
+  not what):** `write_data` writes `data.parquet.unsorted` and then sorts it into `data.parquet` (T32) in a second
+  statement. The fused `COPY (… UNION ALL … ORDER BY …)` ran **out of memory** on one full TPL-R run (2.5M rows ×
+  20 columns + companions) at 1 GiB / 2 threads; two statements took 32 s + 5 s within the limit. The laptop's
+  ratio (8 GB for a 10M-row load) is similar, so this protects PERF-1/PERF-14 loads too; A2-6 measures it.
+- **Validation** (§5.4): type rules read the companions (one issue per text cell); Not blank is
+  `c IS NULL AND c_t IS NULL`; Unique key parts are the value as shown or the text (two "NA" are duplicates);
+  `_bad` / `fl` / `fr` CTEs gone; same SQL for the wizard's dry run and Test rules on latest run (which now finds
+  type failures in committed text). Split unchanged (`SELECT d.*` keeps companions and sorts).
+- **Query layer** (§5.6): filter ops `not_number` / `not_date` (T55, also in default outputs); typed Blank / Not
+  blank; Count = `count(c) + count(c_t)`; companions selected only when a group, Count or Blank / Not blank /
+  Is not a … filter needs them; kind columns `k1…kn` with `ROLLUP((k1, g1), …)`, stored in outputs; `order_by`
+  sorts kind first (P8; a group sort flips only the value); `layer.rows` returns `definition.TEXT_GROUP` for kind 1,
+  shown "(Not a number)" / "(Not a date)" by `formats.result_cell` and labelled in result exports.
+- **Display and export** (§5.3): `formats.cell_text` / `right_aligned` (used by the Rows view in A2-5); export
+  `_text` = `coalesce(<formatted c>, c_t)`; run data and left-out exports `ORDER BY _src_file, _src_row`.
+- **UI:** the builder offers Is not a number / Is not a date with the help text under the op picker (and as the
+  item tooltip); `analyses.describe` "Taxable Value is not a number"; the wizard's type note adds "· 2% aren't
+  numbers and are kept as text" (§5.9).
+- **Tests (new):** `test_bug1.py` (AC-BUG-1a, the old-code failure, AC-BUG-1b), `test_text_values.py` (AC-TXT-2…9,
+  T56, storage, order), `test_stored_order.py` (`slow`: AC-BUG-1c, stored order, export order), catalogue v2 and
+  the version-1 refusal (hashes unchanged), start-up refusal in `test_shell.py` (Close / Create new folder / a full
+  folder refused then a data folder chosen), companions and sorted write in `test_convert_sql.py`, TPL-R exports
+  (AC-TXT-1 export half, quoting, stored order, kind labels), stored headers after a column rename
+  (`test_run_pipeline.py`), `cell_text`, AC-TXT-10 (engine and wizard), filters' help text and grid labels on
+  TPL-R (`test_analysis.py`). **Changed:** old-interface tests (`failures` → `text_counts`, `read_failures` →
+  `read_text_values`, a hand-built companion instead of a failures file), F04's left-out export now shows "abc"
+  (the text kept), the wizard's type notes carry the text share, default-output date ops include "is not a date",
+  catalogue upgrade tests at version 3. No expected figure changed.
+- **Interpretations** (change if wrong):
+  - Choose folder… in the refusal dialog also accepts an existing data folder (one with `catalogue.duckdb`),
+    otherwise Change…'s checks; Create new folder… creates `Sankalan Data` (or `Sankalan Data 2`, …) inside the
+    folder picked. Close exits without touching anything (no error box: the message was the refusal).
+  - `run_output.headers` stores today's headers (`Sum of Taxable Value`); A2-4 switches the producer (done).
+  - Count distinct on a Number column is still allowed (refusing it is MEA-3, A2-4; done).
+  - Unique within the run still skips a row when **any** key part is blank, as the code did (Tech spec 5.4 says
+    "only when every key part is null, as today", which contradicts today's code); text now counts as filled.
+- **Suite:** 505 passed, 2 skipped (build-only), 2 deselected (`slow`) in 2 min 28 s. `slow` once:
+  `test_stored_order.py` 2 passed in 9 min (full TPL-R built, 3 × 2.5M-row runs committed with 3 reader workers at
+  1 GiB / 2 threads). Its first run found a full-size-only generator bug (Invoice No `INV-<run><n:06d>` gained an
+  8th digit from row 1,000,000 and failed the pattern rule, so the override left 1.5M rows out); now 7 digits for n
+  and pattern `INV-99999999`, and `verify()` checks every Invoice No against it.
+- **Hang seen once:** a GUI test that fails before discarding its edits leaves a real "Save your changes?" modal
+  open on the next navigation, and the suite then waits forever (it happened with `test_output_checks`, whose
+  expected ops lacked "is not a date"). If a run stops progressing, look at the first failure before it.
+- **Rendered offscreen at 1366×768 and looked at:** the filter rows with help text (first layout had the help
+  overlapping the op picker; the row is now a grid with the help on its own line), the text groups in the Summary
+  grid, the refusal prompt.
+- **Not verified:** the app by hand (see the commit report); 125% / 150% scaling of the filter help line; the
+  laptop's memory behaviour of the two-step Convert (A2-6).
+- **Next:** A2-2 (Feature F, then Feature D).
+
+### 21-11-2026 — A2 implementation plan (no code)
+- New `docs/plans/a2-implementation-plan.md`: Tech spec A2 §16's eleven phases grouped into six (A2-1…A2-6), each
+  with the spec sections to read, steps, new and changed tests, acceptance criteria (every AC of Feature Spec A2
+  §10 assigned to a phase) and a cut line. Phase table above replaced. CLAUDE.md spec map points to the plan.
+- **As the user asked:** no phase before A2-6 runs performance tests. The PERF-1/PERF-2 baselines that Tech spec
+  §16 put in A2-0 move to A2-6: they are measured on a worktree at `25f4d98` (pre-A2) against the A2 build. Any
+  missed target is shown to the user, who decides whether to proceed.
+- **Confirmed by the user the same day** (plan → Settled items, and Decisions above): small fixture figures (A2-O1); A2
+  perf test-case IDs `A2-PERF-07…14`, because `test-cases.md` already uses PERF-07/PERF-08 for v2.0 (A2-O2); dev PC
+  pinned to 4 threads / 8 GB for perf (A2-O3); worktree at `25f4d98` for before/after (A2-O4).
+- Found while planning: start-up has no data-folder chooser today (`app._failed` closes the app), so the T40
+  refusal needs a small new dialog (A2-1 step 3).
+- Suite not run: docs-only change; code is unchanged since `25f4d98` (suite state in the entry below).
+- **Next:** A2-1.
+
+### 21-11-2026 — Technical Spec A2 (no code)
+- Feature Spec A2 (21-11-2026; replaces A1 and the UX changes note) copied to `docs/specs/feature-spec-a2.md`.
+  New `docs/specs/technical-spec-a2.md` (T32–T56, T67) replaces Technical Spec A1. The A1 specs and A1 plan are marked
+  superseded; CLAUDE.md's spec map points to A2. Phase table: A1-0…A1-7 replaced by A2-0…A2-10.
+- **Answered by the user (21-11-2026):** work from A2 alone (A2's T28–T31 refer to a Tech Spec v1.0 copy not in the
+  repo, so new decisions start at T32; repo D38 → D81); grand total stays last in result exports; no total rows when
+  a Summary has no measures; version-1 data folders refused, no upgrade; Choose sheets on all four Excel kinds; P8
+  confirmed; "Blank rows skipped" line for runs without checks; spec kept as a repo file only.
+- **Spikes S8 (dev PC, DuckDB 2.0.0, 10M rows):** Convert's `UNION ALL` write does **not** keep load order (A2 8.7
+  relied on it), so Convert sorts and stored-order reads add `ORDER BY` (T32); first 100,000 rows of a run in one
+  `ORDER BY … LIMIT` 0.9–2.2 s; ordered export +22%; `ROLLUP((k, g))` works; spill files are `duckdb_temp_<pid>_*`.
+- **Corrections to Feature Spec A2** are listed in Tech spec A2 section 15.1 (chunks in `%TEMP%`, two-drive disk check,
+  grand total last, no-measure totals, `conversion_failures.parquet` retired, one Sheet not found row per file, …).
+- **Not done:** the detailed A2 implementation plan; the live Feature Spec A2 / test sheet are not updated with 15.1;
+  the A2 canvas artboards (4.1b, 4.1c, 6.4–6.6, 7.9, 2.4b, 4.3b, 4.5b) are not in `docs/specs/ui-screens`.
+- **Suite (docs-only change, code as `674c678`):** 465 passed, 2 skipped, 5 failed in 35 min (normally ~95 s; the PC
+  was slow). Rerun of the 5: three `test_dialog_buttons.py` tests passed (timing flakes, as under Known issues);
+  `test_new_template_cancel_discard[True]` failed once ("pick" returned False) and passed on the next run;
+  `tests/gui/test_new_run.py::test_many_issues_first_10000_then_discard` fails every time, also with these changes
+  stashed: after "Leave and discard this run?", `q.list_runs` returns `[]` instead of R-0001, R-0002. Not
+  investigated: look at it before A2-2, which changes the run wizard.
+- **Next:** write the A2 implementation plan from Tech spec A2 section 16, then start A2-0.
 
 ### 20-11-2026 — .xls and .xlsb input (D38)
 - **Decision:** after a spike (Excel 16 saved one workbook in every format it offers; read with python-calamine

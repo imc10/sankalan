@@ -1,15 +1,19 @@
 r"""Convert stage (Tech spec, Ingestion → 4. Convert; MAP-9, MAP-10, T13, T14).
 
 One SELECT per file and sheet reads its raw staged text and lines its columns up by mapping onto template column
-IDs (a column with no source → null). They are joined with UNION ALL, converted, and written to ``data.parquet``.
-Values that are not blank but don't convert go to ``conversion_failures.parquet`` with the text as typed: for
-values that failed conversion this is the only place the original text is kept, and the validation scan turns
-them into Is a number / Is a date issues (VAL-2, VAL-4).
+IDs (a column with no source → null). They are joined with UNION ALL, converted, and written to ``data.parquet``
+sorted by ``_src_file, _src_row`` (Tech spec A2 T32: DuckDB doesn't keep a UNION ALL's order, spike S8a).
+
+Text companions (Tech spec A2 5.1, T41; Feature Spec A2 TXT-1): every Number and Date column ``cNNN`` has a
+``cNNN_t VARCHAR``. It holds the cell's text exactly as staged (spaces included, T14) where the cell isn't blank and
+doesn't convert, and is null on every other row, so ``cNNN`` and ``cNNN_t`` are never both filled. A column with no
+source in a file (MAP-6) is null in both. Is a number and Is a date issues read the companions (VAL-2, VAL-4).
 
 The rules are the ones documented in ``sankalan/ingest/values.py`` (the Python oracle), using the same patterns.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,8 +22,16 @@ from sankalan.ingest.canonical import SRC_ROW, value_name
 from sankalan.model.template import DATE, NUMBER, Column
 
 DATA = "data.parquet"
-FAILURES = "conversion_failures.parquet"
 FIXED_COLUMNS = ("run_id", "_src_file", "_src_sheet", "_src_row")
+
+
+def companion(column_id: str) -> str:
+    """The text companion of a Number or Date column (Tech spec A2 5.1)."""
+    return f"{column_id}_t"
+
+
+def has_companion(col: Column) -> bool:
+    return col.type in (NUMBER, DATE)
 
 
 def lit(text: str) -> str:
@@ -117,66 +129,78 @@ def _source(part: RawPart, col: Column) -> str | None:
     return value_name(pos)
 
 
+def _converted(col: Column, value: str | None, raw: str | None) -> list[str]:
+    """The outer level's items for one column, given the inner level's converted ``value`` and staged ``raw`` text
+    (both None when the file has no source for it)."""
+    if value is None:
+        items = [f"CAST(NULL AS {sql_type(col)}) AS {col.id}"]
+        if has_companion(col):
+            items.append(f"CAST(NULL AS VARCHAR) AS {companion(col.id)}")
+        return items
+    if not has_companion(col):
+        return [f"{value} AS {col.id}"]
+    return [f"{value} AS {col.id}",
+            f"CAST(CASE WHEN {value} IS NULL AND NOT {blank_sql(raw)} THEN {raw} END AS VARCHAR) "
+            f"AS {companion(col.id)}"]
+
+
 def part_select(part: RawPart, columns: list[Column], run_id: str) -> str:
-    items = [f"{lit(run_id)} AS run_id", f"CAST({part.file_index} AS INTEGER) AS _src_file",
+    """Two levels, so each conversion is computed once per cell: the inner level converts, the outer level picks the
+    value or keeps the text in the companion (Tech spec A2 5.2)."""
+    inner = [f"{lit(run_id)} AS run_id", f"CAST({part.file_index} AS INTEGER) AS _src_file",
              f"{lit(part.sheet)} AS _src_sheet", f"{SRC_ROW} AS _src_row"]
-    for col in columns:
+    outer = ["run_id", "_src_file", "_src_sheet", "_src_row"]
+    for n, col in enumerate(columns):
         src = _source(part, col)
-        expr = f"CAST(NULL AS {sql_type(col)})" if src is None else f"CAST({convert_sql(col, src)} AS {sql_type(col)})"
-        items.append(f"{expr} AS {col.id}")
-    return f"SELECT {', '.join(items)} FROM {read_raw_sql(part)}"
+        if src is None:
+            outer += _converted(col, None, None)
+            continue
+        inner.append(f"CAST({convert_sql(col, src)} AS {sql_type(col)}) AS x{n}")
+        if has_companion(col):
+            inner.append(f"{src} AS r{n}")
+        outer += _converted(col, f"x{n}", f"r{n}")
+    return f"SELECT {', '.join(outer)} FROM (SELECT {', '.join(inner)} FROM {read_raw_sql(part)})"
 
 
-def failures_select(part: RawPart, columns: list[Column]) -> str | None:
-    typed = [(col, _source(part, col)) for col in columns if col.type in (NUMBER, DATE)]
-    typed = [(c, s) for c, s in typed if s is not None]
-    if not typed:
-        return None
-    bads = [f"(NOT {blank_sql(s)} AND {convert_sql(c, s)} IS NULL)" for c, s in typed]
-    inner = ", ".join([f"CAST({part.file_index} AS INTEGER) AS _src_file", f"{lit(part.sheet)} AS _src_sheet",
-                       f"{SRC_ROW} AS _src_row"]
-                      + [f"{s} AS raw{i}" for i, (_c, s) in enumerate(typed)]
-                      + [f"{b} AS bad{i}" for i, b in enumerate(bads)])
-    structs = ", ".join(f"{{'column_id': {lit(c.id)}, 'value': raw{i}, 'bad': bad{i}}}"
-                        for i, (c, _s) in enumerate(typed))
-    any_bad = " OR ".join(f"bad{i}" for i in range(len(typed)))
-    return (f"SELECT _src_file, _src_sheet, _src_row, f.column_id AS column_id, f.value AS value FROM ("
-            f"SELECT _src_file, _src_sheet, _src_row, unnest([{structs}]) AS f FROM ("
-            f"SELECT {inner} FROM {read_raw_sql(part)}) WHERE {any_bad}) WHERE f.bad")
-
-
-_EMPTY_FAILURES = ("SELECT CAST(NULL AS INTEGER) AS _src_file, CAST(NULL AS VARCHAR) AS _src_sheet, "
-                   "CAST(NULL AS BIGINT) AS _src_row, CAST(NULL AS VARCHAR) AS column_id, "
-                   "CAST(NULL AS VARCHAR) AS value WHERE false")
+UNSORTED = ".unsorted"
 
 
 def write_data(con, parts: list[RawPart], columns: list[Column], run_id: str, out: Path) -> None:
+    """The run's rows in stored order: file (the file-sheets in load order), then source row (T32).
+
+    Two statements: convert into ``<out>.unsorted``, then sort that plain Parquet into ``out`` and delete it. Fusing
+    the conversion and the sort in one statement ran out of memory on 2,500,000 rows × 20 columns at a 1 GiB limit
+    (dev PC, 21-11-2026); in two steps the same load took 32 s + 5 s within the limit."""
     if not parts:
         raise ValueError("no file to convert")
     union = " UNION ALL ".join(part_select(p, columns, run_id) for p in parts)
-    con.execute(f"COPY ({union}) TO {_path(out)} (FORMAT parquet)")
-
-
-def write_failures(con, parts: list[RawPart], columns: list[Column], out: Path) -> None:
-    selects = [s for s in (failures_select(p, columns) for p in parts) if s is not None] or [_EMPTY_FAILURES]
-    con.execute(f"COPY ({' UNION ALL '.join(selects)}) TO {_path(out)} (FORMAT parquet)")
+    tmp = Path(out).with_name(Path(out).name + UNSORTED)
+    try:
+        con.execute(f"COPY ({union}) TO {_path(tmp)} (FORMAT parquet)")
+        con.execute(f"COPY (SELECT * FROM read_parquet({_path(tmp)}) ORDER BY _src_file, _src_row) "
+                    f"TO {_path(out)} (FORMAT parquet)")
+    finally:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def parquet_rows(con, path: Path) -> int:
     return int(con.execute(f"SELECT count(*) FROM read_parquet({_path(path)})").fetchone()[0])
 
 
-def failure_counts(con, path: Path) -> dict[str, int]:
-    """Failures per column ID."""
-    rows = con.execute(f"SELECT column_id, count(*) FROM read_parquet({_path(path)}) GROUP BY column_id").fetchall()
-    return {r[0]: int(r[1]) for r in rows}
-
-
-def read_failures(con, path: Path) -> list[tuple]:
-    """(file, sheet, row, column ID, value as typed), ordered by file, sheet and row: for tests and Phase 3."""
-    return [tuple(r) for r in con.execute(
-        f"SELECT _src_file, _src_sheet, _src_row, column_id, value FROM read_parquet({_path(path)}) "
-        f"ORDER BY _src_file, _src_row, column_id").fetchall()]
+def read_text_values(con, path: Path, columns: list[Column]) -> list[tuple]:
+    """(file, sheet, row, column ID, text as typed) of every companion value, ordered by file, row and column: for
+    tests."""
+    cols = [c for c in columns if has_companion(c) and not c.removed]
+    if not cols:
+        return []
+    union = " UNION ALL ".join(
+        f"SELECT _src_file, _src_sheet, _src_row, {lit(c.id)} AS column_id, {companion(c.id)} AS value "
+        f"FROM read_parquet({_path(path)}) WHERE {companion(c.id)} IS NOT NULL" for c in cols)
+    return [tuple(r) for r in con.execute(f"SELECT * FROM ({union}) ORDER BY _src_file, _src_row, column_id")
+            .fetchall()]
 
 
 def read_rows(con, path: Path, column_ids: list[str]) -> list[tuple]:
@@ -192,13 +216,16 @@ def column_sums(con, path: Path, column_ids: list[str]) -> dict[str, object]:
     return dict(zip(column_ids, row))
 
 
-def convert_values(con, raws: list[str | None], col: Column) -> list:
-    """Convert loose values with the SQL rule (tests check it against the Python oracle). No files touched."""
+def convert_values(con, raws: list[str | None], col: Column) -> list[tuple]:
+    """Convert loose values with the SQL rule (tests check it against the Python oracle): ``(value, text)`` per
+    value, ``text`` being what the companion keeps (always None for a Text column). No files touched."""
     if not raws:
         return []
     rows = ", ".join(f"({i}, {'NULL' if r is None else lit(r)})" for i, r in enumerate(raws))
-    sql = (f"SELECT CAST({convert_sql(col, 'v')} AS {sql_type(col)}) FROM (VALUES {rows}) t(i, v) ORDER BY i")
-    return [r[0] for r in con.execute(sql).fetchall()]
+    items = ", ".join(_converted(col, "x", "v"))
+    sql = (f"SELECT {items} FROM (SELECT i, v, CAST({convert_sql(col, 'v')} AS {sql_type(col)}) AS x "
+           f"FROM (VALUES {rows}) t(i, v) ORDER BY i)")
+    return [(r[0], r[1] if len(r) > 1 else None) for r in con.execute(sql).fetchall()]
 
 
 def rows_by_file(con, path: Path) -> dict[int, int]:

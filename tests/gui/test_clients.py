@@ -2,7 +2,7 @@
 import pytest
 from PySide6.QtCore import Qt
 
-from conftest import new_run, spec, stage_fake_run
+from conftest import new_run, settle_window, spec, stage_fake_run
 from sankalan import formats, manage
 from sankalan.db import datafolder
 from sankalan.model.template import Column, DefaultOutput, Template
@@ -16,10 +16,7 @@ from sankalan.ui.window import MainWindow
 
 
 def settle(qtbot, w, timeout=10_000):
-    def idle():
-        w.bridge.poll()
-        return not w.bridge._tracked
-    qtbot.waitUntil(idle, timeout=timeout)
+    settle_window(qtbot, w, timeout)
 
 
 @pytest.fixture
@@ -57,8 +54,10 @@ def add_client(qtbot, w, name):
 def simple_template(con, client_id, name="Sales Register", outputs=1):
     cols = [Column("c001", "Invoice No"), Column("c002", "Amount", "Number")]
     t = Template("", client_id, name, columns=cols,
-                 outputs=[DefaultOutput(f"Out {i}", {"template_id": "", "filters": [], "groups": [],
-                                                     "measures": [{"column_id": None, "fn": "count", "label": None}],
+                 outputs=[DefaultOutput(f"Out {i}", {"definition_version": 2, "template_id": "", "filters": [],
+                                                     "groups": [],
+                                                     "measures": [{"column_id": "_rows",
+                                                                   "ops": [{"fn": "count", "name": None}]}],
                                                      "subtotals": False}) for i in range(outputs)])
     return q.create_template(con, t)
 

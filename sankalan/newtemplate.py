@@ -11,7 +11,7 @@ Steps:
 1. ``inspect`` the picked file; ``check_name`` (unique within the client, C3-05).
 2. ``sheets_to_read`` for the chosen setting; ``stage`` reads the sample and profiles its columns (``detect``).
 3. Columns are drafted from the profiles (``draft_columns``).
-4. ``convert`` writes the sample's ``data.parquet`` / ``conversion_failures.parquet`` for the drafted columns, then
+4. ``convert`` writes the sample's ``data.parquet`` (with text companions) for the drafted columns, then
    ``dry_run`` counts each rule's failures and keeps the first 20 (VR-8).
 5. ``preview`` runs a default output on the sample (DO-8).
 6. ``build_template`` + ``save`` (``create_template``, version 1).
@@ -112,7 +112,6 @@ class StagedSample:
     limited: bool                       # the file holds more rows than were read
     columns: list[SourceColumn]
     data: Path | None = None            # after ``convert``
-    failures: Path | None = None
     converted_for: object = None        # the columns ``convert`` last ran for
 
     @property
@@ -229,6 +228,9 @@ def detect(p: qs.Profile) -> Detected:
     else:
         typ, fmt, ok = TEXT, None, p.filled
         note = "100% text"
+    if typ in (NUMBER, DATE) and ok < p.filled:     # the rest is kept as text (Feature Spec A2 6.2, Tech spec 5.9)
+        what = "numbers" if typ == NUMBER else "dates"
+        note += f" · {percent(p.filled - ok, p.filled)} aren't {what} and are kept as text"
     if blank_share >= Decimal("0.5"):
         note = f"{percent(p.total - p.filled, p.total)} blank"
     return Detected(typ, fmt, note, ok == p.filled)
@@ -295,14 +297,12 @@ def convert_sample(ctx: JobContext, staged: StagedSample, drafts: list[DraftColu
                              {d.column.id: staged.columns[d.source].positions[i] for d in cols})
              for i, p in enumerate(staged.parts)]
     data = staged.staging.path / convert.DATA
-    fails = staged.staging.path / convert.FAILURES
     staged.data = staged.converted_for = None
     cur = ctx.cursor()
     columns = [d.column for d in cols]
     convert.write_data(cur, parts, columns, staged.staging.id, data)
     ctx.check_cancelled()
-    convert.write_failures(cur, parts, columns, fails)
-    staged.data, staged.failures, staged.converted_for = data, fails, sig
+    staged.data, staged.converted_for = data, sig
 
 
 @dataclass
@@ -317,9 +317,28 @@ def dry_run(ctx: JobContext, staged: StagedSample, drafts: list[DraftColumn], ru
     sample's converted rows."""
     from sankalan.validation import scan
     convert_sample(ctx, staged, drafts)
-    counts, first = scan.dry_run(ctx, staged.data, staged.failures, included(drafts), rules,
-                                 {0: staged.file_name})
+    counts, first = scan.dry_run(ctx, staged.data, included(drafts), rules, {0: staged.file_name})
     return DryRun(counts, first, staged.rows)
+
+
+@dataclass
+class SampleTextCount:
+    """One line of the 2.4b table (NCK-3): "Tax Amount · 38 of 100,000"."""
+    column_id: str
+    name: str
+    type: str
+    count: int
+    rows: int
+
+
+def sample_text_counts(ctx: JobContext, staged: StagedSample, drafts: list[DraftColumn]) -> list[SampleTextCount]:
+    """The sample's values that aren't numbers (Number columns) or dates (Date columns), per column, for step 4
+    with Check data before loading = No (2.4b, NCK-3). Columns with none are left out."""
+    from sankalan.query.textvalues import text_counts
+    convert_sample(ctx, staged, drafts)
+    cols = included(drafts)
+    counts = text_counts(ctx.cursor(), staged.data, cols)
+    return [SampleTextCount(c.id, c.name, c.type, counts[c.id], staged.rows) for c in cols if counts.get(c.id)]
 
 
 # ---------------------------------------------------------------------------------------------- step 5 (preview)
@@ -340,16 +359,19 @@ def _remap_definition(definition: dict, ids: dict[str, str]) -> dict:
 
 
 def build_template(client_id: str, name: str, source: SourceSettings, drafts: list[DraftColumn],
-                   rules: list[Rule], outputs: list[DefaultOutput], export: dict | None = None) -> Template:
+                   rules: list[Rule], outputs: list[DefaultOutput], export: dict | None = None,
+                   checks: bool = True) -> Template:
     """The template to save: included columns in the order shown, numbered c001… in that order (V3-2 stable IDs
-    from here on), the rules with the automatic type rules (VR-7), the default outputs pointing at the new IDs."""
+    from here on), the rules with the automatic type rules (VR-7), the default outputs pointing at the new IDs.
+    With ``checks`` False (Check data before loading = No) no rules are saved at all (Tech spec A2 6.2): the
+    automatic type rules come when the setting is turned to Yes."""
     cols = [copy.deepcopy(d.column) for d in drafts if d.include]
     ids = {c.id: f"c{i + 1:03d}" for i, c in enumerate(cols)}
     for c in cols:
         c.id = ids[c.id]
         c.name = c.name.strip()
     out_rules = []
-    for r in rules:
+    for r in (rules if checks else []):
         if r.column_id not in ids:
             continue
         r = Rule.from_dict(r.to_dict())
@@ -358,9 +380,10 @@ def build_template(client_id: str, name: str, source: SourceSettings, drafts: li
             keys = [ids[k] for k in r.settings["columns"] if k in ids]
             r.settings = {"columns": keys} if len(keys) > 1 else {}
         out_rules.append(r)
-    t = Template("", client_id, name.strip(), copy.deepcopy(source), cols, with_type_rules(cols, out_rules),
+    t = Template("", client_id, name.strip(), copy.deepcopy(source), cols,
+                 with_type_rules(cols, out_rules) if checks else [],
                  [DefaultOutput(o.name.strip(), _remap_definition(o.definition, ids)) for o in outputs],
-                 dict(export or {}))
+                 dict(export or {}), checks=bool(checks))
     return t
 
 

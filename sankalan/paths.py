@@ -17,6 +17,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from sankalan import APP_NAME
 
@@ -71,12 +72,14 @@ def data_folder(paths: AppPaths) -> Path:
 
 
 # ---------------------------------------------------------------------------------------------- temp folder
-def empty_folder(folder: Path) -> None:
-    """Delete everything inside ``folder`` (the folder itself stays). Files still held open are skipped; they go
-    at the next clean-up."""
+def empty_folder(folder: Path, keep: Callable[[str], bool] | None = None) -> None:
+    """Delete everything inside ``folder`` (the folder itself stays), except entries whose name ``keep`` accepts.
+    Files still held open are skipped; they go at the next clean-up."""
     if not folder.is_dir():
         return
     for child in folder.iterdir():
+        if keep is not None and keep(child.name):
+            continue
         try:
             if child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child, ignore_errors=True)

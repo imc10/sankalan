@@ -4,6 +4,10 @@ The catalogue (``<data folder>\\catalogue.duckdb``) records which clients, templ
 A run is visible only once its catalogue row exists, so the row is the commit point (T8). Definitions are stored
 as JSON text and parsed in Python, so no DuckDB JSON extension is needed.
 
+Schema version 2 (Tech spec A2 T40, 12.1) is created whole for a new data folder; there is no upgrade from version 1,
+which only test builds made. A version-1 catalogue is refused (``CatalogueFromTestBuild``) before anything in the
+folder is touched.
+
 Table names follow the Technical Spec, except that the spec's ``column`` table is ``template_column`` here
 (COLUMN is an SQL keyword). There are no foreign keys: DuckDB can't cascade, and the delete protocol removes
 child rows explicitly in one transaction.
@@ -17,10 +21,11 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+FIRST_SUPPORTED = 2           # older catalogues came from test builds (D77): refused, never upgraded
 BACKUPS_KEPT = 5
 
-_V1 = [
+_V2 = [
     """CREATE TABLE schema_version (
         version INTEGER NOT NULL,
         upgraded_on TIMESTAMP NOT NULL)""",
@@ -84,7 +89,9 @@ _V1 = [
         errors BIGINT NOT NULL,
         warnings BIGINT NOT NULL,
         run_changes VARCHAR NOT NULL,       -- JSON: run-only rule changes and aliases
-        totals VARCHAR NOT NULL)            -- JSON: per ticked column Input / Loaded / Left out as text (T20)""",
+        totals VARCHAR NOT NULL,            -- JSON: per ticked column Input / Loaded / Left out as text (T20)
+        checks BOOLEAN NOT NULL,            -- the template's Check data before loading, as used by this run (T43)
+        text_counts VARCHAR NOT NULL)       -- JSON {column_id: text values in the loaded rows} (T56)""",
     """CREATE TABLE run_file (
         run_id VARCHAR NOT NULL,
         file_index INTEGER NOT NULL,        -- the _src_file value in the Parquet files
@@ -99,6 +106,7 @@ _V1 = [
         hidden_rows BIGINT NOT NULL,
         sheets_skipped VARCHAR NOT NULL,    -- JSON list of hidden sheets skipped
         duplicate_decision VARCHAR NOT NULL,  -- RUN-7
+        sheets_chosen BOOLEAN NOT NULL,     -- sheets chosen by hand for this file (SHT-10; never shown)
         PRIMARY KEY (run_id, file_index))""",
     """CREATE TABLE run_issue_count (
         run_id VARCHAR NOT NULL,
@@ -113,6 +121,7 @@ _V1 = [
         name VARCHAR NOT NULL,
         definition VARCHAR NOT NULL,        -- JSON: the definition used for this run (DO-6)
         file VARCHAR NOT NULL,              -- outputs\\<n>.parquet, relative to the run folder
+        headers VARCHAR NOT NULL,           -- JSON list: the result's headers at commit, never changed (T50)
         PRIMARY KEY (run_id, position))""",
     """CREATE TABLE run_id_counter (
         template_id VARCHAR PRIMARY KEY,
@@ -127,13 +136,17 @@ _V1 = [
 ]
 
 # version -> statements that take the catalogue from (version - 1) to version. Parquet files are never rewritten.
-MIGRATIONS: dict[int, list[str]] = {1: _V1}
+MIGRATIONS: dict[int, list[str]] = {2: _V2}
 TABLES = ("schema_version", "client", "template", "template_version", "template_column", "rule", "default_output",
           "run", "run_file", "run_issue_count", "run_output", "run_id_counter", "saved_analysis")
 
 
 class CatalogueTooNew(Exception):
     """The catalogue was written by a newer Sankalan than this one."""
+
+
+class CatalogueFromTestBuild(Exception):
+    """A version-1 catalogue: made by a test build, refused with no change to the folder (T40, 12.2)."""
 
 
 def current_version(con: duckdb.DuckDBPyConnection) -> int:
@@ -146,11 +159,14 @@ def current_version(con: duckdb.DuckDBPyConnection) -> int:
 
 
 def ensure_schema(con: duckdb.DuckDBPyConnection, target: int = SCHEMA_VERSION) -> int:
-    """Create a new catalogue or upgrade an older one, each step in its own transaction. Returns the version."""
+    """Create a new catalogue (straight at version 2) or upgrade an older supported one, each step in its own
+    transaction. Returns the version. Raises ``CatalogueFromTestBuild`` for a version-1 catalogue."""
     version = current_version(con)
     if version > target:
         raise CatalogueTooNew(version)
-    for v in range(version + 1, target + 1):
+    if 0 < version < FIRST_SUPPORTED:
+        raise CatalogueFromTestBuild(version)
+    for v in range(max(version, FIRST_SUPPORTED - 1) + 1, target + 1):
         con.execute("BEGIN TRANSACTION")
         try:
             for stmt in MIGRATIONS[v]:
@@ -161,6 +177,32 @@ def ensure_schema(con: duckdb.DuckDBPyConnection, target: int = SCHEMA_VERSION) 
             con.execute("ROLLBACK")
             raise
     return max(version, target)
+
+
+def file_version(catalogue: Path) -> int:
+    """The schema version of a catalogue file, read without changing it (0 when there is none yet). Start-up calls
+    it before the backup and before the connection is opened, so a refused folder is left exactly as it was. The
+    read-only connection never installs or loads an extension (SEC-1) and is closed at once."""
+    if not Path(catalogue).is_file():
+        return 0
+    con = duckdb.connect(str(catalogue), read_only=True, config={
+        "autoinstall_known_extensions": False, "autoload_known_extensions": False,
+        "allow_community_extensions": False, "allow_unsigned_extensions": False,
+        "enable_external_access": False})
+    try:
+        return current_version(con)
+    finally:
+        con.close()
+
+
+def check_file(catalogue: Path, target: int = SCHEMA_VERSION) -> int:
+    """Raise ``CatalogueFromTestBuild`` / ``CatalogueTooNew`` for a catalogue this version can't open."""
+    version = file_version(catalogue)
+    if version > target:
+        raise CatalogueTooNew(version)
+    if 0 < version < FIRST_SUPPORTED:
+        raise CatalogueFromTestBuild(version)
+    return version
 
 
 # ---------------------------------------------------------------------------------------------- backups (T10)

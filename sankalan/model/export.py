@@ -6,6 +6,7 @@ characters Windows doesn't allow in file names become ``_``.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -16,6 +17,9 @@ PLACEHOLDERS = ("Client", "Template", "RunID", "Output")
 
 # What {Output} stands for in exports that aren't a default output
 DATA_NAME, LEFT_OUT_NAME, ISSUES_NAME = "Data", "Left-out rows", "Issues"
+
+# Exports a run loaded without checks doesn't have (NCK-12)
+CHECKED_ONLY = ("issues", "left_out")
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
@@ -104,8 +108,8 @@ class ExportRequest:
     """What the Export dialog (7.4) opens with (EXP-4, C4-18): the template's export defaults with the
     name pattern resolved for this export. ``kind``: data | issues | left_out | output | outputs (every output of
     the run, one file each) | analysis. ``output``: the output's position for ``output``; ``subtotals``: as shown;
-    ``items``: set by a screen whose data isn't a committed run yet (the Validate step's issue list, RUNV-07): Job
-    work returning the queries and file names. ``sankalan.runs.export_items`` resolves every other request."""
+    ``items``: set by a screen whose data isn't a committed run (the Validate step's issue list, RUNV-07; an analysis
+    result): Job work returning the export sources and file names. ``sankalan.runs.export_items`` resolves every other request."""
     kind: str
     template_id: str
     run_id: str | None
@@ -116,9 +120,11 @@ class ExportRequest:
     output: int | None = None
     subtotals: bool | None = None
     values: dict | None = None          # Client, Template, RunID for the per-output names of Export all outputs
-    items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportQuery, file name)]
+    items: Callable | None = field(default=None, compare=False)    # Job work → [(ExportSource, file name)]
     what: str = ""                      # "R-0013 data", "State-wise sales": the dialog's "Export R-0013 data"
     rows: int | None = None             # rows the file will hold, when the screen knows ("9,344,350 rows · CSV file")
+    context: tuple = ()                 # Export rows (7.9): the summary's leading items, "Client · Template · 3 runs · 2 filters"
+    details: tuple = ()                 # Export rows (7.9): the box's lines (filters, columns, row order)
 
     @property
     def many(self) -> bool:
@@ -128,7 +134,11 @@ class ExportRequest:
 
 def prefill(kind: str, export: dict | None, *, template_id: str, client: str, template: str,
             run_id: str | None = None, run_label: str = "", output: str = "", position: int | None = None,
-            subtotals: bool | None = None, items: Callable | None = None, rows: int | None = None) -> ExportRequest:
+            subtotals: bool | None = None, items: Callable | None = None, rows: int | None = None,
+            checks: bool = True) -> ExportRequest:
+    """``checks`` False (a run loaded without checks) refuses the issue list and left-out rows (NCK-12)."""
+    if kind in CHECKED_ONLY and not checks:
+        raise ValueError(f"A run loaded without checks has no {kind.replace('_', '-')} export")
     d = ExportDefaults.of(export)
     name = output or {"data": DATA_NAME, "issues": ISSUES_NAME, "left_out": LEFT_OUT_NAME}.get(kind, "")
     file_name = csv_file_name(d.pattern, Client=client, Template=template, RunID=run_label, Output=name)
@@ -143,3 +153,21 @@ def describe(kind: str, run_label: str, output: str = "") -> str:
     return {"data": f"{run}data", "issues": f"{run}issue list", "left_out": f"{run}left-out rows",
             "outputs": f"all outputs of {run_label}".strip(),
             "analysis": output or "analysis result"}.get(kind, output or kind)
+
+
+# ---------------------------------------------------------------------------------------------- Export rows (7.9)
+def rows_file_name(client: str, template: str, today: dt.date) -> str:
+    """{Client}_{Template}_Rows_{DD-MM-YYYY}.csv (Feature Spec A2 2.3), made safe for Windows."""
+    return safe_file_name(f"{client}_{template}_Rows_{today.strftime('%d-%m-%Y')}") + ".csv"
+
+
+def prefill_rows(export: dict | None, *, template_id: str, client: str, template: str, rows: int,
+                 items: Callable, context: list[str], details: list[str], today: dt.date | None = None
+                 ) -> ExportRequest:
+    """The Export rows dialog (7.9): folder, delimiter and encoding from the template's export defaults; the file
+    name {Client}_{Template}_Rows_{date}; title "Export N rows"."""
+    d = ExportDefaults.of(export)
+    what = f"{rows:,} {'row' if rows == 1 else 'rows'}"
+    return ExportRequest("rows", template_id, None, d.folder, rows_file_name(client, template, today or dt.date.today()),
+                         d.pattern, d.options, values={"Client": client, "Template": template, "RunID": ""},
+                         items=items, what=what, rows=rows, context=tuple(context), details=tuple(details))

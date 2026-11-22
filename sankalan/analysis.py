@@ -48,7 +48,8 @@ def distinct_values(ctx: JobContext, column: Column, sources: list[Path], search
 def write_outputs(ctx: JobContext, outputs: list[tuple[str, Definition]], columns: list[Column], data: Path,
                   folder: Path) -> list[layer.Result]:
     r"""Default outputs on a staged run's rows, stored as ``outputs\<n>.parquet`` (DO-4, DO-6). ``outputs``:
-    (name, definition) in order; files are numbered from 1. Phase 5 adds the per-output status and Retry."""
+    (name, definition) in order; files are numbered from 1. Each result's column labels are the headers resolved
+    with the columns at this moment, which the commit stores in ``run_output.headers`` (T50)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     out = []

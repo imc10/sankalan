@@ -128,12 +128,14 @@ class IssueSource:
 
 # ---------------------------------------------------------------------------------------------- outputs (DO-6, DO-7)
 def stored_output(ctx: JobContext, definition: dict, columns: list[Column], path: Path, *,
-                  subtotals: bool | None = None, limit: int = manage.PREVIEW_ROWS) -> manage.Preview:
-    """A generated output read back as stored, never recalculated (DO-6, C6-10): headers, first rows, total."""
+                  subtotals: bool | None = None, limit: int = manage.PREVIEW_ROWS,
+                  headers: list[str] | None = None) -> manage.Preview:
+    """A generated output read back as stored, never recalculated (DO-6, C6-10): headers (those stored at commit,
+    T50, when given), first rows, total."""
     start = time.monotonic()
     defn = Definition.from_dict(definition)
     cur = ctx.cursor()
-    res = layer.open_output(defn, columns, Path(path), cur)
+    res = layer.open_output(defn, columns, Path(path), cur, headers)
     sub = defn.subtotals if subtotals is None else subtotals
     rows = layer.rows(cur, res, subtotals=sub, limit=limit)
     total = layer.grand_total(cur, res)
@@ -157,6 +159,19 @@ class RunView:
     @property
     def label(self) -> str:
         return self.run["label"]
+
+    @property
+    def checks(self) -> bool:
+        """False for a run loaded without checks (NCK-12): no issues, nothing left out."""
+        return bool(self.run.get("checks", True))
+
+    @property
+    def blank_rows(self) -> int:
+        """Blank rows skipped (T45): in ``left_out_by_reason`` for a checked run, Rows read − Rows loaded for a run
+        without checks."""
+        if self.checks:
+            return int(self.run["left_out_by_reason"].get("blank", 0))
+        return int(self.run["rows_read"]) - int(self.run["rows_loaded"])
 
     @property
     def issues(self) -> Path:
@@ -206,9 +221,10 @@ def _output_name(request: ex.ExportRequest, name: str) -> str:
                             RunID=v.get("RunID", ""), Output=name)
 
 
-def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest) -> list[tuple[qx.ExportQuery, str]]:
-    """The queries and file names an Export request writes (run data, left-out rows, issue list, one output, all
-    outputs). Requests from screens whose data isn't committed yet carry their own ``items``."""
+def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest) -> list[tuple[qx.ExportSource, str]]:
+    """The sources and file names an Export request writes (run data, left-out rows, issue list, one output, all
+    outputs: one source each, Tech spec A2 8.1). Requests from screens whose data isn't committed yet (the Validate
+    step's issue list) or that aren't a run (an analysis result) carry their own ``items``."""
     if request.items is not None:
         return request.items(ctx)
     if request.run_id is None:
@@ -216,6 +232,8 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
     view = run_view(ctx, folder, request.run_id)
     con = ctx.cursor()
     label = view.label
+    if request.kind in ex.CHECKED_ONLY and not view.checks:       # NCK-12, Tech spec A2 6.8 (defence behind the UI)
+        raise RunProblem(f"{label} was loaded without checks: it has no issue list or left-out rows.")
     if request.kind == "data":
         return [(qx.run_data(con, view.run_dir / convert.DATA, view.template.columns, view.file_names, label),
                  request.file_name)]
@@ -226,7 +244,7 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
         return [(qx.left_out(con, path, view.template.columns, view.file_names, label, view.rules),
                  request.file_name)]
     if request.kind == "issues":
-        return [(qx.issue_list(view.issues, view.file_names, view.column_names), request.file_name)]
+        return [(qx.issue_list(con, view.issues, view.file_names, view.column_names), request.file_name)]
     if request.kind in ("output", "outputs"):
         outs = view.run["outputs"]
         if request.kind == "output":
@@ -236,10 +254,10 @@ def export_items(ctx: JobContext, folder: DataFolder, request: ex.ExportRequest)
         items = []
         for o in outs:
             res = layer.open_output(Definition.from_dict(o.definition), view.template.columns, view.run_dir / o.file,
-                                    con)
+                                    con, o.headers)
             sub = Definition.from_dict(o.definition).subtotals if request.subtotals is None else request.subtotals
             name = request.file_name if request.kind == "output" else _output_name(request, o.name)
-            items.append((qx.result(res, subtotals=sub), name))
+            items.append((qx.result(con, res, subtotals=sub, label=o.name), name))
         return items
     raise RunProblem(f"Unknown export {request.kind!r}.")
 

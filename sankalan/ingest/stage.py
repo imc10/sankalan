@@ -1,8 +1,8 @@
 r"""Ingestion stages as Job work (Tech spec, Ingestion): probe (Files step), then read and convert (Validate step).
 
 ``probe`` builds the file list. ``load`` reads every chosen file and sheet in reader workers into
-``_staging\<id>\raw\<file-index>.csv`` and converts them with DuckDB into ``data.parquet`` and
-``conversion_failures.parquet``. Re-check (VR-6) or a return to Mapping runs ``load`` again on the same staging.
+``_staging\<id>\raw\<file-index>.csv`` and converts them with DuckDB into ``data.parquet`` (with the text
+companions of Number and Date columns, Tech spec A2 5.1). Re-check (VR-6) or a return to Mapping runs ``load`` again on the same staging.
 A cancelled or failed load deletes the staging folder (decision confirmed 16-11-2026); the wizard starts a new one.
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ from sankalan.ingest.probe import ERROR, WARNING, FileSheet, probe_file, screen_
 from sankalan.ingest.workers import TaskFailed, run_tasks
 from sankalan.jobs import JobContext
 from sankalan.model.run import run_label
+from sankalan.query.textvalues import text_counts
 from sankalan.model.template import Column, SourceSettings, active
 from sankalan.query import catalogue as q
 from sankalan.query import convert
@@ -34,14 +35,17 @@ class LoadFailed(Exception):
 
 # ---------------------------------------------------------------------------------------------- probe
 def probe(ctx: JobContext, paths, *, settings: SourceSettings, columns: list[Column] | None = None,
-          template_id: str | None = None, existing=(), workers: int | None = None) -> list[FileSheet]:
+          template_id: str | None = None, existing=(), workers: int | None = None,
+          choices: dict[str, list[str]] | None = None) -> list[FileSheet]:
     """The Files-step rows for newly added ``paths``. With ``template_id``, files whose contents were already
     loaded in an earlier run of that template (checked
-    on the Job's connection) get a warning naming the run and its date (RUN-7)."""
+    on the Job's connection) get a warning naming the run and its date (RUN-7). ``choices``: path → sheets chosen
+    for it in this run (SHT-3)."""
     accepted, screened = screen_paths(paths, existing)
     ctx.set_stage("Checking files")
     known = mapping_mod.known_names(columns) if columns else None
-    results = run_tasks(probe_file, [(p, settings, known) for p in accepted], workers=workers,
+    choices = choices or {}
+    results = run_tasks(probe_file, [(p, settings, known, choices.get(p)) for p in accepted], workers=workers,
                         should_stop=lambda: ctx.cancel_requested) if accepted else []
     rows_by_path: dict[str, list[FileSheet]] = {}
     for p, res in zip(accepted, results):
@@ -104,9 +108,8 @@ class PartResult:
 class LoadResult:
     parts: list[PartResult]
     rows_loaded: int                                    # rows in data.parquet
-    failures: dict[str, int] = field(default_factory=dict)   # column ID -> values that failed conversion
+    text_counts: dict[str, int] = field(default_factory=dict)   # column ID -> values kept as text (TXT-1)
     data: Path | None = None
-    failures_file: Path | None = None
 
     @property
     def rows_read(self) -> int:
@@ -171,12 +174,10 @@ def load(ctx: JobContext, folder: DataFolder, staging: Staging, parts: list[Load
     raws = [convert.RawPart(p.file_index, p.sheet, raw_path(staging, p.file_index), p.width, p.mapping)
             for p in parts]
     data = staging.path / convert.DATA
-    fails = staging.path / convert.FAILURES
     convert.write_data(cur, raws, cols, staging.id, data)
     ctx.check_cancelled()
-    convert.write_failures(cur, raws, cols, fails)
-    result = LoadResult(out, convert.parquet_rows(cur, data), convert.failure_counts(cur, fails), data, fails)
-    return result
+    return LoadResult(out, convert.parquet_rows(cur, data), {k: n for k, n in text_counts(cur, data, cols).items()
+                                                             if n}, data)
 
 
 def _clear(staging: Staging) -> None:
@@ -184,7 +185,7 @@ def _clear(staging: Staging) -> None:
     for f in staging.raw.iterdir():
         if f.is_file():
             f.unlink()
-    for name in (convert.DATA, convert.FAILURES):
+    for name in (convert.DATA, convert.DATA + convert.UNSORTED):
         try:
             os.remove(staging.path / name)
         except FileNotFoundError:

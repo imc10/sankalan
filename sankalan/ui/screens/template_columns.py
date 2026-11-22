@@ -3,6 +3,10 @@
 Columns: rename, reorder, add, remove (refused while a default output uses the column). Type and decimal places are
 fixed once the template has a committed run (a column added here stays editable until it is saved). Aliases and
 rules per column; "Test rules on latest run" counts failures on the latest run and stores nothing.
+
+With Check data before loading = No (NCK-11, NCK-13; Tech spec A2 6.3) the rules are kept but drawn greyed under
+"Not in use: this template loads without checks"; adding, editing and removing them is off and Test rules on latest
+run is hidden. Column edits stay allowed.
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import copy
 import datetime as dt
 
 from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -30,6 +35,7 @@ NOTE = "Changes apply from the next run. Data already loaded is never changed."
 FIXED = "Fixed after the first run"
 NOTHING_STORED = "Nothing is stored."
 EXCEL_DATES = "Excel dates"
+NOT_IN_USE = "Not in use: this template loads without checks"
 
 
 def setting_text(rule: Rule, columns: list[Column]) -> str:
@@ -59,6 +65,7 @@ class ColumnsTab(TemplateTab):
         self.selected: str | None = None
         self.tested: dict[str, int] = {}
         self.tested_on = ""
+        self.no_checks = False              # the template loads without checks: rules not in use (NCK-11)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 16, 0, 0)
         lay.setSpacing(12)
@@ -165,6 +172,13 @@ class ColumnsTab(TemplateTab):
             self.add_rule_button.mapToGlobal(self.add_rule_button.rect().bottomLeft())))
         rules_head.addWidget(self.add_rule_button)
         dl.addLayout(rules_head)
+        self.not_in_use = QLabel(NOT_IN_USE, self.detail)
+        self.not_in_use.setWordWrap(True)
+        self.not_in_use.setStyleSheet(f"background: {theme.WARNING_TINT}; border: 1px solid {theme.WARNING_BORDER}; "
+                                      f"border-radius: 6px; color: {theme.WARNING_TEXT}; padding: 8px 12px; "
+                                      f"font-size: {theme.GRID_TEXT_PX}px;")
+        self.not_in_use.hide()
+        dl.addWidget(self.not_in_use)
         self.rules_table = QTableWidget(0, 5, self.detail)
         self.rules_table.setHorizontalHeaderLabels(["Rule", "Setting", "If it fails", "Test", ""])
         self.rules_table.verticalHeader().hide()
@@ -215,8 +229,13 @@ class ColumnsTab(TemplateTab):
         self.locked = {c.id for c in self.columns} if detail.has_runs else set()
         self.latest = detail.latest
         self.tested = {}
+        self.no_checks = not detail.template.checks
         self.test_info.setText("" if detail.latest else "Test rules needs a committed run.")
         self.screen.bridge.set_allowed(self.test_button, detail.latest is not None)
+        self.test_button.setVisible(not self.no_checks)         # NCK-13
+        self.test_info.setVisible(not self.no_checks)
+        self.not_in_use.setVisible(self.no_checks)
+        self.add_rule_button.setEnabled(not self.no_checks)
         keep = self.selected if any(c.id == self.selected for c in self.active) else None
         self.selected = None
         self._fill_list()
@@ -325,13 +344,17 @@ class ColumnsTab(TemplateTab):
                 sev.addItem(s, s)
             sev.setCurrentIndex(SEVERITIES.index(rule.severity))
             sev.currentIndexChanged.connect(lambda _i, rid=rule.id, cb=sev: self.set_severity(rid, cb.currentData()))
+            sev.setEnabled(not self.no_checks)
             self.rules_table.setCellWidget(r, 2, sev)
             n = self.tested.get(rule.id)
             test = QTableWidgetItem(fails_text(n))
             if n:
                 test.setForeground(Qt.GlobalColor.darkRed if rule.severity == ERROR else Qt.GlobalColor.darkYellow)
             self.rules_table.setItem(r, 3, test)
-            if not rule.automatic:
+            if self.no_checks:
+                for c in (0, 1, 3):
+                    self.rules_table.item(r, c).setForeground(QColor(theme.DISABLED_TEXT))
+            if not rule.automatic and not self.no_checks:
                 rm = icon_button("close", f"Remove rule {rule.name}")
                 rm.clicked.connect(lambda _c=False, rid=rule.id: self.remove_rule(rid))
                 self.rules_table.setCellWidget(r, 4, rm)
@@ -460,6 +483,8 @@ class ColumnsTab(TemplateTab):
         return menu
 
     def add_rule(self, rule_type: str, settings: dict | None = None) -> Rule | None:
+        if self.no_checks:
+            return None
         c = self.col()
         rule = Rule(next_rule_id(self.rules), c.id, rule_type, dict(settings or {}), ERROR)
         if settings is None and rule_type in NEEDS_SETTINGS:
@@ -482,7 +507,7 @@ class ColumnsTab(TemplateTab):
     def edit_rule(self, row: int) -> None:
         rid = self.rules_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         rule = next((r for r in self.rules if r.id == rid), None)
-        if rule is None or rule.type not in NEEDS_SETTINGS:
+        if rule is None or rule.type not in NEEDS_SETTINGS or self.no_checks:
             return
         dlg = RuleDialog(rule, self.columns, self)
         self.dialog = dlg
@@ -492,6 +517,8 @@ class ColumnsTab(TemplateTab):
             self._fill_rules()
 
     def set_severity(self, rule_id: str, severity: str) -> None:
+        if self.no_checks:
+            return
         rules = self.all_rules()
         rule = next(r for r in rules if r.id == rule_id)
         if rule.automatic and not any(r.id == rule_id for r in self.rules):
@@ -501,13 +528,15 @@ class ColumnsTab(TemplateTab):
         self._changed(False)
 
     def remove_rule(self, rule_id: str) -> None:
+        if self.no_checks:
+            return
         self.rules = [r for r in self.rules if r.id != rule_id]
         self._changed()
         self._fill_rules()
 
     # ------------------------------------------------------------------------------------------ test (VR-8)
     def test_rules(self) -> None:
-        if self.latest is None:
+        if self.latest is None or self.no_checks:
             return
         columns = copy.deepcopy(self.columns)
         rules = self.all_rules()
