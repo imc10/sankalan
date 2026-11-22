@@ -48,8 +48,11 @@ STAGE_WRITE = "Writing files"
 STAGE_FINISH = "Finishing"
 PARTIAL, REPLACED = ".partial", ".replaced"
 
-DEST_SHORT = ("Not enough free space on {drive}. This export needs about {need}, including working space; {free} is "
-              "free. Free up space or choose a folder on another drive.")
+# EXP-13, T34: "including working space" only when the working files share the destination's drive (decision
+# 22-11-2026); on another drive they have their own message (TEMP_SHORT)
+DEST_SHORT = ("Not enough free space on {drive}. This export needs about {need}{working}; {free} is free. Free up "
+              "space or choose a folder on another drive.")
+WITH_WORKING = ", including working space"
 TEMP_SHORT = ("Not enough free space on {drive} for working files. This export needs about {need} there; {free} is "
               "free. Free up space on {drive}.")
 IN_USE = "{name} is open in another program. Close it, then export again."
@@ -213,10 +216,11 @@ def space_problem(est: Estimate, folder: Path, temp_dir: Path) -> str | None:
     if fd == td:
         need = dest_need + temp_need
         if free < need:
-            return DEST_SHORT.format(drive=fd, need=formats.size(need), free=formats.size(free))
+            return DEST_SHORT.format(drive=fd, need=formats.size(need), working=WITH_WORKING,
+                                     free=formats.size(free))
         return None
     if free < dest_need:
-        return DEST_SHORT.format(drive=fd, need=formats.size(dest_need), free=formats.size(free))
+        return DEST_SHORT.format(drive=fd, need=formats.size(dest_need), working="", free=formats.size(free))
     tfree = shutil.disk_usage(temp_dir).free
     if tfree < temp_need:
         return TEMP_SHORT.format(drive=td, need=formats.size(temp_need), free=formats.size(tfree))

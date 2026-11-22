@@ -644,8 +644,9 @@ def test_free_space_check(data_source, tmp_path, monkeypatch):
         "Not enough free space on T: for working files. This export needs about 4.0 GB there; 3.5 GB is free. "
         "Free up space on T:.")
     free["D:"] = 2 * GB
-    assert exporting.space_problem(est, tmp_path, temp).startswith(
-        "Not enough free space on D:. This export needs about 11.0 GB")
+    assert exporting.space_problem(est, tmp_path, temp) == (       # no working space on D: (decision 22-11-2026)
+        "Not enough free space on D:. This export needs about 11.0 GB; 2.0 GB is free. Free up space or choose a "
+        "folder on another drive.")
 
 
 @spec("EXP-13", "T34", "8.4")

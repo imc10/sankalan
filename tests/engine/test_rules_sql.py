@@ -35,15 +35,20 @@ def _q(v):
 
 @pytest.fixture
 def staged(storage):
+    return _stage(storage, ROWS)
+
+
+def _stage(storage, rows):
+    """A staged data.parquet holding ``rows`` (with FAILURES' text companions)."""
     st = storage.folder.new_staging()
     vals = ", ".join(f"({f}, {_q(s)}, {r}, {_q(a)}, {_q(b)}, {_q(c)}, {_q(d)}, {_q(e)})"
-                     for f, s, r, a, b, c, d, e in ROWS)
+                     for f, s, r, a, b, c, d, e in rows)
     text = {(f, r, c): v for f, _s, r, c, v in FAILURES}
 
     def t(f, r, c):
         return _q(text.get((f, r, c)))
     tv = ", ".join(f"({f}, {r}, {t(f, r, 'c002')}, {t(f, r, 'c003')}, {t(f, r, 'c004')})"
-                   for f, _s, r, *_x in ROWS)
+                   for f, _s, r, *_x in rows)
     storage.con.execute(f"""COPY (SELECT 'x' AS run_id, CAST(f AS INTEGER) AS _src_file, s AS _src_sheet,
         CAST(r AS BIGINT) AS _src_row, a AS c001, CAST(b AS DECIMAL(38,2)) AS c002, CAST(t2 AS VARCHAR) AS c002_t,
         CAST(c AS DECIMAL(38,0)) AS c003, CAST(t3 AS VARCHAR) AS c003_t, CAST(d AS DATE) AS c004,
@@ -120,12 +125,30 @@ def test_character_pattern(staged):
 def test_unique_multi_key_skips_blank_keys_and_names_first_occurrence_in_another_file(staged):
     got, rows = _fails(staged, Rule("r1", "c005", UNIQUE, {"columns": ["c003"]}),
                        Rule("r2", "c005", UNIQUE))
-    assert got["r1"] == [(0, 2), (1, 2)]               # P1 + 18 twice; null Rate/Party rows skipped
+    assert got["r1"] == [(0, 2), (1, 2)]               # P1 + 18 twice; the all-blank key row skipped
     assert got["r2"] == [(0, 2), (0, 3), (0, 6), (0, 7), (1, 2)]   # P1 three times, P3 twice
     by = {(x[0], x[2], x[4]): x for x in rows}
     assert by[(1, 2, "r1")][8] == "same Party + Rate as A.xlsx, S, row 2" and by[(1, 2, "r1")][7] == "P1 + 18"
     assert by[(0, 2, "r1")][8] == "same Party + Rate in 2 rows; this is the first"
     assert by[(0, 3, "r2")][8] == "same Party as row 2" and by[(1, 2, "r2")][9] is False
+
+
+@spec("VAL-9", "T17")
+def test_unique_skips_a_row_only_when_every_key_part_is_blank(storage):
+    """A key with some parts blank is still checked; blank parts count as equal. Only a row whose key parts are all
+    blank is skipped (decision 22-11-2026)."""
+    rows = [(0, "S", 2, "A", None, None, None, "P1"), (0, "S", 3, "A", None, None, None, None),
+            (0, "S", 4, "A", None, None, None, None), (0, "S", 5, None, None, None, None, None),
+            (0, "S", 6, None, None, None, None, None), (0, "S", 7, None, None, None, None, "P2"),
+            (1, "T", 2, None, None, None, None, "P2"), (1, "T", 3, "B", None, None, None, "P1")]
+    got, issues = _fails(_stage(storage, rows), Rule("r1", "c001", UNIQUE, {"columns": ["c005"]}),
+                         Rule("r2", "c005", UNIQUE))
+    assert got["r1"] == [(0, 3), (0, 4), (0, 7), (1, 2)]       # A + blank twice, blank + P2 twice; all blank skipped
+    assert got["r2"] == [(0, 2), (0, 7), (1, 2), (1, 3)]       # one key column: blank Party skipped, as before
+    by = {(x[0], x[2], x[4]): x for x in issues}
+    assert by[(0, 3, "r1")][7] == "A + " and by[(0, 7, "r1")][7] == " + P2"
+    assert by[(0, 4, "r1")][8] == "same Code + Party as row 3"
+    assert by[(1, 2, "r1")][8] == "same Code + Party as A.xlsx, S, row 7"
 
 
 @spec("MAP-11", "VR-8")

@@ -110,7 +110,7 @@ def test_disk_message_and_a_roomy_folder(win, qtbot, tpl_r_runs, tmp_path, monke
     dlg = open_export(qtbot, win, tpl_r_runs)
     choose(dlg, small)
     assert dlg.space.isVisible() and dlg.space.text() == (
-        "Not enough free space on X:. This export needs about 1.0 GB, including working space; 512 MB is free. "
+        "Not enough free space on X:. This export needs about 1.0 GB; 512 MB is free. "
         "Free up space or choose a folder on another drive.")
     assert not dlg.export_button.isEnabled() and not dlg.export()
     choose(dlg, roomy)

@@ -201,9 +201,10 @@ def _unique_sql(i: int, rule: Rule, plan: _Plan, file_names: dict[int, str]) -> 
     cols = [plan.columns[k] for k in keys]
     key_names = " + ".join(c.name for c in cols)
     parts = ", ".join(f"{_key_part(c)} AS k{n}" for n, c in enumerate(cols))
-    not_null = " AND ".join(f"k{n} IS NOT NULL" for n in range(len(cols)))
-    on = " AND ".join(f"d.k{n} = g.k{n}" for n in range(len(cols)))
-    value = " || ' + ' || ".join(f"d.k{n}" for n in range(len(cols)))
+    # VAL-9 (decision 22-11-2026): a row is skipped only when every key part is blank; blank parts are equal
+    not_null = " OR ".join(f"k{n} IS NOT NULL" for n in range(len(cols)))
+    on = " AND ".join(f"d.k{n} IS NOT DISTINCT FROM g.k{n}" for n in range(len(cols)))
+    value = " || ' + ' || ".join(f"coalesce(d.k{n}, '')" for n in range(len(cols)))
     whens = " ".join(f"WHEN {n} THEN {lit(name)}" for n, name in sorted(file_names.items()))
     file_name = f"(CASE g.m.f {whens} ELSE 'file ' || g.m.f END)" if whens else "('file ' || g.m.f)"
     first = "(d._src_file = g.m.f AND d._src_row = g.m.r)"

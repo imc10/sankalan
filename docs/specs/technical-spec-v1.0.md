@@ -249,7 +249,7 @@ Every rule becomes a SQL condition, and one scan of `data.parquet` marks which r
 | VAL-6 Allowed values | Text, Number | Text: equals a listed value ignoring case, spaces counting. Number: equal in value (18 = 18.00) | Skipped |
 | VAL-7 Text length | Text | Character count of the value as typed, spaces included: exactly, at least or at most N | Skipped |
 | VAL-8 Character pattern | Text | Same length as the pattern; `A` = letter A–Z of either case, `9` = digit, any other character matches exactly. Turned into a regular expression internally | Skipped |
-| VAL-9 Unique within the run | Any types, 1 or more key columns | No other row in the run has the same key; every row in a duplicate group is flagged, and the message names the first occurrence (T17) | Rows with a blank key column are skipped |
+| VAL-9 Unique within the run | Any types, 1 or more key columns | No other row in the run has the same key; every row in a duplicate group is flagged, and the message names the first occurrence (T17) | A row is skipped only when every key column is blank; blank key parts count as equal, so INV-1 with a blank GSTIN twice is a duplicate (**Changed** 22-11-2026) |
 
 **Text cells (Added 22-11-2026, A2; TXT-13).** For a Number or Date column `c` with companion `c_t` (Technical Spec A2 §5.4):
 
@@ -258,7 +258,7 @@ Every rule becomes a SQL condition, and one scan of `data.parquet` marks which r
 | Is a number, Is a date | Fails where `c_t IS NOT NULL`; the issue's value is `c_t`. The failures CTE is a `UNION ALL` over the typed columns reading `data.parquet` |
 | Number range, Date range, Allowed values | Unchanged: they test `c`, and the `c IS NOT NULL AND (…)` wrapper skips text like a blank, so a text cell gives exactly one issue (from the type rule) |
 | Not blank | Fails where `c IS NULL AND c_t IS NULL` |
-| Unique within the run | Key part per typed column `coalesce(CAST(c AS VARCHAR), c_t)`, so two "NA" cells are equal; blank keys are skipped as in VAL-9 above |
+| Unique within the run | Key part per typed column `coalesce(CAST(c AS VARCHAR), c_t)`, so two "NA" cells are equal; a row is skipped only when every key part is null, and the join uses `IS NOT DISTINCT FROM` so blank parts match (VAL-9 above) |
 | Text length, Character pattern | Unchanged (Text columns) |
 
 A template without checks runs no validation scan and writes no issues (T44).
@@ -506,7 +506,7 @@ Feature Spec v2.0 needs 21 updates to match this spec. Three of them change scre
 | RUN-12 | Rows left out broken down into blank rows, rows with errors, and later duplicates | T18 |
 | RUN-2 | Run IDs count up per template and are never reused | T22 |
 | DO-3 | No dates in the run → an empty result with "No dates in this run", not a failure | T21 |
-| VAL-6, VAL-8, VAL-9 | Allowed values ignores case and also applies to Number columns; pattern `A` matches either case; Unique within the run skips rows with a blank key and flags every row in a group | T16, T17 |
+| VAL-6, VAL-8, VAL-9 | Allowed values ignores case and also applies to Number columns; pattern `A` matches either case; Unique within the run skips rows whose key is blank in every key column (changed 22-11-2026; was: any blank key column) and flags every row in a group | T16, T17 |
 | ANA-4, ANA-6, ANA-7, ANA-1 | Contains ignores case; Count counts non-blank values; sorting with subtotals stays within each parent group; a removed column in a saved analysis is labelled "(removed)" | T23 |
 | TPL-5, UX-11 | Default data folder `%LOCALAPPDATA%\Sankalan\Data`; Change… refuses network paths and warns for OneDrive | T25 |
 | SEC-4 | Spill files in the user's temp folder; the run being staged in the data folder's `_staging` area; both deleted when the operation ends and at start-up | T9 |
@@ -518,6 +518,8 @@ Feature Spec v2.0 needs 21 updates to match this spec. Three of them change scre
 
 The catalogue backups (T10) are a new behaviour with no screen.
 
+**A2 (22-11-2026).** Feature Spec v2.0 has also been updated for A2: Feature Spec A2 §12.1 with the corrections in Technical Spec A2 §15.1 (26 items, plus new sections for SHT, TXT, NCK, MEA, ROW and EXP-8 to EXP-14, PERF-7 to PERF-14, D38 to D81). Those two tables are the list; they are not repeated here.
+
 ## Risks and open items
 
 The largest risk is the certificate: until it arrives, nothing can be tested on a laptop with Smart App Control on. Performance targets PERF-2 and PERF-5 are the least certain, because no benchmark was run.
@@ -525,9 +527,18 @@ The largest risk is the certificate: until it arrives, nothing can be tested on 
 | # | Risk or open item | Impact | Plan |
 | --- | --- | --- | --- |
 | R1 | Code-signing certificate not yet bought (RSA, OV, Ollyver Analytics Pvt Ltd) | Without it, DuckDB and calamine may be blocked on executives' laptops | Being arranged by Chetan. Development runs on a PC with Smart App Control off; release requires the Smart App Control test |
-| R2 | PERF-2: Excel reading speed is unmeasured | 10M rows from .xlsx may take longer than 5 minutes | Measure in the first build; the target is provisional |
-| R3 | PERF-5: about 1M groups across 120M rows with Count distinct and subtotals, under an 8 GB memory cap | Heavy spilling to disk; may miss 60 s | Release performance suite; it is reported, not blocking |
+| R2 | PERF-2: Excel reading speed is unmeasured | 10M rows from .xlsx may take longer than 5 minutes | Measure in the first build; the target is provisional. Still unmeasured: skipped in A2-6 (22-11-2026) |
+| R3 | PERF-5: about 1M groups across 120M rows with Count distinct and subtotals, under an 8 GB memory cap | Heavy spilling to disk; may miss 60 s | Release performance suite; it is reported, not blocking. **Happened:** 187 s on the dev PC (4 threads, 8 GB), accepted as measured 22-11-2026 (`tools/perf/RESULTS-A2.md`) |
 | R4 | One 10M-row CSV is read on a single core | Could approach the PERF-1 limit of 2 minutes | Measure in the first build |
 | R5 | python-calamine reports no hidden rows | Hidden rows would be loaded by mistake | A separate XML or record scan (T11), covered by tests with hidden rows in .xlsx, .xlsb and .xls |
 | R6 | Data folder inside a synced or network folder | Sync conflicts or damaged files | Default outside OneDrive; Change… refuses network paths and warns for OneDrive (T25) |
+| R7 | Stored order relied on DuckDB keeping row order in a scan (Feature Spec A2 R7) | Rows out of load order | **Retired** by T32: Convert sorts and every stored-order read adds `ORDER BY _src_file, _src_row` |
+| R8 | A Rows export needs one run's chunk (~2.4 GB) of working space on the temp drive, usually C:, even when exporting to another drive | Blocked exports on a full C: | T34 states it up front, with the drive named |
+| R9 | Splitter mistakes near a part boundary | A record cut across parts | Unit tests with planted values; per-chunk count check. AC-EXP-9a verified in Excel 22-11-2026 |
+| R10 | PERF-12 depends on disk write speed (~29 GB for 120M rows) | Missed on slow disks | Measured and reported (T4). Not measured in A2-6 (user's choice) |
+| R11 | A CSV whose text dates use another format than the template's loads every date as text instead of failing | Without checks, a whole Date column becomes text, with only a count to show it | Load and Commit counts (NCK-8, NCK-9) and the wizard's type note |
+| R12 | One Choose sheets dialog per file when a client renames sheets in all of a month's files | Many dialogs per run | Accepted (D65); the run-level rule is deferred |
+| R13 | The Convert sort (T32) and text companions add time to every load | PERF-1 / PERF-2 slower | Before/after not measured (skipped 22-11-2026). PERF-14 (the same load without checks) took 386 s against 120 s on the dev PC, accepted as measured |
+| R14 | Probe reads every Excel sheet's dimension, not only the target sheets | Slightly slower Probe on workbooks with many large sheets | Dimension only, no header scan. Before/after not measured (skipped 22-11-2026) |
+| R15 | Old (version-1) dev data folders can't be opened (T40) | Manual re-setup on the dev PC | By decision; the start-up message says what to do |
 | O12 | The customer has not confirmed that client data may be kept on the laptop unencrypted (SEC-3) | Could require encryption, which is out of scope today | Open, carried over from Feature Spec v2.0 |

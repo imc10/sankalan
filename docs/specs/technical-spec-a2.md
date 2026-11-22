@@ -239,7 +239,7 @@ Applies only to templates with checks.
 | Is a number, Is a date | Fails where `c_t IS NOT NULL`. The issue's value is `c_t`. The `fl` CTE becomes a `UNION ALL` over the typed columns of `SELECT _src_file, _src_sheet, _src_row, '<cid>' AS column_id, <cid>_t AS value FROM data WHERE <cid>_t IS NOT NULL` |
 | Number range, Date range, Allowed values | Unchanged: they test `c`, and the existing `c IS NOT NULL AND (…)` wrapper skips text like a blank, so a text cell gives exactly one issue (from the type rule) |
 | Not blank | Fails where `c IS NULL AND c_t IS NULL`. The `_bad` list (`fr`, `dd` CTEs) is no longer needed and is removed |
-| Unique within the run | Key part per typed column: `coalesce(CAST(c AS VARCHAR), c_t)`, so two "NA" cells are equal. A row is skipped only when every key part is null, as today |
+| Unique within the run | Key part per typed column: `coalesce(CAST(c AS VARCHAR), c_t)`, so two "NA" cells are equal. A row is skipped only when every key part is null; blank parts match (`IS NOT DISTINCT FROM`). Confirmed by the user 22-11-2026 (the code had skipped a row with any blank part) |
 | Text length, Character pattern | Unchanged (Text columns) |
 
 The new-template dry run (`newtemplate.dry_run`) and Test rules on latest run (`scan.test_rules_on_run`) read
@@ -574,7 +574,7 @@ opens. The dialog shows "Checking size…" and keeps Export disabled until it re
 - **Free.** `shutil.disk_usage` of the folder and of `%TEMP%\Sankalan`. It is read again on the UI thread (no Job)
   when the folder changes, and once more at step 1.
 - **Messages.**
-  - Destination short: Feature Spec A2's EXP-13 wording.
+  - Destination short: Feature Spec A2's EXP-13 wording. "including working space" only when the temp folder is on the same drive (its need is counted there); on another drive the message omits it (decided 22-11-2026).
   - Temp drive short: "Not enough free space on C: for working files. This export needs about 2.6 GB there; 1.1 GB
     is free. Free up space on C:."
 

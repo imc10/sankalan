@@ -231,7 +231,7 @@ Users attach rules to each template column, picking from 9 predefined single-col
 | VAL-6 | Allowed values | List of values, e.g. B2B / B2C / Export |
 | VAL-7 | Text length | Exact, min or max characters |
 | VAL-8 | Character pattern | A = letter, 9 = digit, other characters literal, e.g. AAAAA9999A |
-| VAL-9 | Unique within the run | One or more key columns, e.g. GSTIN + Invoice No |
+| VAL-9 | Unique within the run | One or more key columns, e.g. GSTIN + Invoice No. **Changed** 22-11-2026: a row is skipped only when every key column is blank; blank parts count as equal |
 
 **Changed** 22-11-2026 (A2): text kept in a Number or Date cell (TXT-1) fails only Is a number or Is a date, so it gives one issue; Number range, Date range and Allowed values skip it like a blank; Not blank passes; Unique within the run compares the value shown, so two "NA" cells are equal (TXT-13). A template without checks runs no rules (VR-9).
 
@@ -362,7 +362,7 @@ Files are written only when the user asks, and every export is a CSV file.
 | EXP-10 | Names and folder | In the chosen folder, \<name>\_part01of03.csv; both numbers zero-padded to the same width, at least 2 digits (\_part001of120). The overwrite confirmation lists every file to be replaced; other files in the folder, including parts of an earlier export, are never touched |
 | EXP-11 | Progress | In the dialog that started it: stage ("Reading rows", "Writing files"), rows written of N, "part K of M", elapsed time, Cancel |
 | EXP-12 | Row order | Parts follow the export's own order, cut every 1,000,000 rows. Analysis results and default outputs are cut in on-screen order: the grand total is the **last row of the export, so of the last part when split** (T38); subtotal rows stay next to their group's rows, so a group can run across two parts |
-| EXP-13 | Disk space | When the dialog opens it estimates the export's size and checks free space on two drives (T34): the destination needs the whole export plus a margin; the temp drive needs working space for the largest chunk plus a margin, also for a single file; on one drive the needs add up. When either is short, Export is disabled with a message naming the drive and both sizes, with its own wording for the temp drive ("…for working files…"). Checked again when the folder changes and when the export starts |
+| EXP-13 | Disk space | When the dialog opens it estimates the export's size and checks free space on two drives (T34): the destination needs the whole export plus a margin; the temp drive needs working space for the largest chunk plus a margin, also for a single file; on one drive the needs add up. When either is short, Export is disabled with a message naming the drive and both sizes, with its own wording for the temp drive ("…for working files…"); the destination message says "including working space" only when both are on one drive (22-11-2026). Checked again when the folder changes and when the export starts |
 | EXP-14 | Cancel, failure, done | Cancel deletes every part and working file written so far; files the export would have replaced are left as they were. A failure (disk full, folder removed, a file to replace open in another program) does the same and says what happened (UI-6). When done: "Exported 2,341,118 rows to 3 files" with Open folder |
 
 Not included: splitting by a column's values, choosing the part size, turning splitting off, zipping the parts, exporting only some parts.
@@ -502,7 +502,7 @@ D8–D19 were settled in the feature brainstorm and D20–D37 in the UX discussi
 | D37 | 16-11-2026 | Rule changes in a run apply to that run only unless saved to the template | TPL-8, VR-5 |
 | D36 | 16-11-2026 | Template version kept internal; column descriptions deferred to V3 | TPL-7, V3-3 |
 | D35 | 16-11-2026 | Mapping: no Required flag; a missing column is picked or left as null; an extra column is left out or added to the template; every decision is made before Validate | MAP-6, MAP-7, MAP-13 |
-| D34 | 16-11-2026 | Input: files only, .xlsx, .xlsm and .csv; header found automatically with no override; no trailer rules; several sheets per file; password-protected files are errors; a file in error can be excluded from the run | IN |
+| D34 | 16-11-2026 | Input: files only, .xlsx, .xlsm and .csv; header found automatically with no override; no trailer rules; several sheets per file; password-protected files are errors; a file in error can be excluded from the run. **Changed** 20-11-2026 by D81: .xlsb and .xls are read too (IN-3) | IN |
 | D33 | 16-11-2026 | Saved analyses lock their settings; only the runs change, none ticked; Duplicate to edit; the run list shows Run ID and file names | ANA-1, ANA-3 |
 | D32 | 16-11-2026 | Analysis result is a flat table with optional subtotals; calendar-year date grouping; first 100,000 rows on screen; distinct-value lists for text filters | ANA-4, ANA-5, ANA-7 |
 | D31 | 16-11-2026 | Every export is a CSV file | EXP-2 |

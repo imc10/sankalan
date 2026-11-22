@@ -70,6 +70,8 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | A2 perf machine (plan A2-O3) | Dev PC with DuckDB pinned to 4 threads and 8 GB memory limit, 3 reader workers; the 16 GB 4-core laptop run stays a manual release step (T4) | Confirmed 21-11-2026 | A2-6 |
 | A2 pre-A2 comparison point (plan A2-O4) | Temporary git worktree at `25f4d98` for the PERF-1/PERF-2 and Probe before/after (R13, R14) | Confirmed 21-11-2026 | A2-6 |
 | A2 PERF misses (plan A2-6 step 5) | PERF-5 (187 s against 60 s) and PERF-14 (386 s against 120 s) on the dev PC (`tools/perf/RESULTS-A2.md`) are **accepted as measured**; no tuning. PERF-12, PERF-1, PERF-2 and the pre-A2 comparison (R13, R14) were skipped by the user and stay unmeasured; the release laptop run (T4) stays a manual step | Confirmed 22-11-2026 | A2-6 |
+| Unique within the run, blank keys (VAL-9; Tech spec A2 5.4 vs v1.0 T17) | A row is skipped only when **every** key column is blank; blank key parts count as equal (`IS NOT DISTINCT FROM`). Code changed: `query/validate.py` `_unique_sql` (it skipped a row with any blank part). Single-column keys behave as before, so no expected figure changes | Confirmed 22-11-2026 | A2-6 follow-up |
+| EXP-13 destination message | "including working space" only when the temp folder is on the destination's drive (its need is counted there); on another drive the message omits it (`exporting.DEST_SHORT`, `WITH_WORKING`) | Confirmed 22-11-2026 | A2-6 follow-up |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -89,7 +91,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 - (Found in A2-2, not fixed) The New run wizard's minimum height is 691 px (> 640, FIT-04) whenever Mapping is
   skipped: the stacked pages' hint is the tallest page's, and a Mapping page that was never loaded shows every
   decision control (463 px). Checked runs are affected the same way; `test_new_run`'s fit test loads Mapping first so
-  it doesn't see it. Fix in Phase 12 or A2-6 (hide the decision panel until a mapping is loaded, or size the stack
+  it doesn't see it. Fix in Phase 12, agreed 22-11-2026 (hide the decision panel until a mapping is loaded, or size the stack
   by its current page).
 - (A2-2) Time budgets were measured on AC power. On battery (Balanced plan) the same code runs about 25% slower and
   files go over their budgets (seen 21-11-2026 on the A2-1 commit too): run the deciding suite on AC power.
@@ -155,8 +157,28 @@ Newest first. One entry per session: date, phase, what was done, deviations from
 - **Not verified:** the release laptop run (T4); PERF-12, PERF-1, PERF-2 and the R13 / R14 before/after; 125% / 150%
   scaling; the app by hand; real Explorer and drag and drop; the live docs.
 - **Decision (user, 22-11-2026):** PERF-5 and PERF-14 accepted as measured, no tuning (Decisions).
-- **Next:** A2 is complete. Open: the two spec points above (Unique blank keys, EXP-13 wording), the live docs, and
-  Phase 12 (hardening, laptop run). Merging `Feature-Updates` into `main` only when the user asks.
+- **Follow-up (same day, user's answers):**
+  - Doc point 1 decided: a Unique row is skipped only when every key column is blank (Decisions). Code changed in
+    `query/validate.py` with a new test, `test_rules_sql.py::test_unique_skips_a_row_only_when_every_key_part_is_blank`
+    (it failed on the old code). Specs updated: v1.0 VAL-9, the text-cell rules row and "Feature spec changes";
+    Tech spec A2 5.4; Feature Spec v2.0 VAL-9.
+  - Doc point 2 decided: "including working space" only on one drive (Decisions); `exporting.py`, `test_export.py`,
+    `test_export_dialog.py`, A2-EXP-13, Feature Spec A2 EXP-13, Tech spec A2 8.4 and Feature Spec v2.0 EXP-13.
+  - Doc point 5 (test-case setup choices) confirmed by the user as written.
+  - Doc point 4 small fixes done: D34 "Changed by D81"; Tech spec v1.0 "Feature spec changes" A2 note and Risks
+    (R2, R3 outcome, R7 retired, R8–R15 added); Feature Spec A2 AC-ROW-9a corrected and R7 marked retired.
+  - Live docs: `docs/plans/live-docs-update.md` is the instruction file for an agent to update them (not done yet;
+    the Technical Spec A2 live link isn't recorded in the repository).
+  - The New run wizard height issue (Known issues) stays for Phase 12, as agreed.
+  - **Suite for this follow-up: not run in full, at the user's request.** The laptop was on battery and two runs
+    stopped on time budgets (`gui/test_analysis.py` 25.8 s against 23 s, `gui/test_clients.py` 5.8 s against 5 s;
+    neither file touched), with every test that ran passing (295 and 308). The files the changes touch passed on
+    their own: `engine/test_rules_sql.py`, `test_validation.py`, `test_text_values.py`, `test_export.py`,
+    `gui/test_export_dialog.py`. **Run the full suite on AC power at the start of the next session.**
+  - Perf data in `C:\SankalanPerf` (7.6 GB): the safety check stopped Claude from deleting a top-level folder on C:;
+    the user deletes it.
+- **Next:** A2 is complete. Open: updating the live docs (`docs/plans/live-docs-update.md`) and Phase 12 (hardening,
+  laptop run). Merging `Feature-Updates` into `main` only when the user asks.
 
 ### 22-11-2026 — A2-5: Feature A (Rows view), engine and UI
 - **Model** (`model/rowspec.py`, Tech spec A2 10.1): `RowSpec(template_id, filters, columns, show_source)` (memory

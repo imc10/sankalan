@@ -2631,7 +2631,7 @@ One case per acceptance criterion of Feature Spec A2 §10 (the Spec field names 
     2. Read the message above the buttons.
     3. Change… to C:\SankalanTest\Out.
 
-- **Expected:** Steps 1–2: Export is disabled and the message reads "Not enough free space on V:. This export needs about X GB, including working space; Y GB is free. Free up space or choose a folder on another drive.", with both sizes. Step 3: the check runs again and Export is enabled.
+- **Expected:** Steps 1–2: Export is disabled and the message reads "Not enough free space on V:. This export needs about X GB; Y GB is free. Free up space or choose a folder on another drive." (no "including working space": the working files are on C:, decided 22-11-2026), with both sizes. Step 3: the check runs again and Export is enabled.
 
 ### A2-EXP-13b — Not enough free space for working files
 
