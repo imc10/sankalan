@@ -1,0 +1,250 @@
+{
+ "machine": {
+  "python": "3.13.17",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "cpu": "13th Gen Intel(R) Core(TM) i5-1340P",
+  "cores": 12,
+  "logical": 16,
+  "ram_gb": 13.7,
+  "disk": "SAMSUNG MZAL4512HBLU-00BL2 (SSD, NVMe)"
+ },
+ "settings": {
+  "threads": 4,
+  "memory_limit": "8GB",
+  "workers": 3,
+  "warmup": 1,
+  "reps": 3
+ },
+ "date": "22-11-2026 10:41",
+ "results": {
+  "PERF-7": {
+   "operation": "Rows view Run on 1 run (10M), 2 filters: count + first 100,000",
+   "target_s": 5,
+   "median_s": 1.295131399994716,
+   "min_s": 1.1851166000124067,
+   "max_s": 1.3840467000263743,
+   "samples_s": [
+    1.1851166000124067,
+    1.295131399994716,
+    1.3840467000263743
+   ],
+   "matches": 1299804,
+   "searched": 10000000,
+   "held": 100000,
+   "count_only_s": 0.08506979997036979,
+   "met": true
+  },
+  "PERF-8": {
+   "operation": "The same across 12 runs",
+   "target_s": 30,
+   "median_s": 3.0767976999632083,
+   "min_s": 3.060776700032875,
+   "max_s": 3.5746723000193015,
+   "samples_s": [
+    3.5746723000193015,
+    3.0767976999632083,
+    3.060776700032875
+   ],
+   "matches": 15597648,
+   "searched": 120000000,
+   "held": 100000,
+   "count_only_s": 1.311742999998387,
+   "met": true
+  },
+  "PERF-9": {
+   "operation": "Next page of 200 rows from the Rows table",
+   "target_s": 0.1,
+   "median_s": 0.019854700018186122,
+   "min_s": 0.019535400031600147,
+   "max_s": 0.021359600010327995,
+   "samples_s": [
+    0.021359600010327995,
+    0.019854700018186122,
+    0.019535400031600147
+   ],
+   "met": true
+  },
+  "PERF-10 untick": {
+   "operation": "Tick, untick or reorder a column (grid redraw, offscreen)",
+   "target_s": 0.2,
+   "median_s": 0.01818509999429807,
+   "min_s": 0.01783580001210794,
+   "max_s": 0.01914220000617206,
+   "samples_s": [
+    0.01818509999429807,
+    0.01783580001210794,
+    0.01914220000617206
+   ],
+   "met": true
+  },
+  "PERF-10 tick": {
+   "operation": "Tick, untick or reorder a column (grid redraw, offscreen)",
+   "target_s": 0.2,
+   "median_s": 0.01382340001873672,
+   "min_s": 0.013690899999346584,
+   "max_s": 0.013840000028721988,
+   "samples_s": [
+    0.013840000028721988,
+    0.01382340001873672,
+    0.013690899999346584
+   ],
+   "met": true
+  },
+  "PERF-10 reorder": {
+   "operation": "Tick, untick or reorder a column (grid redraw, offscreen)",
+   "target_s": 0.2,
+   "median_s": 0.012806600017938763,
+   "min_s": 0.012537600006908178,
+   "max_s": 0.01294320001034066,
+   "samples_s": [
+    0.012537600006908178,
+    0.012806600017938763,
+    0.01294320001034066
+   ],
+   "met": true
+  },
+  "PERF-13 run data": {
+   "operation": "Export dialog estimate (run data; Rows view with its counts)",
+   "target_s": 2,
+   "median_s": 0.09458929998800159,
+   "min_s": 0.09026260004611686,
+   "max_s": 0.09506739996140823,
+   "samples_s": [
+    0.09026260004611686,
+    0.09506739996140823,
+    0.09458929998800159
+   ],
+   "bytes": 2248936400,
+   "met": true
+  },
+  "PERF-13 rows view": {
+   "operation": "Export dialog estimate (run data; Rows view with its counts)",
+   "target_s": 2,
+   "median_s": 0.14197120000608265,
+   "min_s": 0.13853880000533536,
+   "max_s": 0.14520600001560524,
+   "samples_s": [
+    0.14520600001560524,
+    0.14197120000608265,
+    0.13853880000533536
+   ],
+   "rows": 15597648,
+   "met": true
+  },
+  "PERF-11": {
+   "operation": "Export 10M rows, 20 columns, UTF-8 with BOM, 10 parts",
+   "target_s": 60,
+   "median_s": 31.59316819999367,
+   "min_s": 28.54953070002375,
+   "max_s": 41.70451760001015,
+   "samples_s": [
+    28.54953070002375,
+    31.59316819999367,
+    41.70451760001015
+   ],
+   "parts": 10,
+   "bytes": 2146317709,
+   "met": true
+  },
+  "AC-EXP-9a": {
+   "verified": true,
+   "rows": 1999698,
+   "parts": 2,
+   "excel": "16.0",
+   "files": [
+    {
+     "path": "C:\\SankalanPerf\\out\\exp9a\\Perf_Rows_part01of02.csv",
+     "expected": 1000001,
+     "excel_rows": 1000001,
+     "ok": true,
+     "seconds": 22.8
+    },
+    {
+     "path": "C:\\SankalanPerf\\out\\exp9a\\Perf_Rows_part02of02.csv",
+     "expected": 999699,
+     "excel_rows": 999699,
+     "ok": true,
+     "seconds": 21.8
+    }
+   ]
+  },
+  "PERF-3": {
+   "operation": "Analysis on 1 run",
+   "target_s": 3,
+   "median_s": 0.5274206000030972,
+   "min_s": 0.5242346000159159,
+   "max_s": 0.5489446999854408,
+   "samples_s": [
+    0.5242346000159159,
+    0.5274206000030972,
+    0.5489446999854408
+   ],
+   "rows": 43,
+   "input_rows": 10000000,
+   "met": true
+  },
+  "PERF-4": {
+   "operation": "Same analysis across 12 runs",
+   "target_s": 15,
+   "median_s": 8.018267899984494,
+   "min_s": 7.752451799984556,
+   "max_s": 9.042713900038507,
+   "samples_s": [
+    9.042713900038507,
+    7.752451799984556,
+    8.018267899984494
+   ],
+   "rows": 219,
+   "input_rows": 120000000,
+   "met": true
+  },
+  "PERF-5": {
+   "operation": "~1M groups across 12 runs",
+   "target_s": 60,
+   "median_s": 187.33804239996243,
+   "min_s": 172.21524460002547,
+   "max_s": 220.6922562000109,
+   "samples_s": [
+    172.21524460002547,
+    187.33804239996243,
+    220.6922562000109
+   ],
+   "rows": 990006,
+   "input_rows": 120000000,
+   "met": false
+  },
+  "PERF-6": {
+   "operation": "Export a ~1M-row result",
+   "target_s": 5,
+   "median_s": 0.783296000037808,
+   "min_s": 0.7680607999791391,
+   "max_s": 0.8143437000107951,
+   "samples_s": [
+    0.8143437000107951,
+    0.7680607999791391,
+    0.783296000037808
+   ],
+   "rows": 990006,
+   "parts": 1,
+   "met": true
+  },
+  "PERF-14": {
+   "operation": "Load step without checks: 10M-row CSV including text counts",
+   "target_s": 120,
+   "median_s": 385.8976298000198,
+   "min_s": 219.97497049998492,
+   "max_s": 404.945699999982,
+   "samples_s": [
+    404.945699999982,
+    385.8976298000198,
+    219.97497049998492
+   ],
+   "probe_s": 2.89720429998124,
+   "text_counts": {
+    "c002": 306,
+    "c006": 1510
+   },
+   "met": false
+  }
+ }
+}

@@ -70,6 +70,8 @@ BUDGETS = {
     "tests/engine/test_stored_order.py": 300,          # measured 198 s; 209 s with A2-3's export; 252 s with A2-5's Rows view
     "tests/engine/test_export_big.py": 10,             # A2-3: measured 2 s
     "tests/engine/test_unchecked_full.py": 30,         # A2-2: measured 16 s on battery (generation not counted)
+    # perf tier (`pytest -m perf tests/perf`, A2-6 and release only): needs tools/perf/build_a2_data.py data
+    "tests/perf/test_a2_perf.py": 5400,
 }
 
 # Build-only tests (SANKALAN_BUILD_TESTS=1: PyInstaller build, packaged self-test, installer compile, ~2¼ min).
