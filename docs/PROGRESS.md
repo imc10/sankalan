@@ -24,7 +24,7 @@ The hand-over file between build sessions. Read it at the start of every session
 | A2-3 | A2-3 — Export in parts (C): engine and dialogs | Done | `Feature-Updates` (A2-3 commit) | All 7 steps. Full-size split test lives in `test_stored_order.py` (reuses its committed runs) |
 | A2-4 | A2-4 — Measures by column (B): engine and UI | Done | `Feature-Updates` (A2-4 commit) | All 9 steps (engine and UI). AC-MEA-10 test in `test_text_values.py` (reuses its committed TPL-R runs) |
 | A2-5 | A2-5 — Rows view (A): engine and UI | Done | `Feature-Updates` (A2-5 commit) | All 7 steps. Full-size Rows test lives in `test_stored_order.py` (reuses its committed runs). Every feature is now built |
-| A2-6 | A2-6 — Docs, full-size checks, performance suite | Blocked: awaiting decision on PERF misses | `Feature-Updates` (A2-6 commit) | Docs, full-size `slow` and AC-EXP-9a (Excel) done. PERF-5 and PERF-14 missed (`tools/perf/RESULTS-A2.md`); PERF-12, PERF-1, PERF-2 and the pre-A2 comparison skipped by the user |
+| A2-6 | A2-6 — Docs, full-size checks, performance suite | Done | `Feature-Updates` (A2-6 commits) | Docs, full-size `slow` and AC-EXP-9a (Excel) done. PERF-5 and PERF-14 missed and accepted as measured (Decisions); PERF-12, PERF-1, PERF-2 and the pre-A2 comparison skipped by the user. A2 complete |
 
 Status values: Not started · In progress · Done · Blocked (say why).
 
@@ -69,6 +69,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 | A2 perf test-case IDs (plan A2-O2) | `A2-PERF-07`…`A2-PERF-14` in `test-cases.md` (v2.0 already uses PERF-07/PERF-08), feature ID in the Spec column | Confirmed 21-11-2026 | A2-6 |
 | A2 perf machine (plan A2-O3) | Dev PC with DuckDB pinned to 4 threads and 8 GB memory limit, 3 reader workers; the 16 GB 4-core laptop run stays a manual release step (T4) | Confirmed 21-11-2026 | A2-6 |
 | A2 pre-A2 comparison point (plan A2-O4) | Temporary git worktree at `25f4d98` for the PERF-1/PERF-2 and Probe before/after (R13, R14) | Confirmed 21-11-2026 | A2-6 |
+| A2 PERF misses (plan A2-6 step 5) | PERF-5 (187 s against 60 s) and PERF-14 (386 s against 120 s) on the dev PC (`tools/perf/RESULTS-A2.md`) are **accepted as measured**; no tuning. PERF-12, PERF-1, PERF-2 and the pre-A2 comparison (R13, R14) were skipped by the user and stay unmeasured; the release laptop run (T4) stays a manual step | Confirmed 22-11-2026 | A2-6 |
 | Number text beyond the Tech spec list (spike S5) | Tech spec forms (`₹`, spaces, `,` grouping, `(x)`, leading minus) **plus `Rs.`/`Rs`/`INR`** (any case, before the number). Refused as "not a number": `1e3`, `12%`, trailing minus `500-`, leading plus `+500` | Confirmed 17-11-2026 | Phase 2 |
 
 ## Known issues carried in
@@ -97,7 +98,7 @@ before the phase that relies on them; mark them **Confirmed** with the date when
 
 Newest first. One entry per session: date, phase, what was done, deviations from the plan, what's next.
 
-### 22-11-2026 — A2-6: Docs, full-size checks, performance (status: Blocked, awaiting the PERF decision)
+### 22-11-2026 — A2-6: Docs, full-size checks, performance (Done; PERF misses accepted as measured, see Decisions)
 - **Spec edits (step 1):** the list in `docs/plans/a2-6-spec-edits.md` was approved by the user ("Approve as listed")
   and applied:
   - `docs/specs/test-cases.md`: 82 A2 cases in a new section "Test cases A2 (Feature-Updates)":
@@ -153,8 +154,9 @@ Newest first. One entry per session: date, phase, what was done, deviations from
   13 updated cases. Feature Spec A2 §10 should say the test cases are now in the main sheet.
 - **Not verified:** the release laptop run (T4); PERF-12, PERF-1, PERF-2 and the R13 / R14 before/after; 125% / 150%
   scaling; the app by hand; real Explorer and drag and drop; the live docs.
-- **Next:** the user decides on PERF-5 and PERF-14 (accept as measured, or diagnose and tune in a follow-up). Record
-  the decision under Decisions, then mark A2-6 Done. Merging `Feature-Updates` into `main` only when the user asks.
+- **Decision (user, 22-11-2026):** PERF-5 and PERF-14 accepted as measured, no tuning (Decisions).
+- **Next:** A2 is complete. Open: the two spec points above (Unique blank keys, EXP-13 wording), the live docs, and
+  Phase 12 (hardening, laptop run). Merging `Feature-Updates` into `main` only when the user asks.
 
 ### 22-11-2026 — A2-5: Feature A (Rows view), engine and UI
 - **Model** (`model/rowspec.py`, Tech spec A2 10.1): `RowSpec(template_id, filters, columns, show_source)` (memory

@@ -3,7 +3,7 @@
 22-11-2026, phase A2-6 (plan `docs/plans/a2-implementation-plan.md`, step 4–5). Raw figures:
 `tools/perf/_results/a2_perf.json`; tables from `python tools\perf\report_a2.py`.
 
-**Status: two targets missed (PERF-5, PERF-14). Waiting for the user's decision; nothing has been tuned.**
+**Status: two targets missed (PERF-5, PERF-14), accepted as measured by the user on 22-11-2026; nothing tuned.**
 
 ## Machine and settings
 
